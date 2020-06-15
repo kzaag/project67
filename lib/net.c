@@ -23,7 +23,6 @@
 #include "sfd.h"
 #include "log.h"
 
-#define ROOT_CA_FILE "chain.pem"
 #define CIPHER "ECDHE-ECDSA-AES256-GCM-SHA384"
 #define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
 
@@ -55,8 +54,8 @@ p67_err
 p67_conn_assign_peer_host(
                 p67_conn_t * conn, 
                 SSL * ssl, 
-                char * host, 
-                char * svc);
+                const char * host, 
+                const char * svc);
 
 void *
 listen_handle(void * args);
@@ -118,7 +117,7 @@ p67_conn_assign_peer_addr(p67_conn_t * conn, SSL * ssl, struct sockaddr * addr, 
     Method is not thread safe.
 */
 p67_err
-p67_conn_assign_peer_host(p67_conn_t * conn, SSL * ssl, char * host, char * svc)
+p67_conn_assign_peer_host(p67_conn_t * conn, SSL * ssl, const char * host, const char * svc)
 {
     p67_err err;
 
@@ -219,7 +218,11 @@ end:
     Method is thread safe. 
 */
 p67_err
-p67_conn_connect(p67_conn_t * conn, char * hostname, char * service)
+p67_conn_connect(
+            p67_conn_t * conn, 
+            const char * hostname, 
+            const char * service,
+            const char * accepted_chain)
 {
     SSL * ssl;
     X509 * cert;
@@ -253,7 +256,7 @@ p67_conn_connect(p67_conn_t * conn, char * hostname, char * service)
     SSL_CTX_set_verify_depth(ssl_ctx, 4);
     SSL_CTX_set_read_ahead(ssl_ctx, 1);
 
-    if(SSL_CTX_load_verify_locations(ssl_ctx, ROOT_CA_FILE, NULL) != 1) 
+    if(SSL_CTX_load_verify_locations(ssl_ctx, accepted_chain, NULL) != 1) 
         goto end;
 
     /**/

@@ -27,8 +27,9 @@ p67_conn_read(p67_conn_t * conn);
 p67_err
 p67_conn_connect(
             p67_conn_t * conn, 
-            char * host, 
-            char * service);
+            const char * hostname, 
+            const char * service,
+            const char * accepted_chain);
 
 p67_err
 p67_conn_listen(

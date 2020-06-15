@@ -1,9 +1,7 @@
-#include "net.h"
-#include "sfd.h"
+#include "../lib/net.h"
 
 #include <stdio.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 
 int
 main(void)
@@ -17,12 +15,14 @@ main(void)
         return 1;
     }
 
-    if((err = p67_conn_connect(conn, "aimat.pl", "443")) != 0) {
+    if((err = p67_conn_connect(conn, "aimat.pl", "443", "chain.pem")) != 0) {
+        p67_conn_free(conn);
         p67_err_print_err(err);
         return 1;
     }
         
     if((err = p67_conn_shutdown(conn)) != 0) {
+        p67_conn_free(conn);
         p67_err_print_err(err);
         return 1;
     }

@@ -1,8 +1,22 @@
+# build everything into <project_dir>/bin directory
+
 set -e;
 
-FILES="net.c main.c err.c sfd.c hash.c";
+WD=`realpath $0 | xargs dirname`/
 
-DEBUG="-D DEBUG";
+FP="$WD/lib"
+
+FILES=`find $FP -name "*.c"`;
+
+rm -fr $WD/bin
+mkdir $WD/bin
+
+DEBUG="-D DEBUG -g";
+
+# build so
+
+LIB=$WD/bin/libp67.so
+EXE=$WD/bin/p67test
 
 gcc \
     -std=c99 \
@@ -18,4 +32,19 @@ gcc \
     `pkg-config --libs openssl` \
     $FILES \
     $DEBUG \
-    -o p67;
+    -shared -o $LIB -fPIC;
+
+# install library
+
+sudo cp $LIB /usr/local/lib/;
+
+sudo ldconfig;
+
+# build executable
+
+FP="$WD/test"
+FILES=`find $FP -name "*.c"`;
+
+gcc $FILES $DEBUG -std=c99 -lp67 -o $EXE;
+
+bash $WD/devcert.sh $WD;
