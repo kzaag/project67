@@ -11,7 +11,7 @@ FILES=`find $FP -name "*.c"`;
 rm -fr $WD/bin
 mkdir $WD/bin
 
-DEBUG="-D DEBUG -g";
+DEBUG="-D DEBUG -g -fsanitize=address";
 
 # build so
 
@@ -38,6 +38,10 @@ gcc \
 
 sudo cp $LIB /usr/local/lib/;
 
+sudo mkdir -p /usr/include/p67;
+
+sudo cp $FP/*.h /usr/include/p67;
+
 sudo ldconfig;
 
 # build executable
@@ -45,6 +49,6 @@ sudo ldconfig;
 FP="$WD/test"
 FILES=`find $FP -name "*.c"`;
 
-gcc $FILES $DEBUG -std=c99 -lp67 -o $EXE;
-
+gcc $FILES $DEBUG -std=c99 -lp67 -o $EXE -W -g;
+    
 bash $WD/devcert.sh $WD;

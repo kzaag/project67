@@ -1,7 +1,8 @@
 #if !defined(SFD_H)
 #define SFD_H 1
 
-#include "net.h"
+#include "err.h"
+
 #if !defined(__USE_XOPEN2K)
 #define __USE_XOPEN2K
 #endif
@@ -39,5 +40,8 @@ p67_sfd_set_reuseaddr(int sfd);
 
 p67_err
 p67_sfd_set_keepalive(int sfd);
+
+p67_err
+p67_sfd_get_err(int sfd);
 
 #endif

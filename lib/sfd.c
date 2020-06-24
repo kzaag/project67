@@ -83,6 +83,18 @@ p67_sfd_listen(int sfd)
 }
 
 p67_err
+p67_sfd_get_err(int sfd)
+{
+    int serr;
+    socklen_t serrl = sizeof(serr);
+    if(getsockopt(sfd, SOL_SOCKET, SO_ERROR, &serr, &serrl) != 0)
+        return p67_err_einval;
+    if(serr != 0)
+        return p67_err_einval;
+    return serr;
+}
+
+p67_err
 p67_sfd_connect(int sfd, struct sockaddr * addr, socklen_t len)
 {
     if(connect(sfd, addr, len) != 0) {
@@ -124,6 +136,7 @@ p67_sfd_create_from_hint(int * sfd, const char * hostname, const char * service,
         if(flags == 1) {
             if(bind(*sfd, cp->ai_addr, cp->ai_addrlen) != 0) {
                 close(*sfd);
+                *sfd = 0;
                 continue;
             }
         }
@@ -131,6 +144,7 @@ p67_sfd_create_from_hint(int * sfd, const char * hostname, const char * service,
         if(flags == 2) {
             if(connect(*sfd, cp->ai_addr, cp->ai_addrlen) != 0) {
                 close(*sfd);
+                *sfd = 0;
                 continue;
             }
         }

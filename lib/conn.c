@@ -1,9 +1,5 @@
 #include <fcntl.h>
 #include <unistd.h>
-#if !defined(__USE_XOPEN_EXTENDED)
-#define __USE_XOPEN_EXTENDED 1
-#endif
-#include <string.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -11,6 +7,10 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdio.h>
+#if !defined(__USE_XOPEN_EXTENDED)
+#define __USE_XOPEN_EXTENDED 1
+#endif
+#include <string.h>
 
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
@@ -18,10 +18,10 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 
-#include "net.h"
 #include "conn.h"
 #include "sfd.h"
 #include "log.h"
+#include "conn.h"
 
 #define CIPHER "ECDHE-ECDSA-AES256-GCM-SHA384"
 #define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
@@ -31,109 +31,12 @@
 
 /* read buffer length */
 #define RBL 120
-/* maximum address string length */
-#define AL 120
-
-/* ----begin private prototypes---- */
 
 p67_err
-p67_conn_assign_callback(p67_conn_t * conn, p67_callback callback, void * args);
-
-#define p67_conn_lock(c) pthread_mutex_trylock(&(conn)->__lock)
-
-#define p67_conn_unlock(c) pthread_mutex_unlock(&(conn)->__lock)
-
-p67_err
-p67_conn_assign_peer_addr(
-                p67_conn_t * conn, 
-                SSL * ssl, 
-                struct sockaddr * addr, 
-                socklen_t addrl);
-
-p67_err
-p67_conn_assign_peer_host(
-                p67_conn_t * conn, 
-                SSL * ssl, 
-                const char * host, 
-                const char * svc);
-
-void *
-listen_handle(void * args);
-
-/* ----end private prototypes---- */
-
-/*
-    Method is not thread safe
-*/
-p67_err
-p67_conn_assign_callback(p67_conn_t * conn, p67_callback callback, void * args)
+p67_conn_set_trusted_chain_path(p67_conn_t * conn, const char * path)
 {
-    conn->callback = callback;
-    conn->callback_args = args;
-    return 0;
-}
-
-/*
-    Assign connected peer to connection using address
-    Method is not thread safe
-*/
-p67_err
-p67_conn_assign_peer_addr(p67_conn_t * conn, SSL * ssl, struct sockaddr * addr, socklen_t addrl)
-{
-    char cb[AL], svc[10];
-
-    if(conn == NULL || ssl == NULL) return p67_err_einval;
-
-    p67_conn_shutdown(conn);
-
-    conn->addrl = addrl;
-    conn->addr = *addr;
-
-    switch(addr->sa_family) {
-    case AF_INET:
-        inet_ntop(addr->sa_family, &((struct sockaddr_in *)addr)->sin_addr, cb, AL);
-        sprintf(svc, "%u", ((struct sockaddr_in *)&addr)->sin_port);
-        break;
-    case AF_INET6:
-        inet_ntop(addr->sa_family, &((struct sockaddr_in6 *)addr)->sin6_addr, cb, AL);
-        sprintf(svc, "%u", ((struct sockaddr_in6 *)&addr)->sin6_port);
-        break;
-    default:
-        snprintf(cb, AL, "<Unknown>");
-        snprintf(svc, 10, "<Unknown>");
-        break;
-    }
-
-    if((conn->host = strdup(cb)) == NULL) return p67_err_eerrno;
-    if((conn->service = strdup(svc)) == NULL) return p67_err_eerrno;
-
-    conn->ssl = ssl;
-
-    return 0;
-}
-
-/*
-    Assign connected peer to connection using hostname and service.
-    Method is not thread safe.
-*/
-p67_err
-p67_conn_assign_peer_host(p67_conn_t * conn, SSL * ssl, const char * host, const char * svc)
-{
-    p67_err err;
-
-    if(conn == NULL || ssl == NULL) return p67_err_einval;
-
-    p67_conn_shutdown(conn);
-
-    conn->addrl = sizeof(struct sockaddr);
-    if((err = p67_sfd_create_address(&conn->addr, &conn->addrl, host, svc)) != 0)
-        return err;
-
-    if((conn->host = strdup(host)) == NULL) return p67_err_eerrno;
-    if((conn->service = strdup(svc)) == NULL) return p67_err_eerrno;
-
-    conn->ssl = ssl;
-
+    if(conn->trusted_chain != NULL) free(conn->trusted_chain);
+    if((conn->trusted_chain = strdup(path)) == NULL) return p67_err_eerrno;
     return 0;
 }
 
@@ -144,9 +47,16 @@ p67_conn_new(void)
 
     if((conn = calloc(sizeof(p67_conn_t), 1)) == NULL) return NULL;
 
-    pthread_mutex_init(&(conn->__lock), NULL);
-
     return conn;
+}
+
+void
+p67_conn_free_deps(p67_conn_t * conn)
+{
+    if(conn == NULL) return;
+    p67_haddr_free_deps(&conn->haddr);
+    p67_conn_shutdown(conn);
+    if(conn->trusted_chain != NULL) free(conn->trusted_chain);
 }
 
 /*
@@ -156,10 +66,20 @@ void
 p67_conn_free(p67_conn_t * conn)
 {
     if(conn == NULL) return;
-    p67_conn_shutdown(conn);
-    if(conn->host != NULL) free(conn->host);
-    if(conn->service != NULL) free(conn->service);
+    p67_conn_free_deps(conn);
     free(conn);
+}
+
+/*
+    1 = is connected
+    0 = is not connected
+*/
+int
+p67_conn_is_connected(p67_conn_t * conn)
+{
+    if(conn == NULL || conn->ssl == NULL) return 0;
+
+    return 1;
 }
 
 /*
@@ -176,15 +96,35 @@ p67_conn_shutdown(p67_conn_t * conn)
 
     if(conn->ssl == NULL) return p67_err_enconn;
 
-    SSL_shutdown(conn->ssl);
-    if((sfd = SSL_get_fd(conn->ssl)) > 0)
-        close(sfd);
+    sfd = SSL_get_fd(conn->ssl);
+
+    if( p67_sfd_get_err(sfd) == 0 && 
+        !(SSL_get_shutdown(conn->ssl) & (SSL_RECEIVED_SHUTDOWN | SSL_SENT_SHUTDOWN)))
+        SSL_shutdown(conn->ssl);
+
+    close(sfd);
+
     SSL_free(conn->ssl);
     conn->ssl = NULL;
-    DLOG("Shutdown for %s:%s\n", conn->host, conn->service);
+    DLOG("Shutdown %s:%s\n", conn->haddr.host, conn->haddr.service);
     
     return 0;
 }
+
+
+/* ----begin private prototypes---- */
+
+p67_err
+p67_conn_assign_callback(p67_conn_t * conn, p67_callback callback, void * args);
+
+#define p67_conn_lock(c) pthread_mutex_trylock(&(conn)->__lock)
+
+#define p67_conn_unlock(c) pthread_mutex_unlock(&(conn)->__lock)
+
+void *
+listen_handle(void * args);
+
+/* ----end private prototypes---- */
 
 p67_err
 p67_conn_read(p67_conn_t * conn)
@@ -201,6 +141,17 @@ p67_conn_read(p67_conn_t * conn)
         case SSL_ERROR_NONE:
             if(conn->callback == NULL) break;
             if(conn->callback(conn, buff, len, conn->callback_args) != 0) goto end;
+            break;
+        case SSL_ERROR_ZERO_RETURN:
+            err = 0;
+            goto end;
+        case SSL_ERROR_SYSCALL:
+            if(errno == ECONNRESET) {
+                SSL_set_shutdown(conn->ssl, SSL_RECEIVED_SHUTDOWN);
+                goto end;
+            }
+            // could be eagain or ewouldblock
+            break;
         default:
             goto end;
         }
@@ -208,21 +159,17 @@ p67_conn_read(p67_conn_t * conn)
 
 end:
     p67_conn_shutdown(conn);
-    if(err != SSL_ERROR_NONE) 
+    if(err != 0) {
         return p67_err_essl | p67_err_eerrno;
+    }
     return 0;
 }
 
 /*
     Connect to peer.
-    Method is thread safe. 
 */
 p67_err
-p67_conn_connect(
-            p67_conn_t * conn, 
-            const char * hostname, 
-            const char * service,
-            const char * accepted_chain)
+p67_conn_connect(p67_conn_t * conn)
 {
     SSL * ssl;
     X509 * cert;
@@ -239,13 +186,8 @@ p67_conn_connect(
     //remotel = sizeof(struct sockaddr);
     sfd = -1;
 
-    /**/
-
-    if(p67_conn_lock(conn) != 0) goto end;
-
-    p67_conn_shutdown(conn);
-    
-    /**/
+    if(conn == NULL || conn->haddr.host == NULL || conn->haddr.service == NULL)
+        return p67_err_einval;
 
     if((ssl_ctx = SSL_CTX_new(TLS_client_method())) == NULL) goto end;
 
@@ -253,17 +195,19 @@ p67_conn_connect(
 
     SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
 
+    SSL_CTX_set_mode(ssl_ctx, SSL_MODE_AUTO_RETRY);
+
     SSL_CTX_set_verify_depth(ssl_ctx, 4);
     SSL_CTX_set_read_ahead(ssl_ctx, 1);
 
-    if(SSL_CTX_load_verify_locations(ssl_ctx, accepted_chain, NULL) != 1) 
+    if(conn->trusted_chain != NULL && SSL_CTX_load_verify_locations(ssl_ctx, conn->trusted_chain, NULL) != 1)
         goto end;
 
     /**/
 
     if((ssl = SSL_new(ssl_ctx)) == NULL) goto end;
 
-    if(p67_sfd_create_from_hint(&sfd, hostname, service, 2) != 0) goto end;
+    if(p67_sfd_create_from_hint(&sfd, conn->haddr.host, conn->haddr.service, 2) != 0) goto end;
 
     //if(p67_sfd_create_address(&remote, &remotel, hostname, service) != 0) goto end;
     //if((sfd = socket(remote.sa_family, SOCK_STREAM, 0)) <= 0) goto end;
@@ -272,22 +216,20 @@ p67_conn_connect(
 
     if(SSL_set_cipher_list(ssl, CIPHER_ALT) != 1) goto end;
 
-    if(SSL_set_tlsext_host_name(ssl, hostname) != 1) goto end;
+    if(SSL_set_tlsext_host_name(ssl, conn->haddr.host) != 1) goto end;
 
     if(SSL_set_fd(ssl, sfd) != 1) goto end;
 
-    if(SSL_connect(ssl) != 1) {
-        goto end;
-    }
+    if(SSL_connect(ssl) != 1) goto end;
 
     if((cert = SSL_get_peer_certificate(ssl)) == NULL) goto end;
     X509_free(cert);
 
     if(SSL_get_verify_result(ssl) != X509_V_OK) goto end;
 
-    if(p67_conn_assign_peer_host(conn, ssl, hostname, service) != 0) goto end;
+    conn->ssl = ssl;
 
-    DLOG("Connected to %s:%s\n", hostname, service);
+    DLOG("Connected to %s:%s\n", conn->haddr.host, conn->haddr.service);
 
     err = 0;
 
@@ -297,7 +239,6 @@ end:
         if(ssl != NULL) SSL_free(ssl);
         if(sfd > 0) close(sfd);
     }
-    p67_conn_unlock(conn);
     return err;
 }
 
@@ -306,25 +247,58 @@ listen_handle(void * args)
 {
     p67_conn_t * c;
     p67_err err;
+    int sfd;
 
     p67_err_mask_all(err);
     c = (p67_conn_t *)args;
 
+    if((sfd = SSL_get_fd(c->ssl)) <= 0) goto end;
+    if(p67_sfd_get_err(sfd) != 0) goto end;
+
     if(SSL_accept(c->ssl) != 1) goto end;
+
+    printf("Accepted %s:%s\n", c->haddr.host, c->haddr.service);
 
     err = p67_conn_read(c);
 
 end:
-    if(err != 0) {
-        printf("In listen handle: ");
-        p67_err_print_err(err);
-        printf("\n");
-    }
-    
+    if(err != 0) p67_err_print_err(err);
     p67_conn_shutdown(c);
     free(c);
 
     return NULL;
+}
+
+p67_err
+p67_conn_write(p67_conn_t * conn, char * arr, int arrl, int flags)
+{
+    int err;
+
+    if((flags & 1) && !p67_conn_is_connected(conn)) p67_conn_connect(conn);
+
+    if(conn->ssl == NULL) return p67_err_enconn;
+
+    while(1) {
+        if((err = SSL_write(conn->ssl, arr, arrl)) > 0) {
+            err = 0;
+            break;
+        }
+        err = SSL_get_error(conn->ssl, err);
+        switch (err)
+        {
+        case SSL_ERROR_WANT_WRITE:
+        case SSL_ERROR_WANT_READ:
+            break;
+        default:
+            goto end;
+        }
+    }
+
+end:
+    if(err != 0) 
+        return p67_err_essl;
+
+    return 0;
 }
 
 p67_err
@@ -340,7 +314,8 @@ p67_conn_listen(
     SSL_CTX * ctx;
     SSL * ssl;
     struct sockaddr addr;
-    struct conn * pass;
+    struct p67_conn * pass;
+    p67_haddr_t haddr;
     socklen_t addrl;
     int fd, sfd;
     pthread_t thr;
@@ -349,10 +324,11 @@ p67_conn_listen(
     fd = 0;
     p67_err_mask_all(err);
     ERR_clear_error();
+    addrl = sizeof(addr);
 
     if((ctx = SSL_CTX_new(TLS_server_method())) == NULL) goto end;
 
-    if((SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3)) != 1) goto end;
+    //if((SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3)) != 1) goto end;
 
     if(SSL_CTX_set_cipher_list(ctx, CIPHER) != 1) goto end;
 
@@ -367,21 +343,32 @@ p67_conn_listen(
 
     if((p67_sfd_create_from_hint(&fd, hostname, service, 1)) != 0) goto end;
 
+    if((p67_sfd_set_reuseaddr(fd)) != 0) goto end;
+
     if(listen(fd, -1) != 0) goto end;
+    
+    DLOG("Listen @ %s:%s\n", hostname, service);
 
     while(1) {
-        if((sfd = accept(fd, &addr, &addrl)) != 0) {
+        if((sfd = accept(fd, &addr, &addrl)) < 0) {
             DLOG("%s\n", strerror(errno));
             continue;
         }
+
         if((ssl = SSL_new(ctx)) == NULL) goto end;
         if(SSL_set_fd(ssl, sfd) != 1) goto end;
 
         if((pass = p67_conn_new()) == NULL) goto end;
 
-        if(p67_conn_assign_peer_addr(pass, ssl, &addr, addrl) != 0) goto end;
+        haddr.host = NULL;
+        haddr.service = NULL;
 
-        p67_conn_assign_callback(pass, callback, callback_args);
+        if(p67_haddr_set_peer_addr(&haddr, &addr, addrl) != 0) goto end;
+        
+        pass->ssl = ssl;
+        pass->haddr = haddr;
+        pass->callback = callback;
+        pass->callback_args = callback_args;
 
         // if((pass = malloc(sizeof(struct conn))) == NULL) goto end;
         // pass->addr = addr;
