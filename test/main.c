@@ -21,6 +21,10 @@ main(void)
         goto end;
     }
 
+    if((err = p67_client_connect(&addr, "chain.pem")) != 0) {
+        goto end;
+    }
+
 end:
 
     if(err != 0)
