@@ -1,47 +1,36 @@
-#include <p67/conn.h>
+#include <p67/err.h>
 #include <p67/client.h>
+#include <p67/sfd.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <strings.h>
 
 int
 main(void)
 {
     p67_err err;
-    p67_conn_t conn;
-    int c;
+    p67_addr_t addr;
+    
+    err = 0;
 
-    char * host = "aimat.pl";
-    char * svc = "443";
-    char * chain = "chain.pem";
-
-    conn.trusted_chain = chain;
-    conn.haddr.host = host;
-    conn.haddr.service = svc;
-
-    if((err = p67_client_connect(&conn)) != 0) {
-        p67_err_print_err(err);
-        return 2;
+    if((err = p67_addr_set_host(&addr, "aimat.pl", "443")) != 0) {
+        goto end;
     }
 
-    sleep(1);
-
-    if((err = p67_client_disconnect(&conn)) != 0) {
-        p67_conn_free(&conn);
-        p67_err_print_err(err);
-        return 2;
+    if((err = p67_client_connect(&addr, "chain.pem")) != 0) {
+        goto end;
     }
 
-    // if((err = p67_conn_connect(conn)) != 0) {
-    //     p67_conn_free(conn);
-    //     p67_err_print_err(err);
-    //     return 1;
-    // }
-        
-    // if((err = p67_conn_shutdown(conn)) != 0) {
-    //     p67_conn_free(conn);
-    //     p67_err_print_err(err);
-    //     return 1;
-    // }
-        
-    return 0;
+end:
+
+    if(err != 0)
+        p67_err_print_err(err);
+
+    p67_addr_free(&addr);
+    p67_conn_free_all();
+
+    if(err == 0)
+        return 0;
+    else
+        return 2;
 }

@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 #include <time.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -54,8 +55,8 @@ void
 p67_conn_free_deps(p67_conn_t * conn)
 {
     if(conn == NULL) return;
-    p67_haddr_free_deps(&conn->haddr);
     p67_conn_shutdown(conn);
+    p67_addr_free(&conn->addr);
     if(conn->trusted_chain != NULL) free(conn->trusted_chain);
 }
 
@@ -86,6 +87,7 @@ p67_conn_is_connected(p67_conn_t * conn)
     If connection is open then close it.
     Method is not thread safe.
     If connection is closed then return p67_err_enconn.
+    Connection cannot be freed before
 */
 p67_err
 p67_conn_shutdown(p67_conn_t * conn) 
@@ -106,7 +108,7 @@ p67_conn_shutdown(p67_conn_t * conn)
 
     SSL_free(conn->ssl);
     conn->ssl = NULL;
-    DLOG("Shutdown %s:%s\n", conn->haddr.host, conn->haddr.service);
+    DLOG("Shutdown %s:%s\n", conn->addr.hostname, conn->addr.service);
     
     return 0;
 }
@@ -186,7 +188,7 @@ p67_conn_connect(p67_conn_t * conn)
     //remotel = sizeof(struct sockaddr);
     sfd = -1;
 
-    if(conn == NULL || conn->haddr.host == NULL || conn->haddr.service == NULL)
+    if(conn == NULL || !p67_addr_is_initialized(&conn->addr))
         return p67_err_einval;
 
     if((ssl_ctx = SSL_CTX_new(TLS_client_method())) == NULL) goto end;
@@ -207,7 +209,7 @@ p67_conn_connect(p67_conn_t * conn)
 
     if((ssl = SSL_new(ssl_ctx)) == NULL) goto end;
 
-    if(p67_sfd_create_from_hint(&sfd, conn->haddr.host, conn->haddr.service, 2) != 0) goto end;
+    if(p67_sfd_create_from_hint(&sfd, conn->addr.hostname, conn->addr.service, 2) != 0) goto end;
 
     //if(p67_sfd_create_address(&remote, &remotel, hostname, service) != 0) goto end;
     //if((sfd = socket(remote.sa_family, SOCK_STREAM, 0)) <= 0) goto end;
@@ -216,7 +218,7 @@ p67_conn_connect(p67_conn_t * conn)
 
     if(SSL_set_cipher_list(ssl, CIPHER_ALT) != 1) goto end;
 
-    if(SSL_set_tlsext_host_name(ssl, conn->haddr.host) != 1) goto end;
+    if(SSL_set_tlsext_host_name(ssl, conn->addr.hostname) != 1) goto end;
 
     if(SSL_set_fd(ssl, sfd) != 1) goto end;
 
@@ -229,7 +231,7 @@ p67_conn_connect(p67_conn_t * conn)
 
     conn->ssl = ssl;
 
-    DLOG("Connected to %s:%s\n", conn->haddr.host, conn->haddr.service);
+    DLOG("Connected to %s:%s\n", conn->addr.hostname, conn->addr.service);
 
     err = 0;
 
@@ -257,7 +259,7 @@ listen_handle(void * args)
 
     if(SSL_accept(c->ssl) != 1) goto end;
 
-    printf("Accepted %s:%s\n", c->haddr.host, c->haddr.service);
+    printf("Accepted %s:%s\n", c->addr.hostname, c->addr.service);
 
     err = p67_conn_read(c);
 
@@ -301,87 +303,84 @@ end:
     return 0;
 }
 
-p67_err
-p67_conn_listen(
-    const char * hostname, 
-    const char * service, 
-    const char * certpath, 
-    const char * keypath,
-    p67_callback callback,
-    void * callback_args)
-{
-    p67_err err;
-    SSL_CTX * ctx;
-    SSL * ssl;
-    struct sockaddr addr;
-    struct p67_conn * pass;
-    p67_haddr_t haddr;
-    socklen_t addrl;
-    int fd, sfd;
-    pthread_t thr;
+// p67_err
+// p67_conn_listen(
+//     const char * hostname, 
+//     const char * service, 
+//     const char * certpath, 
+//     const char * keypath,
+//     p67_callback callback,
+//     void * callback_args)
+// {
+//     p67_err err;
+//     SSL_CTX * ctx;
+//     SSL * ssl;
+//     struct sockaddr saddr;
+//     struct p67_conn * pass;
+//     p67_addr_t aaddr;
+//     socklen_t addrl;
+//     int fd, sfd;
+//     pthread_t thr;
 
-    ctx = NULL;
-    fd = 0;
-    p67_err_mask_all(err);
-    ERR_clear_error();
-    addrl = sizeof(addr);
+//     ctx = NULL;
+//     fd = 0;
+//     p67_err_mask_all(err);
+//     ERR_clear_error();
+//     addrl = sizeof(saddr);
 
-    if((ctx = SSL_CTX_new(TLS_server_method())) == NULL) goto end;
+//     if((ctx = SSL_CTX_new(TLS_server_method())) == NULL) goto end;
 
-    //if((SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3)) != 1) goto end;
+//     //if((SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3)) != 1) goto end;
 
-    if(SSL_CTX_set_cipher_list(ctx, CIPHER) != 1) goto end;
+//     if(SSL_CTX_set_cipher_list(ctx, CIPHER) != 1) goto end;
 
-    if((SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM)) != 1) goto end;
+//     if((SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM)) != 1) goto end;
 
-    if((SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM)) != 1) goto end;
+//     if((SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM)) != 1) goto end;
 
-    if((SSL_CTX_check_private_key(ctx)) != 1) goto end;
+//     if((SSL_CTX_check_private_key(ctx)) != 1) goto end;
 
-    SSL_CTX_set_read_ahead(ctx, 1);
-    SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+//     SSL_CTX_set_read_ahead(ctx, 1);
+//     SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
 
-    if((p67_sfd_create_from_hint(&fd, hostname, service, 1)) != 0) goto end;
+//     if((p67_sfd_create_from_hint(&fd, hostname, service, 1)) != 0) goto end;
 
-    if((p67_sfd_set_reuseaddr(fd)) != 0) goto end;
+//     if((p67_sfd_set_reuseaddr(fd)) != 0) goto end;
 
-    if(listen(fd, -1) != 0) goto end;
+//     if(listen(fd, -1) != 0) goto end;
     
-    DLOG("Listen @ %s:%s\n", hostname, service);
+//     DLOG("Listen @ %s:%s\n", hostname, service);
 
-    while(1) {
-        if((sfd = accept(fd, &addr, &addrl)) < 0) {
-            DLOG("%s\n", strerror(errno));
-            continue;
-        }
+//     while(1) {
+//         if((sfd = accept(fd, &saddr, &addrl)) < 0) {
+//             DLOG("%s\n", strerror(errno));
+//             continue;
+//         }
 
-        if((ssl = SSL_new(ctx)) == NULL) goto end;
-        if(SSL_set_fd(ssl, sfd) != 1) goto end;
+//         if((ssl = SSL_new(ctx)) == NULL) goto end;
+//         if(SSL_set_fd(ssl, sfd) != 1) goto end;
 
-        if((pass = p67_conn_new()) == NULL) goto end;
+//         if((pass = p67_conn_new()) == NULL) goto end;
 
-        haddr.host = NULL;
-        haddr.service = NULL;
-
-        if(p67_haddr_set_peer_addr(&haddr, &addr, addrl) != 0) goto end;
+//         if(p67_addr_set_sockaddr(&addr, &saddr, addrl) != 0) goto end;
         
-        pass->ssl = ssl;
-        pass->haddr = haddr;
-        pass->callback = callback;
-        pass->callback_args = callback_args;
+//         pass->ssl = ssl;
+//         pass->haddr = haddr;
+//         pass->callback = callback;
+//         pass->callback_args = callback_args;
 
-        // if((pass = malloc(sizeof(struct conn))) == NULL) goto end;
-        // pass->addr = addr;
-        // pass->addrl = addrl;
-        // pass->ssl = ssl;
+//         // if((pass = malloc(sizeof(struct conn))) == NULL) goto end;
+//         // pass->addr = addr;
+//         // pass->addrl = addrl;
+//         // pass->ssl = ssl;
 
-        if(pthread_create(&thr, NULL, listen_handle, pass) != 0) goto end;
-    }
+//         if(pthread_create(&thr, NULL, listen_handle, pass) != 0) goto end;
+//     }
 
-    err = 0;
+//     err = 0;
 
-end:
-    if(ctx != NULL) SSL_CTX_free(ctx);
-    if(fd > 0) close(fd); 
-    return err;
-}
+// end:
+//     if(ctx != NULL) SSL_CTX_free(ctx);
+//     if(fd > 0) close(fd); 
+//     return err;
+// }
