@@ -210,7 +210,7 @@ p67_client_connect(p67_addr_t * addr, const char * trusted_chain_path)
     pthread_mutex_lock(&__lock);
 
     if((err = p67_conn_pool_insert(addr, &conn)) != 0) {
-        goto end;
+        return err;
     }
 
     p67_conn_set_trusted_chain_path(conn, trusted_chain_path);
