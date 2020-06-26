@@ -1,9 +1,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
 #include <time.h>
 #include <stdlib.h>
 #include <pthread.h>
@@ -24,14 +21,25 @@
 #include "log.h"
 #include "conn.h"
 
-#define CIPHER "ECDHE-ECDSA-AES256-GCM-SHA384"
-#define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
-
 #define fix_port(port) \
     { if((port) < 1050 || (port) > 0xFFFF) (port) = 443; }
 
 /* read buffer length */
 #define RBL 120
+
+/* ----begin private prototypes---- */
+
+p67_err
+p67_conn_assign_callback(p67_conn_t * conn, p67_callback callback, void * args);
+
+#define p67_conn_lock(c) pthread_mutex_trylock(&(conn)->__lock)
+
+#define p67_conn_unlock(c) pthread_mutex_unlock(&(conn)->__lock)
+
+void *
+listen_handle(void * args);
+
+/* ----end private prototypes---- */
 
 p67_err
 p67_conn_set_trusted_chain_path(p67_conn_t * conn, const char * path)
@@ -113,23 +121,8 @@ p67_conn_shutdown(p67_conn_t * conn)
     return 0;
 }
 
-
-/* ----begin private prototypes---- */
-
 p67_err
-p67_conn_assign_callback(p67_conn_t * conn, p67_callback callback, void * args);
-
-#define p67_conn_lock(c) pthread_mutex_trylock(&(conn)->__lock)
-
-#define p67_conn_unlock(c) pthread_mutex_unlock(&(conn)->__lock)
-
-void *
-listen_handle(void * args);
-
-/* ----end private prototypes---- */
-
-p67_err
-p67_conn_read(p67_conn_t * conn)
+p67_conn_read(p67_conn_t * conn, p67_callback callback, void * args)
 {
     int len, err;
     char buff[RBL];
@@ -141,8 +134,8 @@ p67_conn_read(p67_conn_t * conn)
         switch(err) {
 
         case SSL_ERROR_NONE:
-            if(conn->callback == NULL) break;
-            if(conn->callback(conn, buff, len, conn->callback_args) != 0) goto end;
+            if(callback == NULL) break;
+            if(callback(conn, buff, len, args) != 0) goto end;
             break;
         case SSL_ERROR_ZERO_RETURN:
             err = 0;
@@ -244,41 +237,14 @@ end:
     return err;
 }
 
-void *
-listen_handle(void * args)
-{
-    p67_conn_t * c;
-    p67_err err;
-    int sfd;
-
-    p67_err_mask_all(err);
-    c = (p67_conn_t *)args;
-
-    if((sfd = SSL_get_fd(c->ssl)) <= 0) goto end;
-    if(p67_sfd_get_err(sfd) != 0) goto end;
-
-    if(SSL_accept(c->ssl) != 1) goto end;
-
-    printf("Accepted %s:%s\n", c->addr.hostname, c->addr.service);
-
-    err = p67_conn_read(c);
-
-end:
-    if(err != 0) p67_err_print_err(err);
-    p67_conn_shutdown(c);
-    free(c);
-
-    return NULL;
-}
-
 p67_err
-p67_conn_write(p67_conn_t * conn, char * arr, int arrl, int flags)
+p67_conn_write(p67_conn_t * conn, const char * arr, int arrl, int flags)
 {
     int err;
 
     if((flags & 1) && !p67_conn_is_connected(conn)) p67_conn_connect(conn);
 
-    if(conn->ssl == NULL) return p67_err_enconn;
+    if(conn == NULL || conn->ssl == NULL) return p67_err_enconn;
 
     while(1) {
         if((err = SSL_write(conn->ssl, arr, arrl)) > 0) {
@@ -302,85 +268,3 @@ end:
 
     return 0;
 }
-
-// p67_err
-// p67_conn_listen(
-//     const char * hostname, 
-//     const char * service, 
-//     const char * certpath, 
-//     const char * keypath,
-//     p67_callback callback,
-//     void * callback_args)
-// {
-//     p67_err err;
-//     SSL_CTX * ctx;
-//     SSL * ssl;
-//     struct sockaddr saddr;
-//     struct p67_conn * pass;
-//     p67_addr_t aaddr;
-//     socklen_t addrl;
-//     int fd, sfd;
-//     pthread_t thr;
-
-//     ctx = NULL;
-//     fd = 0;
-//     p67_err_mask_all(err);
-//     ERR_clear_error();
-//     addrl = sizeof(saddr);
-
-//     if((ctx = SSL_CTX_new(TLS_server_method())) == NULL) goto end;
-
-//     //if((SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3)) != 1) goto end;
-
-//     if(SSL_CTX_set_cipher_list(ctx, CIPHER) != 1) goto end;
-
-//     if((SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM)) != 1) goto end;
-
-//     if((SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM)) != 1) goto end;
-
-//     if((SSL_CTX_check_private_key(ctx)) != 1) goto end;
-
-//     SSL_CTX_set_read_ahead(ctx, 1);
-//     SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
-
-//     if((p67_sfd_create_from_hint(&fd, hostname, service, 1)) != 0) goto end;
-
-//     if((p67_sfd_set_reuseaddr(fd)) != 0) goto end;
-
-//     if(listen(fd, -1) != 0) goto end;
-    
-//     DLOG("Listen @ %s:%s\n", hostname, service);
-
-//     while(1) {
-//         if((sfd = accept(fd, &saddr, &addrl)) < 0) {
-//             DLOG("%s\n", strerror(errno));
-//             continue;
-//         }
-
-//         if((ssl = SSL_new(ctx)) == NULL) goto end;
-//         if(SSL_set_fd(ssl, sfd) != 1) goto end;
-
-//         if((pass = p67_conn_new()) == NULL) goto end;
-
-//         if(p67_addr_set_sockaddr(&addr, &saddr, addrl) != 0) goto end;
-        
-//         pass->ssl = ssl;
-//         pass->haddr = haddr;
-//         pass->callback = callback;
-//         pass->callback_args = callback_args;
-
-//         // if((pass = malloc(sizeof(struct conn))) == NULL) goto end;
-//         // pass->addr = addr;
-//         // pass->addrl = addrl;
-//         // pass->ssl = ssl;
-
-//         if(pthread_create(&thr, NULL, listen_handle, pass) != 0) goto end;
-//     }
-
-//     err = 0;
-
-// end:
-//     if(ctx != NULL) SSL_CTX_free(ctx);
-//     if(fd > 0) close(fd); 
-//     return err;
-// }

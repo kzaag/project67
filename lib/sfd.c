@@ -10,6 +10,8 @@
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <poll.h>
+#include <errno.h>
 
 #include "sfd.h"
 
@@ -99,12 +101,12 @@ p67_addr_set_sockaddr(p67_addr_t * addr, struct sockaddr * sa, socklen_t sal)
 
     switch(sa->sa_family) {
     case AF_INET:
-        addr->sock.sin = *(struct sockaddr_in *)&sa;
+        addr->sock.sin = *(struct sockaddr_in *)sa;
         inet_ntop(sa->sa_family, &((struct sockaddr_in *)addr)->sin_addr, cb, AL);
         sprintf(svc, "%u", ((struct sockaddr_in *)&addr)->sin_port);
         break;
     case AF_INET6:
-        addr->sock.sin6 = *(struct sockaddr_in6 *)&sa;
+        addr->sock.sin6 = *(struct sockaddr_in6 *)sa;
         inet_ntop(sa->sa_family, &((struct sockaddr_in6 *)addr)->sin6_addr, cb, AL);
         sprintf(svc, "%u", ((struct sockaddr_in6 *)&addr)->sin6_port);
         break;
@@ -153,6 +155,37 @@ p67_sfd_listen(p67_sfd_t sfd)
     return 0;
 }
 
+/*
+    Keep calling accept until valid request arrives.
+    On failure return 0.
+*/
+p67_sfd_t
+p67_sfd_accept(p67_sfd_t sfd, p67_addr_t * addr)
+{
+    p67_sockaddr_t saddr;
+    socklen_t saddrl;
+    p67_sfd_t csfd;
+
+    while(1) {
+        bzero(addr, sizeof(*addr));
+        saddrl = sizeof(saddr);
+
+        csfd = accept(sfd, (struct sockaddr *)&saddr, &saddrl);
+        if(csfd < 0)
+            continue;
+
+        if(p67_addr_set_sockaddr(addr, (struct sockaddr *)&saddr, saddrl) != 0) {
+            p67_addr_free(addr);
+            close(csfd);
+            continue;
+        }
+
+        break;
+    }
+
+    return csfd;
+}
+
 p67_err
 p67_sfd_get_err(p67_sfd_t sfd)
 {
@@ -163,6 +196,41 @@ p67_sfd_get_err(p67_sfd_t sfd)
     if(serr != 0)
         return p67_err_einval;
     return serr;
+}
+
+p67_err
+p67_sfd_valid(p67_sfd_t sfd)
+{
+    p67_err err;
+    struct pollfd pfd = {.fd = sfd, .events=POLLERR};
+
+    err = 0;
+
+    if(poll(&pfd, 1, 1) < 0)
+        err = p67_err_eerrno;
+
+    if(pfd.events & POLLERR)
+        errno = EPIPE;
+
+    return err;
+}
+
+p67_err
+p67_sfd_set_noblocking(p67_sfd_t sfd)
+{
+    int flags;
+    
+    if((flags = fcntl(sfd, F_GETFL, 0)) == -1) {
+        return p67_err_eerrno;
+    }
+
+    flags |= O_NONBLOCK;
+
+    if(fcntl(sfd, F_SETFL, flags) == -1) {
+        return p67_err_eerrno;
+    }
+
+    return 0;
 }
 
 p67_err

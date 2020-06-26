@@ -83,4 +83,13 @@ p67_sfd_get_err(p67_sfd_t sfd);
 p67_err
 p67_sfd_close(p67_sfd_t sfd);
 
+p67_sfd_t
+p67_sfd_accept(p67_sfd_t sfd, p67_addr_t * addr);
+
+p67_err
+p67_sfd_valid(p67_sfd_t sfd);
+
+p67_err
+p67_sfd_set_noblocking(p67_sfd_t sfd);
+
 #endif

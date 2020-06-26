@@ -6,20 +6,18 @@
 #if !defined(CONNDEF_H)
 #define CONNDEF_H
 
-typedef struct p67_conn p67_conn_t;
+#define CIPHER "ECDHE-ECDSA-AES256-GCM-SHA384"
+#define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
 
-typedef int (* p67_callback)(p67_conn_t *, char *, int, void*);
+typedef struct p67_conn p67_conn_t;
 
 struct p67_conn {
     SSL                     * ssl;
     char                    * trusted_chain;
-    char                    * host;
-    char                    * port;
     p67_addr_t              addr;
-
-    p67_callback    callback;
-    void *          callback_args;
 };
+
+typedef int (* p67_callback)(p67_conn_t *, char *, int, void*);
 
 p67_err
 p67_conn_assign_callback(
@@ -29,15 +27,6 @@ p67_conn_assign_callback(
 
 p67_err
 p67_conn_init(p67_conn_t * conn);
-
-// p67_err
-// p67_conn_listen(
-//     const char * hostname, 
-//     const char * service, 
-//     const char * certpath, 
-//     const char * keypath,
-//     p67_callback callback,
-//     void * callback_args);
 
 p67_err
 p67_conn_connect(p67_conn_t * conn);
@@ -58,10 +47,10 @@ p67_err
 p67_conn_shutdown(p67_conn_t * conn);
 
 p67_err
-p67_conn_write(p67_conn_t * conn, char * arr, int arrl, int flags);
+p67_conn_write(p67_conn_t * conn, const char * arr, int arrl, int flags);
 
 p67_err
-p67_conn_read(p67_conn_t * conn);
+p67_conn_read(p67_conn_t * conn, p67_callback callback, void * args);
 
 p67_err
 p67_conn_set_trusted_chain_path(p67_conn_t * conn, const char * path);

@@ -28,7 +28,6 @@ struct p67_conn_pool {
 
 pthread_mutex_t __lock = PTHREAD_MUTEX_INITIALIZER;
 
-
 /* begin private prototypes */
 
 extern inline p67_hash_t
@@ -83,7 +82,7 @@ p67_conn_pool_free_1(p67_conn_pool_t * ptr)
 }
 
 void
-p67_conn_free_all(void)
+p67_client_free_all(void)
 {
     size_t i;
     p67_conn_pool_t * n, *nn;
@@ -201,6 +200,8 @@ p67_client_disconnect(p67_addr_t * addr)
     return 0;
 }
 
+#include <unistd.h>
+
 p67_err
 p67_client_connect(p67_addr_t * addr, const char * trusted_chain_path)
 {
@@ -229,3 +230,32 @@ end:
     return err;
 }
 
+p67_err
+p67_client_write_cstr(p67_addr_t * addr, const char * msg)
+{
+    return p67_client_write(addr, msg, strlen(msg));
+}
+
+p67_err
+p67_client_write(p67_addr_t * addr, const char * msg, int msgl)
+{
+    p67_err err;
+    p67_conn_t * conn;
+
+    err = 0;
+
+    /* is this neccessary ? */
+    pthread_mutex_lock(&__lock);
+
+    if((conn = p67_conn_pool_lookup(addr)) == NULL) {
+        err = p67_err_enconn;
+        goto end;
+    }
+
+    err = p67_conn_write(conn, msg, msgl, 0);
+
+end:
+    pthread_mutex_unlock(&__lock);
+
+    return err;
+}
