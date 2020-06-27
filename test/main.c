@@ -17,7 +17,7 @@ msg_handler(p67_conn_t * conn, char * msg, int msgl, void * args)
 
 
 void
-server(void)
+server(const char * port)
 {
     p67_server_t * server;
     p67_err err;
@@ -28,7 +28,7 @@ server(void)
         goto end;
     }
 
-    if((err = p67_addr_set_host(&server->addr, "127.0.0.1", "41999")) != 0) {
+    if((err = p67_addr_set_host(&server->addr, "127.0.0.1", port)) != 0) {
         goto end;
     }
 
@@ -40,25 +40,27 @@ server(void)
         goto end;
     }
 
-    if((err = p67_server_listen(server)) != 0) {
+    if((err = p67_server_start_listen(server)) != 0) {
         goto end;
     }
 
 end:
-    if(err != 0)
-        p67_err_print_err(err);
-    p67_server_free(server);
-    free(server);
+    (void)1;
+// end:
+//     if(err != 0)
+//         p67_err_print_err(err);
+//     p67_server_free(server);
+//     free(server);
 }
 
 void
-client(void)
+client(const char * port)
 {
     p67_err err;
     p67_addr_t addr;
     err = 0;
 
-    if((err = p67_addr_set_host(&addr, "127.0.0.1", "41999")) != 0) {
+    if((err = p67_addr_set_host(&addr, "127.0.0.1", port)) != 0) {
         goto end;
     }
 
@@ -84,9 +86,15 @@ int
 main(int argc, char ** argv)
 {
     if(argc > 1) {
-        server();
+        server("41999");
+        getchar();
+        client("41998");
+        getchar();
     } else {
-        client();
+        server("41998");
+        getchar();
+        client("41999");
+        getchar();
     }
 
     return 0;

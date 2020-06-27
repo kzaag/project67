@@ -1,4 +1,3 @@
-#include "server.h"
 #if !defined(__USE_XOPEN_EXTENDED)
 #define __USE_XOPEN_EXTENDED 1
 #endif
@@ -12,15 +11,15 @@
 
 #include "err.h"
 #include "log.h"
-
+#include "server.h"
+#include "client.h"
 
 /*
     used when forwarding user connect to listen_handle
 */
 struct p67_conn_pass {
     p67_server_t * server;
-    p67_conn_t   conn;
-    p67_sfd_t    sfd;
+    p67_conn_t   * conn;
 };
 
 typedef struct p67_conn_pass p67_conn_pass_t;
@@ -85,31 +84,32 @@ p67_server_set_callback(p67_server_t * server, p67_callback callback, void * cal
     return 0;
 }
 
-#include <unistd.h>
-
 void *
 listen_handle(void * args)
 {
     p67_conn_pass_t * pass;
     p67_err err;
+    p67_sfd_t sfd;
 
     pass = (p67_conn_pass_t *)args;
 
-    if((err = p67_sfd_get_err(pass->sfd)) != 0) goto end;
+    if((sfd = SSL_get_fd(pass->conn->ssl)) <= 0) goto end;
+
+    if((err = p67_sfd_get_err(sfd)) != 0) goto end;
 
     /* if((err = p67_sfd_valid(pass->sfd)) != 0) goto end; */
 
     p67_err_mask_all(err);
-    if(SSL_accept(pass->conn.ssl) != 1) goto end;
+    if(SSL_accept(pass->conn->ssl) != 1) goto end;
 
-    printf("Accepted %s:%s\n", pass->conn.addr.hostname, pass->conn.addr.service);
+    printf("Accepted %s:%s\n", pass->conn->addr.hostname, pass->conn->addr.service);
 
-    err = p67_conn_read(&pass->conn, pass->server->callback, pass->server->callback_args);
+    err = p67_conn_read(pass->conn, pass->server->callback, pass->server->callback_args);
 
 end:
-    if(err != 0) p67_err_print_err(err);
-    //p67_conn_shutdown(&pass->conn);
-    p67_conn_free_deps(&pass->conn);
+    p67_client_disconnect(&pass->conn->addr);
+    if(err != 0)
+        p67_err_print_err(err);
     free(pass);
 
     return NULL;
@@ -133,8 +133,6 @@ p67_server_listen_wrapper(void * args)
     pthread_exit(NULL);
 }
 
-#include <arpa/inet.h>
-
 p67_err
 p67_server_listen(p67_server_t * server)
 {
@@ -142,8 +140,9 @@ p67_server_listen(p67_server_t * server)
     SSL_CTX * ctx;
     SSL * ssl;
     p67_conn_pass_t * pass;
+    p67_conn_t * conn;
     p67_addr_t addr;
-    int fd, sfd;
+    int fd, sfd, fail, adcerr;
     pthread_t thr;
 
     ctx = NULL;
@@ -187,17 +186,48 @@ p67_server_listen(p67_server_t * server)
         if((sfd = p67_sfd_accept(fd, &addr)) == 0)
             goto end;
 
-        if((ssl = SSL_new(ctx)) == NULL) goto end;
-        if(SSL_set_fd(ssl, sfd) != 1) goto end;
+        do {
+            if((adcerr = p67_client_add_connected(&addr, &conn)) != 0) {
+                fail = 1;
+                err |= adcerr;
+                break;
+            }
 
-        if((pass = calloc(sizeof(*pass), 1)) == NULL) goto end;
+            if((ssl = SSL_new(ctx)) == NULL) {
+                fail = 1;
+                break;
+            }
+            
+            if(SSL_set_fd(ssl, sfd) != 1) {
+                fail = 1;
+                break;
+            }
 
-        pass->conn.ssl = ssl;
-        pass->conn.addr = addr;
-        pass->server = server;
-        pass->sfd = sfd;
+            conn->ssl = ssl;
 
-        if(pthread_create(&thr, NULL, listen_handle, pass) != 0) goto end;
+            if((pass = calloc(sizeof(*pass), 1)) == NULL) {
+                fail = 1;
+                break;
+            }
+
+            pass->server = server;
+            pass->conn = conn;
+
+            if(pthread_create(&thr, NULL, listen_handle, pass) != 0) {
+                fail = 1;
+                break;
+            }
+
+            fail = 0;
+        } while(0);
+
+        if(fail) {
+            if(ssl != NULL) SSL_free(ssl);
+            if(sfd > 0) p67_sfd_close(sfd);
+            if(pass != NULL) free(pass);
+            if(adcerr == 0) p67_client_disconnect(&addr);
+            p67_err_print_err(err);
+        }
     }
 
     err = 0;

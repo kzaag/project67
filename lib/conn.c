@@ -65,6 +65,7 @@ p67_conn_free_deps(p67_conn_t * conn)
     if(conn == NULL) return;
     p67_conn_shutdown(conn);
     p67_addr_free(&conn->addr);
+    p67_addr_free(&conn->baddr);
     if(conn->trusted_chain != NULL) free(conn->trusted_chain);
 }
 
@@ -268,3 +269,5 @@ end:
 
     return 0;
 }
+
+

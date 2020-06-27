@@ -30,6 +30,12 @@ pthread_mutex_t __lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* begin private prototypes */
 
+p67_err
+p67_client_lock(void);
+
+void
+p67_client_unlock(void);
+
 extern inline p67_hash_t
 p67_conn_pool_fn(const __u_char * key, int len);
 
@@ -46,6 +52,20 @@ void
 p67_conn_pool_free_1(p67_conn_pool_t * ptr);
 
 /* end private prototypes */
+
+p67_err
+p67_client_lock(void)
+{
+    if(pthread_mutex_trylock(&__lock) != 0)
+        return p67_err_eerrno;
+    return 0;
+}
+
+void
+p67_client_unlock(void)
+{
+    pthread_mutex_unlock(&__lock);
+}
 
 inline p67_hash_t
 p67_conn_pool_fn(const __u_char * key, int len)
@@ -67,7 +87,7 @@ p67_conn_pool_lookup(p67_addr_t * addr)
     for(ret = conn_pool[p67_conn_pool_fn(key, addr->socklen)]; ret != NULL; ret = ret->next) {
         if(ret->keylen != addr->socklen)
             continue;
-        if(memcmp(&addr->sock, &ret->key, addr->socklen) == 0) break;
+        if(memcmp(&addr->sock, ret->key, addr->socklen) == 0) break;
     }
     if(ret != NULL)
         return &ret->conn;
@@ -188,19 +208,53 @@ p67_client_disconnect(p67_addr_t * addr)
 {
     p67_err err;
 
-    pthread_mutex_lock(&__lock);
+    if((err = p67_client_lock()) != 0)
+        return err;
 
     if((err = p67_conn_pool_remove(addr)) != 0) {
-        pthread_mutex_unlock(&__lock);
+        p67_client_unlock();
         return err;
     }
 
-    pthread_mutex_unlock(&__lock);
+    p67_client_unlock();
 
     return 0;
 }
 
-#include <unistd.h>
+/* this can be used to add dummy record so other threads cannot connect to address */
+p67_err
+p67_client_add_connected(p67_addr_t * addr, p67_conn_t ** conn)
+{
+    p67_err err;
+
+    if((err = p67_client_lock()) != 0)
+        return err;
+
+    err = p67_conn_pool_insert(addr, conn);
+
+    p67_client_unlock();
+    
+    return err;
+}
+
+p67_err
+p67_client_get_connection(p67_addr_t * addr, p67_conn_t ** conn)
+{
+    p67_err err;
+
+    if((err = p67_client_lock()) != 0)
+        return err;
+
+    *conn = p67_conn_pool_lookup(addr);
+
+    if(*conn == NULL) {
+        err = p67_err_enconn;
+    }
+
+    p67_client_unlock();
+    
+    return err;
+}
 
 p67_err
 p67_client_connect(p67_addr_t * addr, const char * trusted_chain_path)
@@ -208,7 +262,8 @@ p67_client_connect(p67_addr_t * addr, const char * trusted_chain_path)
     p67_err err;
     p67_conn_t * conn;
 
-    pthread_mutex_lock(&__lock);
+    if((err = p67_client_lock()) != 0)
+        return err;
 
     if((err = p67_conn_pool_insert(addr, &conn)) != 0) {
         return err;
@@ -225,7 +280,7 @@ end:
         p67_conn_pool_remove(addr);
     }
 
-    pthread_mutex_unlock(&__lock);
+    p67_client_unlock();
 
     return err;
 }
@@ -244,9 +299,6 @@ p67_client_write(p67_addr_t * addr, const char * msg, int msgl)
 
     err = 0;
 
-    /* is this neccessary ? */
-    pthread_mutex_lock(&__lock);
-
     if((conn = p67_conn_pool_lookup(addr)) == NULL) {
         err = p67_err_enconn;
         goto end;
@@ -255,7 +307,5 @@ p67_client_write(p67_addr_t * addr, const char * msg, int msgl)
     err = p67_conn_write(conn, msg, msgl, 0);
 
 end:
-    pthread_mutex_unlock(&__lock);
-
     return err;
 }

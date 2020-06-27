@@ -1,4 +1,3 @@
-#include <sys/socket.h>
 #include <openssl/ssl.h>
 
 #include "sfd.h"
@@ -15,6 +14,7 @@ struct p67_conn {
     SSL                     * ssl;
     char                    * trusted_chain;
     p67_addr_t              addr;
+    p67_addr_t              baddr;
 };
 
 typedef int (* p67_callback)(p67_conn_t *, char *, int, void*);
