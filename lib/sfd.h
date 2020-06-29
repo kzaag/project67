@@ -66,7 +66,7 @@ p67_sfd_create_from_hint(
             int flags);
 
 p67_err
-p67_addr_dup(p67_addr_t * dest, p67_addr_t * src);
+p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src);
 
 p67_err
 p67_addr_parse_str(const char * str, p67_addr_t * addr);

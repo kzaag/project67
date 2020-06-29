@@ -47,7 +47,6 @@ struct p67_conn {
 
 typedef __uint16_t p67_state_t;
 
-#define P67_NODE_STATE_ACCEP 0
 #define P67_NODE_STATE_QUEUE 1
 
 #define P67_NODE_STATE_ALL 1
@@ -113,7 +112,7 @@ p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl);
     ((p67_conn_t *)p67_hash_lookup(P67_CT_CONN, (addr)))
 
 #define p67_node_lookup(addr) \
-    ((p67_addr_t *)p67_hash_lookup(P67_CT_NODE, (addr)))
+    ((p67_node_t *)p67_hash_lookup(P67_CT_NODE, (addr)))
 
 p67_liitem_t * 
 p67_hash_lookup(int p67_ct, const p67_addr_t * key);
@@ -182,10 +181,16 @@ p67_net_read_loop(p67_conn_t * conn);
 p67_err
 p67_net_get_addr_from_x509_store_ctx(X509_STORE_CTX *ctx, p67_addr_t * addr);
 
-#define p67_get_cert_str(x509) p67_get_pem_str(x509, 1);
+#define P67_PEM_CERT   1
+#define P67_PEM_PUBKEY 2
+
+#define p67_get_cert_str(x509) p67_get_pem_str(x509, P67_PEM_CERT);
 
 char * 
 p67_net_get_pem_str(X509 * x509, int type);
+
+int 
+p67_net_verify_callback(int ok, X509_STORE_CTX *ctx);
 
 /*---END PRIVATE PROTOTYPES---*/
 
@@ -217,7 +222,6 @@ p67_conn_free(void * ptr, int also_free_ptr)
 void
 p67_node_free(void * ptr, int also_free_ptr)
 {
-    int sfd;
     p67_node_t * node = (p67_node_t *)ptr;
 
     if(node == NULL) return;
@@ -301,10 +305,12 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret)
     if(key == NULL) return p67_err_einval;
 
     unsigned long hash = p67_hash_fn((__u_char *)&key->sock, key->socklen);
-    p67_liitem_t * r = conn_cache[hash], ** np = NULL;
+    p67_liitem_t * r, ** np = NULL;
     p67_liitem_t ** cc;
 
     if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return p67_err_einval;
+
+    r = cc[hash];
 
     do {
         if(r == NULL) break;
@@ -315,7 +321,7 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret)
     } while ((r=r->next) != NULL);
     
     if(r == NULL) {
-        np = &conn_cache[hash];
+        np = &cc[hash];
     } else {
         np = &r->next;
     }
@@ -395,7 +401,7 @@ p67_node_insert(
         if(strdup_key) {
             if((tkeycpy = strdup(trusted_key)) == NULL) return p67_err_eerrno;
         } else {
-            tkeycpy = trusted_key;
+            tkeycpy = (char *)trusted_key;
         }
     }
 
@@ -682,12 +688,12 @@ p67_net_verify_callback(int ok, X509_STORE_CTX *ctx)
     p67_addr_t addr;
     X509 * x509;
     char *pubk = NULL;
-    struct node_info * ni;
     int cnix, success = 0, asnl;
     X509_NAME * x509_name;
     X509_NAME_ENTRY * ne;
     ASN1_STRING * castr;
     EVP_PKEY * pkey;
+    p67_node_t * node;
 
     bzero(&addr, sizeof(p67_addr_t));
 
@@ -711,7 +717,8 @@ p67_net_verify_callback(int ok, X509_STORE_CTX *ctx)
     /* 
         if remote was already queued and their ssl conn closed then block them 
     */
-    if(pns_get_node(PNSTQUEUE, &addr) != NULL) {
+    if((node = p67_node_lookup(&addr)) != NULL 
+            && (node->state & P67_NODE_STATE_QUEUE) != 0) {
         X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_REJECTED);
         return 0;
     }
@@ -720,46 +727,28 @@ p67_net_verify_callback(int ok, X509_STORE_CTX *ctx)
         return 0;
     }
 
-    if((pubk = alloc_extract_pem_str(x509, 2)) == NULL) {
+    if((pubk = p67_net_get_pem_str(x509, P67_PEM_PUBKEY)) == NULL) {
         return 0;
     }
 
     /* 
-        if remote is first timer then allow him to proceed ( will be queued by protocol ) 
-        but warn user about new host
+        if remote is first timer then allow them to connect ( will be queued by protocol later ) 
+        but we can warn user about new peer
     */
-    if((ni = pns_get_node(PNSTCACHE, &addr)) == NULL) {
-        LOG_DBG_PRINTF("Unknown host connecting from %s with public key:\n%s", addrs, pubk);
+    if(node == NULL) {
+        DLOG("Unknown host connecting from %s:%s with public key:\n%s", 
+            addr.hostname, addr.service, pubk);
         success = 1;
         goto end;
     }
 
-    if(ni->known_key == NULL) {
-        LOG_PRINTF("Couldnt verify host ( %s ) with public key:\n%sHost moved to queue\n", addrs, pubk);
-        if(pns_remove_node(PNSTCACHE, &addr) != 0) {
-            LOG_PRINTF("Couldnt remove host from cache. %s\n", PE_STRERROR(errno));
-            success = 0;
-            goto end;
-        }
-        if(pns_insert_node(PNSTQUEUE, &addr) == NULL) {
-            LOG_PRINTF("Couldnt insert host to cache. %s\n", PE_STRERROR(errno));
-            success = 0;
-            goto end;
-        }
+    if(node->trusted_pub_key == NULL) {
+        DLOG("Couldnt verify host ( %s:%s ) with public key:\n%sHost moved to queue\n", 
+            addr.hostname, addr.service, pubk);
+        node->state |= P67_NODE_STATE_QUEUE;
         success = 1;
         goto end;
     }
-
-
-    #if defined(USEIPV6)
-
-    inet_ntop(AF_INET6, &ni->addr, ips, INET6_ADDRSTRLEN);
-
-    #else
-
-    ips = inet_ntoa(ADDR_ADDR(ni->addr));
-
-    #endif
 
     if((pkey = X509_get_pubkey(x509)) == NULL) {
         success = 0;
@@ -767,7 +756,8 @@ p67_net_verify_callback(int ok, X509_STORE_CTX *ctx)
     }
 
     if(X509_verify(x509, pkey) != 1) {
-        LOG_DBG_PRINTF("Invalid SSL certificate coming from host at %s.\nInvalid signature.\n", addrs);
+        DLOG("Invalid SSL certificate coming from host at %s:%s.\nInvalid signature.\n", 
+            addr.hostname, addr.service);
         success = 0;
         goto end;
     }
@@ -794,47 +784,39 @@ p67_net_verify_callback(int ok, X509_STORE_CTX *ctx)
 
     asnl = ASN1_STRING_length(castr);
     
-    if((size_t)asnl != strlen(ips) || memcmp(ips, ASN1_STRING_get0_data(castr), asnl) != 0) {
-        LOG_DBG_PRINTF(
-            "Invalid SSL certificate coming from host at %s. CN is set to %s\n", 
-            ips,
+    if((size_t)asnl != strlen(addr.hostname) 
+            || memcmp(addr.hostname, ASN1_STRING_get0_data(castr), asnl) != 0) {
+        DLOG(
+            "Invalid SSL certificate coming from host at %s:%s. CN is set to %s\n", 
+            addr.hostname, addr.service,
             ASN1_STRING_get0_data(castr));
         success = 0;
         return 0;
     }
 
-    if((strlen(ni->known_key) != strlen(pubk)) || memcmp(ni->known_key, pubk, strlen(pubk)) != 0) {
-        LOG_PRINTF("Invalid SSL certificate coming from host at address %s.\n"
-            "This can be potential mitm attack. Host moved to queue.\n", addrs);
+    if((strlen(node->trusted_pub_key) != strlen(pubk)) || memcmp(node->trusted_pub_key, pubk, strlen(pubk)) != 0) {
+        DLOG("Invalid SSL certificate coming from host at address %s:%s.\n"
+            "This can be potential mitm attack. Host moved to queue.\n", 
+                addr.hostname, addr.service);
 
-        LOG_DBG_PRINTF("expected: \n%s\ngot:\n%s\n", ni->known_key, pubk);
+        DLOG("Expected: \n%s\ngot:\n%s\n", node->trusted_pub_key, pubk);
 
         /* 
-            right now removing node from cache and insert into nodes so its ignored. 
-            up to user to trust him ( by accepting ) or ignore 
+            Remove node from cache and insert into queue so it will be ignored. 
+            Up to user to trust him ( by accepting / reconnecting ) or further ignore 
         */
         success = 0;
-
-        if(pns_remove_node(PNSTCACHE, &addr) != 0) {
-            LOG_DBG_PRINTF("Couldnt remove host from cache. %s\n", PE_STRERROR(errno));
-            goto end;
-        }
-        if(pns_insert_node(PNSTQUEUE, &addr) == NULL) {
-            LOG_DBG_PRINTF("Couldnt insert host to cache. %s\n", PE_STRERROR(errno));
-            goto end;
-        }
+        node->state |= P67_NODE_STATE_QUEUE;
         goto end;
     }
 
     success = 1;
 
 end:
-    if(pubk != NULL) {
-        free(pubk);
-    }
+    if(pubk != NULL) free(pubk);
     // should those variables be freed?
-    if(pkey != NULL) {
-        EVP_PKEY_free(pkey);
-    }
+    // future self answer = yeah
+    if(pkey != NULL) EVP_PKEY_free(pkey);
+
 	return success;
 }
