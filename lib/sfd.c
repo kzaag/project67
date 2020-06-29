@@ -100,7 +100,7 @@ p67_addr_free(p67_addr_t * addr)
 }
 
 p67_err
-p67_addr_dup(p67_addr_t * dest, p67_addr_t * src)
+p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src)
 {
     p67_err err;
 

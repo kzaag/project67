@@ -2,6 +2,9 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 
+#if !defined(__USE_XOPEN_EXTENDED)
+#define __USE_XOPEN_EXTENDED
+#endif
 #include <string.h>
 #include <strings.h>
 #include <sys/time.h>
@@ -20,37 +23,52 @@ unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
 typedef struct p67_conn p67_conn_t;
 typedef struct p67_node p67_node_t;
 
+typedef struct p67_liitem p67_liitem_t;
+
 typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, char *, int); 
+
+/* linked item - generic structure used in hash table operations */
+struct p67_liitem {
+    p67_liitem_t * next;
+    p67_addr_t key;
+};
 
 /*
     Structure representing physical established connections.
     All connections are kept in conn_cache hash table.
 */
 struct p67_conn {
-    p67_addr_t addr_local;
+    p67_conn_t * next;
     p67_addr_t addr_remote;
+    p67_addr_t addr_local;
     SSL * ssl;
     p67_conn_callback_t callback;
-    p67_conn_t * next;
 };
 
+typedef __uint16_t p67_state_t;
+
+#define P67_NODE_STATE_ACCEP 0
+#define P67_NODE_STATE_QUEUE 1
+
+#define P67_NODE_STATE_ALL 1
+
 /*
-    Structure representing loaded peers along with Their trusted keys 
-    with whom we can connect, or who are blocked.
-    newly arriwed requests are kept in the queue until user accepts them.
+    Structure representing known ( not nessesarily connected ) peers.
+    newly arrived requests are kept in the queue state until user accepts them.
 */
 struct p67_node {
+    p67_node_t * next;
     p67_addr_t trusted_addr;
+    /* heap allocated null terminated string */
     char * trusted_pub_key;
+    p67_state_t state;
 };
 
 #define CONN_CACHE_LEN 337
 #define NODE_CACHE_LEN 337
-#define QUEUE_CACHE_LEN 337
 
 p67_conn_t * conn_cache[CONN_CACHE_LEN];
 p67_node_t * node_cache[NODE_CACHE_LEN];
-p67_node_t * queue_cache[QUEUE_CACHE_LEN];
 
 #define P67_FH_FNV1_OFFSET (p67_hash_t)0xcbf29ce484222425
 #define P67_FH_FNV1_PRIME (p67_hash_t)0x100000001b3
@@ -76,19 +94,38 @@ typedef unsigned long p67_hash_t;
     otherwise only free dependencies.
 */
 void
-p67_conn_free(p67_conn_t * conn, int also_free_ptr);
+p67_conn_free(void * ptr, int also_free_ptr);
+
+void
+p67_node_free(void * ptr, int also_free_ptr);
 
 extern inline p67_hash_t
-p67_conn_cache_fn(const __u_char * key, int len);
+p67_hash_fn(const __u_char * key, int len);
 
-#define p67_net_is_already_connected(addr) \
-    (p67_conn_pool_lookup((addr)) != NULL)
+/* cache types for nodes */
+#define P67_CT_NODE 1
+#define P67_CT_CONN 2
 
-p67_conn_t *
-p67_conn_pool_lookup(p67_addr_t * addr);
+extern inline p67_err 
+p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl);
+
+#define p67_conn_lookup(addr) \
+    ((p67_conn_t *)p67_hash_lookup(P67_CT_CONN, (addr)))
+
+#define p67_node_lookup(addr) \
+    ((p67_addr_t *)p67_hash_lookup(P67_CT_NODE, (addr)))
+
+p67_liitem_t * 
+p67_hash_lookup(int p67_ct, const p67_addr_t * key);
+
+#define p67_conn_is_already_connected(addr) \
+    (p67_conn_lookup((addr)) != NULL)
 
 p67_err
-p67_conn_pool_insert(
+p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret);
+
+p67_err
+p67_conn_insert(
     p67_addr_t * local, 
     p67_addr_t * remote, 
     SSL * ssl, 
@@ -96,7 +133,30 @@ p67_conn_pool_insert(
     p67_conn_t ** ret);
 
 p67_err
-p67_conn_pool_remove(p67_addr_t * addr);
+p67_node_insert(
+    const p67_addr_t * addr,
+    const char * trusted_key,
+    int strdup_key,
+    p67_node_t ** ret);
+
+typedef void (* dispose_callback_t)(void * p, int);
+
+#define p67_conn_remove(addr) \
+    p67_hash_remove(P67_CT_CONN, addr, NULL, p67_conn_free)
+
+#define p67_node_remove(addr) \
+    p67_hash_remove(P67_CT_NODE, addr, NULL, p67_node_free)
+
+/*
+    removes ptr from hash tbl and places it in * out so user can free it.
+    If callback is provided then item will be disposed and nothing will be placed in *out
+*/
+p67_err
+p67_hash_remove(
+        int p67_ct, 
+        p67_addr_t * addr, 
+        p67_liitem_t ** out, 
+        dispose_callback_t callback);
 
 int 
 p67_net_verify_cookie(
@@ -130,11 +190,12 @@ p67_net_get_pem_str(X509 * x509, int type);
 /*---END PRIVATE PROTOTYPES---*/
 
 void
-p67_conn_free(p67_conn_t * conn, int also_free_ptr)
+p67_conn_free(void * ptr, int also_free_ptr)
 {
     int sfd;
+    p67_conn_t * conn = (p67_conn_t *)ptr;
 
-    if(conn == NULL) return;
+    if(ptr == NULL) return;
 
     DLOG("shutdown for %s:%s\n", conn->addr_remote.hostname, conn->addr_remote.service);
 
@@ -153,8 +214,37 @@ p67_conn_free(p67_conn_t * conn, int also_free_ptr)
     return;
 }
 
+void
+p67_node_free(void * ptr, int also_free_ptr)
+{
+    int sfd;
+    p67_node_t * node = (p67_node_t *)ptr;
+
+    if(node == NULL) return;
+
+    p67_addr_free(&node->trusted_addr);
+    if(node->trusted_pub_key != NULL) free(node->trusted_pub_key);
+    if(also_free_ptr) free(node);
+}
+
+/*
+    following methods mostly target cache accessing for 2 separate hash tables:
+        - conn_cache
+        - node_cache
+
+    I actually had quite a lot of headaches concerning how to implement it.
+    1 option was to completely duplicate hash access functions ( insert_*, remove_*, lookup_*).
+    2 option was to follow dry principle and try to reuse the code.
+    2 option was chosen by me, but this causes (negligible) loss of performance.
+        And im not sure if gains are well worth it.
+    So to any mantainer who happens to look at this code - if you feel that DRY-approach was wrong here.
+        feel free to reverse-refractor it into duplicated functions. 
+    I really dont know which approach is better.
+*/
+
+/* fnv 1a */
 inline p67_hash_t
-p67_conn_cache_fn(const __u_char * key, int len)
+p67_hash_fn(const __u_char * key, int len)
 {
     p67_hash_t hash = P67_FH_FNV1_OFFSET;
     while(len-->0) {
@@ -164,38 +254,62 @@ p67_conn_cache_fn(const __u_char * key, int len)
     return (hash % CONN_CACHE_LEN);
 }
 
-p67_conn_t *
-p67_conn_pool_lookup(p67_addr_t * addr)
+inline p67_err 
+p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl)
 {
-    if(addr == NULL) return NULL;
-    p67_conn_t * ret = NULL;
-    p67_hash_t hash = p67_conn_cache_fn((__u_char *)&addr->sock, addr->socklen);
-    for(ret = conn_cache[hash]; ret != NULL; ret = ret->next) {
-        if(ret->addr_remote.socklen != addr->socklen)
+    if(out == NULL) return p67_err_einval;
+
+    switch(p67_ct) {
+    case P67_CT_NODE:
+        *out = (p67_liitem_t **)node_cache;
+        if(outl != NULL) *outl = NODE_CACHE_LEN;
+        break;
+    case P67_CT_CONN:
+        *out = (p67_liitem_t **)conn_cache;
+        if(outl != NULL) *outl = CONN_CACHE_LEN;
+        break;
+    default:
+        return p67_err_einval;
+    }
+
+    return 0;
+}
+
+p67_liitem_t * 
+p67_hash_lookup(int p67_ct, const p67_addr_t * key)
+{
+    p67_liitem_t * ret = NULL, ** cc;
+    p67_hash_t hash = p67_hash_fn((__u_char *)&key->sock, key->socklen);
+
+    if(key == NULL) return NULL;
+
+    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0)
+        return NULL;
+
+    for(ret = cc[hash]; ret != NULL; ret = ret->next) {
+        if(ret->key.socklen != key->socklen)
             continue;
-        if(memcmp(&addr->sock, &ret->addr_remote.sock, addr->socklen) == 0) break;
+        if(memcmp(&key->sock, &ret->key.sock, key->socklen) == 0) break;
     }
     if(ret != NULL) return ret;
     return NULL;
 }
 
 p67_err
-p67_conn_pool_insert(
-    p67_addr_t * local, 
-    p67_addr_t * remote, 
-    SSL * ssl, 
-    p67_conn_callback_t callback, 
-    p67_conn_t ** ret) 
+p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret)
 {
-    if(remote == NULL) return p67_err_einval;
+    if(key == NULL) return p67_err_einval;
 
-    unsigned long hash = p67_conn_cache_fn((__u_char *)&remote->sock, remote->socklen);
-    p67_conn_t * r = conn_cache[hash], ** np = NULL;
+    unsigned long hash = p67_hash_fn((__u_char *)&key->sock, key->socklen);
+    p67_liitem_t * r = conn_cache[hash], ** np = NULL;
+    p67_liitem_t ** cc;
+
+    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return p67_err_einval;
 
     do {
         if(r == NULL) break;
-        if(r->addr_remote.socklen == remote->socklen 
-                && memcmp(&remote->sock, &r->addr_remote.sock, r->addr_remote.socklen) == 0) 
+        if(r->key.socklen == key->socklen 
+                && memcmp(&key->sock, &r->key.sock, r->key.socklen) == 0) 
             return p67_err_eaconn;
         if(r->next == NULL) break;
     } while ((r=r->next) != NULL);
@@ -206,11 +320,18 @@ p67_conn_pool_insert(
         np = &r->next;
     }
 
-    if((*np = calloc(sizeof(**np), 1)) == NULL) goto err;
-    if(p67_addr_dup(&(*np)->addr_local, local) != 0) goto err;
-    if(p67_addr_dup(&(*np)->addr_remote, remote) != 0) goto err;
-    if(callback != NULL) (*np)->callback = callback;
-    if(ssl != NULL) (*np)->ssl = ssl;
+    switch(p67_ct) {
+    case P67_CT_NODE:
+        if((*np = calloc(sizeof(p67_node_t), 1)) == NULL) goto err;
+        break;
+    case P67_CT_CONN:
+        if((*np = calloc(sizeof(p67_conn_t), 1)) == NULL) goto err;
+        break;
+    default:
+        goto err;
+    }
+
+    if(p67_addr_dup(&(*np)->key, key) != 0) goto err;
 
     if(ret != NULL)
         *ret = *np;
@@ -221,8 +342,6 @@ err:
     if(np == NULL || *np == NULL)
         return p67_err_eerrno;
 
-    p67_addr_free(&(*np)->addr_local);
-    p67_addr_free(&(*np)->addr_remote);
     free(*np);
     *np = NULL;
 
@@ -230,34 +349,105 @@ err:
 }
 
 p67_err
-p67_conn_pool_remove(p67_addr_t * addr)
+p67_conn_insert(
+    p67_addr_t * local, 
+    p67_addr_t * remote, 
+    SSL * ssl, 
+    p67_conn_callback_t callback, 
+    p67_conn_t ** ret) 
 {
-    if(addr == NULL) return p67_err_einval;
+    p67_err err;
+    p67_addr_t laddr;
+    p67_conn_t * conn;
 
-    // remove Y from X -> Y -> Z    =>    X -> Z
-    // remove Y from Y -> X -> Z    =>    X -> Z
+    /* malloc before inserting to hash
+        so in case of error one doesnt need to remove item from hash table */
 
-    p67_conn_t * ptr, * prev;
-    unsigned long hash = p67_conn_cache_fn((__u_char *)&addr->sock, addr->socklen);
+    if(p67_addr_dup(&laddr, local) != 0) return p67_err_eerrno;
+
+    if((err = p67_hash_insert(P67_CT_CONN, remote, (p67_liitem_t**)&conn)) != 0) {
+        p67_addr_free(&laddr);
+        return err;
+    }
+
+    (conn)->addr_local = laddr;
+    if(callback != NULL) (conn)->callback = callback;
+    if(ssl != NULL) (conn)->ssl = ssl;
+
+    if(ret != NULL)
+        *ret = conn;
+
+    return 0;
+}
+
+p67_err
+p67_node_insert(
+    const p67_addr_t * addr,
+    const char * trusted_key,
+    int strdup_key,
+    p67_node_t ** ret) 
+{
+    p67_err err;
+    p67_node_t * node;
+    char * tkeycpy;
+    
+    if(trusted_key != NULL) {
+        if(strdup_key) {
+            if((tkeycpy = strdup(trusted_key)) == NULL) return p67_err_eerrno;
+        } else {
+            tkeycpy = trusted_key;
+        }
+    }
+
+    if((err = p67_hash_insert(P67_CT_NODE, addr, (p67_liitem_t**)&node)) != 0) {
+        return err;
+    }
+
+    if(trusted_key != NULL) node->trusted_pub_key = tkeycpy;
+
+    if(ret != NULL)
+        *ret = node;
+
+    return 0;
+}
+
+p67_err
+p67_hash_remove(
+        int p67_ct, 
+        p67_addr_t * addr, 
+        p67_liitem_t ** out, 
+        dispose_callback_t callback)
+{
+    if(addr == NULL || out == NULL) return p67_err_einval;
+
+    p67_liitem_t * ptr, * prev, ** cc;
+    unsigned long hash = p67_hash_fn((__u_char *)&addr->sock, addr->socklen);
 
     prev = NULL;
     ptr = NULL;
 
-    for(ptr = conn_cache[hash]; ptr != NULL; ptr = (ptr)->next) {
-        if(addr->socklen == ptr->addr_remote.socklen 
-            && memcmp(&addr->sock, &ptr->addr_remote.sock, ptr->addr_remote.socklen) == 0) break;
+    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return p67_err_einval;
+
+    for(ptr = cc[hash]; ptr != NULL; ptr = (ptr)->next) {
+        if(addr->socklen == ptr->key.socklen 
+            && memcmp(&addr->sock, &ptr->key.sock, ptr->key.socklen) == 0) break;
         prev = ptr;
     }
 
     if(ptr == NULL) return p67_err_enconn;
 
     if(prev == NULL) {
-        conn_cache[hash] = NULL;
+        cc[hash] = NULL;
     } else {
         prev->next = ptr->next;
     }
 
-    p67_conn_free(ptr, 1);
+    if(callback != NULL) {
+        callback(ptr, 1);
+        return 0;
+    }
+
+    *out = ptr;
 
     return 0;
 }
@@ -392,7 +582,7 @@ p67_net_read_loop(p67_conn_t * conn)
 
     end:
     DLOG("Exitting read loop\n");
-    if(conn != NULL) p67_conn_pool_remove(&conn->addr_remote);
+    if(conn != NULL) p67_conn_remove(&conn->addr_remote);
     return;
 }
 
