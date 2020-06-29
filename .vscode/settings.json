@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "unordered_map": "c",
+        "unordered_set": "c",
+        "cerrno": "c"
+    }
+}

@@ -6,7 +6,7 @@ WD=`realpath $0 | xargs dirname`/
 
 FP="$WD/lib"
 
-FILES=`find $FP -name "*.c"`;
+FILES=`find $FP -name "*.c" ! -name "__*"`;
 
 rm -fr $WD/bin
 mkdir $WD/bin
@@ -39,6 +39,8 @@ gcc \
 sudo cp $LIB /usr/local/lib/;
 
 sudo mkdir -p /usr/include/p67;
+
+#sudo rm /usr/include/p67/*
 
 sudo cp $FP/*.h /usr/include/p67;
 

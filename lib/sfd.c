@@ -17,10 +17,12 @@
 
 #define AL 120
 
+#define ADDR_STR_LEN (INET6_ADDRSTRLEN+1+5)
+
 p67_err
 p67_addr_set_host(
                 p67_addr_t * addr, 
-                //socklen_t * addrl, 
+                const char * protocol,
                 const char * hostname, 
                 const char * service)
 {
@@ -38,6 +40,15 @@ p67_addr_set_host(
     hint.ai_next = NULL;
     hint.ai_protocol = 0;
 
+    if(protocol != NULL) {
+        if(strcmp(protocol, "udp") == 0) {
+            hint.ai_socktype = SOCK_DGRAM;
+            hint.ai_protocol = IPPROTO_UDP;
+        } else if(strcmp(protocol, "tcp") == 0) {
+            hint.ai_protocol = IPPROTO_TCP;
+        }
+    }
+
     if((ret = getaddrinfo(hostname, service, &hint, &info)) != 0) {
         return p67_err_enetdb | p67_err_eerrno;
     }
@@ -47,11 +58,11 @@ p67_addr_set_host(
     for (cp = info; cp != NULL; cp = cp->ai_next) {
         switch(info->ai_family) {
         case AF_INET:
-            addr->sock.sin = *((struct sockaddr_in *)&info->ai_addr);
+            addr->sock.sin = *((struct sockaddr_in *)info->ai_addr);
             ret = 0;
             break;
         case AF_INET6:
-            addr->sock.sin6 = *((struct sockaddr_in6 *)&info->ai_addr);
+            addr->sock.sin6 = *((struct sockaddr_in6 *)info->ai_addr);
             ret = 0;
             break;
         default:
@@ -88,12 +99,42 @@ p67_addr_free(p67_addr_t * addr)
     if((addr)->service != NULL) free((addr)->service);
 }
 
+p67_err
+p67_addr_dup(p67_addr_t * dest, p67_addr_t * src)
+{
+    p67_err err;
+
+    err = 0;
+
+    if(dest == NULL || src == NULL)
+        return p67_err_einval;
+
+    if((dest->hostname = strdup(src->hostname)) == NULL)
+        return p67_err_eerrno;
+
+    if((dest->service = strdup(src->service)) == NULL) {
+        err = p67_err_eerrno;
+        goto end;
+    }
+
+    dest->socklen = src->socklen;
+    dest->sock = src->sock;
+
+end:
+    if(err != 0) {
+        if(dest->hostname != NULL) free(dest->hostname);
+        if(dest->service != NULL) free(dest->service);
+    }
+
+    return err;
+}
+
 /*
     Assign connected peer to connection using address
     Method is not thread safe
 */
 p67_err
-p67_addr_set_sockaddr(p67_addr_t * addr, struct sockaddr * sa, socklen_t sal)
+p67_addr_set_sockaddr(p67_addr_t * addr, const struct sockaddr * sa, socklen_t sal)
 {
     char cb[AL], svc[10];
 
@@ -241,9 +282,34 @@ p67_sfd_close(p67_sfd_t sfd)
 }
 
 p67_err
-p67_sfd_connect(p67_sfd_t sfd, struct sockaddr * addr, socklen_t len)
+p67_sfd_connect(p67_sfd_t sfd, p67_addr_t * addr)
 {
-    if(connect(sfd, addr, len) != 0) {
+    if(connect(sfd, &addr->sock.sa, addr->socklen) != 0) {
+        return p67_err_eerrno;
+    }
+
+    return 0;
+}
+
+p67_err
+p67_sfd_bind(p67_sfd_t sfd, p67_addr_t * addr)
+{
+    if(addr == NULL)
+        return p67_err_einval;
+
+    if(bind(sfd, &addr->sock.sa, addr->socklen) != 0)
+        return p67_err_eerrno;
+
+    return 0;
+}
+
+p67_err
+p67_sfd_create_tcp_from_addr(p67_sfd_t * sfd, p67_addr_t * addr)
+{
+    if(addr == NULL || sfd == NULL)
+        return p67_err_einval;
+
+    if((*sfd = socket(addr->sock.sa.sa_family, SOCK_STREAM, IPPROTO_TCP)) < 0) {
         return p67_err_eerrno;
     }
 
@@ -256,7 +322,12 @@ p67_sfd_connect(p67_sfd_t sfd, struct sockaddr * addr, socklen_t len)
         2 = connect
 */
 p67_err
-p67_sfd_create_from_hint(p67_sfd_t * sfd, const char * hostname, const char * service, int flags)
+p67_sfd_create_from_hint(
+                p67_sfd_t * sfd, 
+                const char * protocol,
+                const char * hostname, 
+                const char * service, 
+                int flags)
 {
     int ret;
     struct addrinfo hint, * info, * cp;
@@ -269,6 +340,15 @@ p67_sfd_create_from_hint(p67_sfd_t * sfd, const char * hostname, const char * se
     hint.ai_flags = AI_PASSIVE;
     hint.ai_next = NULL;
     hint.ai_protocol = 0;
+
+    if(protocol != NULL) {
+        if(strcmp(protocol, "udp") == 0) {
+            hint.ai_socktype = SOCK_DGRAM;
+            hint.ai_protocol = IPPROTO_UDP;
+        } else if(strcmp(protocol, "tcp") == 0) {
+            hint.ai_protocol = IPPROTO_TCP;
+        }
+    }
 
     if((ret = getaddrinfo(hostname, service, &hint, &info)) != 0) {
         return p67_err_enetdb | p67_err_eerrno;
@@ -306,3 +386,47 @@ p67_sfd_create_from_hint(p67_sfd_t * sfd, const char * hostname, const char * se
     return 0;
 }
 
+p67_err
+p67_addr_parse_str(const char * str, p67_addr_t * addr) 
+{
+    char * portstr;
+    const char * ipstr;
+    int ipstrl;
+    char ip[ADDR_STR_LEN + 1];
+
+    if((portstr = strrchr(str, ':')) == NULL) {
+        errno = EBFONT;
+        return p67_err_eerrno;
+    }
+
+    portstr++;
+
+    if(portstr <= str) {
+        errno = EBFONT;
+        return p67_err_eerrno;
+    }
+
+    if(str[0] == '[') {
+        ipstr = str + 1;
+        ipstrl = portstr - ipstr - 2;
+    } else {
+        ipstr = str;
+        ipstrl = portstr - ipstr - 1;
+    }
+
+    memcpy(ip, ipstr, ipstrl);
+    ip[ipstrl] = 0;
+
+    return p67_addr_set_host(addr, "tcp", ip, portstr);
+}
+
+p67_err
+p67_sfd_get_peer_name(p67_sfd_t sfd, p67_addr_t * addr)
+{
+    p67_sockaddr_t sockaddr;
+    socklen_t len = sizeof(p67_sockaddr_t);
+    if(getpeername(sfd, &sockaddr.sa, &len) != 0)
+        return p67_err_eerrno;
+
+    return p67_addr_set_sockaddr(addr, &sockaddr.sa, len);
+}
