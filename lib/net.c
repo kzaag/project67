@@ -93,10 +93,10 @@ typedef unsigned long p67_hash_t;
 
 p67_err
 p67_conn_insert(
-    p67_addr_t * local, 
-    p67_addr_t * remote, 
-    SSL * ssl, 
-    p67_conn_callback_t callback, 
+    p67_addr_t * local,
+    p67_addr_t * remote,
+    SSL * ssl,
+    p67_conn_callback_t callback,
     p67_conn_t ** ret);
 
 /*
@@ -1158,11 +1158,7 @@ p67_net_start_persist_connect(
     return 0;
 
 err:
-    free(pass->certpath);
-    free(pass->keypath);
-    p67_addr_free(&pass->local);
-    p67_addr_free(&pass->remote);
-    free(pass);
+    p67_conn_pass_free(pass);
     return err;
 }
 
@@ -1325,7 +1321,7 @@ p67_net_listen(
 
     if((err = p67_sfd_set_reuseaddr(sfd)) != 0) goto end;
 
-    for(;;) {
+    while(1) {
         p67_err_mask_all(err);
         ssl = NULL;
 
