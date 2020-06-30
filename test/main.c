@@ -38,16 +38,31 @@ main(int argc, char ** argv)
 
     rinit = 1;
 
+    // if(argc > 3) {
+    //     err = p67_net_start_listen(
+    //             &lthr,
+    //             &local, 
+    //             read_callback, 
+    //             "p2pcert", 
+    //             "p2pcert.cert");
+    // } else {
+    //     err = p67_net_start_persist_connect(
+    //                 &cthr,
+    //                 &local, &remote, 
+    //                 read_callback, 
+    //                 "p2pcert", 
+    //                 "p2pcert.cert");
+    // }
+
+
     if(argc > 3) {
-        err = p67_net_start_listen(
-                &lthr,
+        err = p67_net_listen(
                 &local, 
                 read_callback, 
                 "p2pcert", 
                 "p2pcert.cert");
     } else {
-        err = p67_net_start_persist_connect(
-                    &cthr,
+        err = p67_net_connect(
                     &local, &remote, 
                     read_callback, 
                     "p2pcert", 

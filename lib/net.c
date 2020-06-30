@@ -499,8 +499,7 @@ p67_net_verify_cookie_callback(SSL *ssl, const unsigned char *cookie, unsigned i
 	    (const unsigned char*)&peer, sizeof(p67_sockaddr_t), 
         result, &resultlength);
 
-	if (cookie_len == resultlength && memcmp(result, cookie, resultlength) == 0)
-		return 1;
+	if (cookie_len == resultlength && memcmp(result, cookie, resultlength) == 0) return 1;
 
 	return 0;
 }
@@ -687,14 +686,14 @@ int
 p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx) 
 {
     p67_addr_t addr;
-    X509 * x509;
+    X509 * x509 = NULL;
     char *pubk = NULL;
     int cnix, success = 0, asnl;
-    X509_NAME * x509_name;
-    X509_NAME_ENTRY * ne;
-    ASN1_STRING * castr;
-    EVP_PKEY * pkey;
-    p67_node_t * node;
+    X509_NAME * x509_name = NULL;
+    X509_NAME_ENTRY * ne = NULL;
+    ASN1_STRING * castr = NULL;
+    EVP_PKEY * pkey = NULL;
+    p67_node_t * node = NULL;
 
     bzero(&addr, sizeof(p67_addr_t));
 
@@ -781,7 +780,7 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
             addr.hostname, addr.service,
             ASN1_STRING_get0_data(castr));
         success = 0;
-        return 0;
+        goto end;
     }
 
     if((strlen(node->trusted_pub_key) != strlen(pubk)) || memcmp(node->trusted_pub_key, pubk, strlen(pubk)) != 0) {
@@ -803,7 +802,12 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
 
 end:
     if(pubk != NULL) free(pubk);
-
+    p67_addr_free(&addr);
+    if(castr != NULL) ASN1_STRING_free(castr);
+    if(ne != NULL) X509_NAME_ENTRY_free(ne);
+    if(x509_name != NULL) X509_NAME_free(x509_name);
+    if(pkey != NULL) EVP_PKEY_free(pkey);
+    if(x509 != NULL) X509_free(x509);
 	return success;
 }
 
@@ -1390,7 +1394,7 @@ p67_net_listen(
 
         /* bzero(&remote, sizeof(remote)) */
 
-        while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote) <= 0);
+        while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote.__ss) <= 0);
 
         do {
             if((pass = calloc(sizeof(p67_conn_t), 1)) == NULL) break;
