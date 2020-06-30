@@ -1246,7 +1246,7 @@ p67_net_init(void)
 }
 
 p67_err
-net_ssl_listen(
+p67_net_listen(
             p67_addr_t * local, 
             p67_conn_callback_t handler, 
             const char * keypath,

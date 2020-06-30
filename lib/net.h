@@ -120,7 +120,7 @@ void
 p67_conn_remove_all(void);
 
 p67_err
-net_ssl_listen(
+p67_net_listen(
             p67_addr_t * __restrict__ local, 
             p67_conn_callback_t handler, 
             const char * __restrict__ keypath,
