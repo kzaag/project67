@@ -11,7 +11,7 @@ typedef struct p67_node p67_node_t;
 
 typedef struct p67_liitem p67_liitem_t;
 
-typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, char *, int); 
+typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, const char *, int); 
 
 /* cache types for nodes */
 #define P67_CT_NODE 1
@@ -39,6 +39,12 @@ p67_hash_insert(
     p67_liitem_t ** ret, 
     p67_liitem_t * prealloc)
 __nonnull((2));
+
+void
+p67_conn_remove_all(void);
+
+void
+p67_net_free(void);
 
 p67_err
 p67_node_insert(
@@ -115,9 +121,6 @@ p67_net_write_connect(
             const char * __restrict__ keypath,
             const char * __restrict__ certpath)
     __nonnull((1, 2, 3, 4, 6, 7));
-
-void
-p67_conn_remove_all(void);
 
 p67_err
 p67_net_listen(

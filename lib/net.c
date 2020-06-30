@@ -720,6 +720,8 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
         return 0;
     }
 
+    success = 0;
+
     /* 
         if remote is first timer then allow them to connect ( will be queued by protocol later ) 
         but we can warn user about new peer
@@ -739,37 +741,24 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
         goto end;
     }
 
+
     if((pkey = X509_get_pubkey(x509)) == NULL) {
-        success = 0;
         goto end;
     }
 
     if(X509_verify(x509, pkey) != 1) {
         DLOG("Invalid SSL certificate coming from host at %s:%s.\nInvalid signature.\n", 
             addr.hostname, addr.service);
-        success = 0;
         goto end;
     }
 
-    if((x509_name = X509_get_subject_name(x509)) == NULL) {
-        success = 0;
-        goto end;
-    }
+    if((x509_name = X509_get_subject_name(x509)) == NULL) goto end;
 
-    if((cnix = X509_NAME_get_index_by_NID(x509_name, NID_commonName, -1)) < 0) {
-        success = 0;
-        goto end;
-    }
+    if((cnix = X509_NAME_get_index_by_NID(x509_name, NID_commonName, -1)) < 0) goto end;
 
-    if((ne = X509_NAME_get_entry(x509_name, cnix)) == NULL) {
-        success = 0;
-        goto end;
-    }
+    if((ne = X509_NAME_get_entry(x509_name, cnix)) == NULL) goto end;
 
-    if((castr = X509_NAME_ENTRY_get_data(ne)) == NULL) {
-        success = 0;
-        goto end;
-    }
+    if((castr = X509_NAME_ENTRY_get_data(ne)) == NULL) goto end;
 
     asnl = ASN1_STRING_length(castr);
     
@@ -794,7 +783,6 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
             Remove node from cache and insert into queue so it will be ignored. 
             Up to user to trust him ( by accepting / reconnecting ) or further ignore 
         */
-        success = 0;
         node->state |= P67_NODE_STATE_QUEUE;
         goto end;
     }
@@ -909,23 +897,23 @@ p67_net_connect(
     if(local == NULL || remote == NULL || keypath == NULL || certpath == NULL)
         return p67_err_einval;
 
-    int sfd;
+    int sfd, noclose;
     p67_err err;
     SSL * ssl = NULL;
     BIO * bio = NULL;
     SSL_CTX * ctx = NULL;
     p67_conn_t * conn;
     
-    p67_err_mask_all(err);
+    noclose = 0;
 
-    if(p67_conn_is_already_connected(remote) != 0) {
-        return p67_err_eaconn;
-    }
+    if(p67_conn_is_already_connected(remote) != 0) return p67_err_eaconn;
 
-    if((sfd = p67_sfd_create_from_addr(
+    if((err = p67_sfd_create_from_addr(
                 &sfd, 
                 local, 
-                P67_SFD_TP_DGRAM_UDP)) <= 0) goto end;
+                P67_SFD_TP_DGRAM_UDP)) != 0) goto end;
+
+    p67_err_mask_all(err);
 
     if(p67_sfd_set_reuseaddr(sfd) != 0) goto end;
 
@@ -962,17 +950,25 @@ p67_net_connect(
 
    if (SSL_connect(ssl) != 1) goto end;
 
-    DLOG("Connected to %s:%s\n", remote->hostname, remote->service);
-
     if(p67_conn_insert(local, remote, ssl, handler, &conn) != 0) goto end;
 
-    if(p67_cmn_thread_create(&conn->__read_thr, __p67_net_enter_read_loop, conn) == 0) {
+    DLOG("Connected to %s:%s\n", remote->hostname, remote->service);
+
+    /*
+        As of this moment we are connected 
+        and even if we cannot spawn read loop connection must stay alive
+    */
+    noclose = 1;
+
+    if((err = p67_cmn_thread_create(&conn->__read_thr, __p67_net_enter_read_loop, conn)) == 0) {
         conn->__read_thr_running = 1;
         err = 0;
+    } else {
+        err = p67_err_eerrno;
     }
-
-    end:
-    if(err != 0) {
+    
+end:
+    if(err != 0 && !noclose) {
         if(ssl != NULL) {
             SSL_clear(ssl);
             SSL_shutdown(ssl);
@@ -981,9 +977,9 @@ p67_net_connect(
         if(sfd > 0) p67_sfd_close(sfd);
     }
     if(ctx != NULL) SSL_CTX_free(ctx);
+
     return err;
 }
-
 
 #define P67_CONN_CNT_DEF     0 /* equal to 1 unless specified otherwise by the function */
 #define P67_CONN_CNT_PASS    1
@@ -1009,7 +1005,7 @@ p67_net_nat_connect(
 
     while(retries-->0) {
         if(p67_conn_lookup(remote) != NULL) {
-            DLOG("\rConnect:%d Connection exists.\n", p67_conn_cn_t);
+            DLOG("\rNAT Connect:%d Connection exists.\n", p67_conn_cn_t);
             return p67_err_eaconn;
         }
 
@@ -1034,7 +1030,7 @@ p67_net_nat_connect(
                 break;
             }
             interv = (interv % 3000) + 1000;
-            DLOG("Connect:%d Sleeping for %lu\n", p67_conn_cn_t, interv);
+            DLOG("NAT Connect:%d Sleeping for %lu\n", p67_conn_cn_t, interv);
             sleepspec.tv_sec = interv / 1000;
             sleepspec.tv_nsec = (interv % 1000) * 1000000;
             if(nanosleep(&sleepspec, &sleepspec) != 0) {
@@ -1050,9 +1046,9 @@ p67_net_nat_connect(
     }
 
     if(err == 0) {
-        DLOG("Connect:%d Succeeded.\n", p67_conn_cn_t);
+        DLOG("NAT Connect:%d Succeeded.\n", p67_conn_cn_t);
     } else {
-        DLOG("Connect:%d Failed.\n", p67_conn_cn_t);
+        DLOG("NAT Connect:%d Failed.\n", p67_conn_cn_t);
     }
 
     return err;
@@ -1131,6 +1127,8 @@ p67_net_start_persist_connect(
 
     if((err = p67_addr_dup(&pass->local, local)) != 0) goto err;
 
+    err = p67_err_eerrno;
+
     if((pass->keypath = strdup(keypath)) == NULL) goto err;
 
     if((pass->certpath = strdup(certpath)) == NULL) goto err;
@@ -1138,9 +1136,10 @@ p67_net_start_persist_connect(
     pass->handler = handler;
     
     if(p67_cmn_thread_create(thr, __p67_net_persist_connect, pass) != 0) {
-        err = p67_err_eerrno;
         goto err;
     }
+
+    return 0;
 
 err:
     free(pass->certpath);
@@ -1236,6 +1235,12 @@ p67_conn_remove_all(void)
         if(conn_cache[i] == NULL) continue;
         p67_conn_remove(&conn_cache[i]->addr_remote);
     }
+}
+
+void
+p67_net_free(void)
+{
+    p67_conn_remove_all();
 }
 
 void

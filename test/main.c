@@ -1,34 +1,52 @@
-#include <p67/net.h>
-#include <p67/sfd.h>
-#if !defined(__USE_XOPEN_EXTENDED)
-#define __USE_XOPEN_EXTENDED
-#endif
-#include <string.h>
+#include <p67/p67.h>
+
+p67_err
+read_callback(p67_conn_t * conn, const char * msg, int msgl)
+{
+    printf("%*.*s\n", msgl, msgl, msg);
+}
 
 int
 main()
 {
-    // p67_client_t * client = calloc(sizeof(p67_client_t), 1);
-    // client->cert.certpath = strdup("server_cert.pem");
-    // client->cert.keypath = strdup("server_private_key");
-    // client->cert.trusted_chain_path = strdup("chain.pem");
-    // p67_addr_set_host(&client->local_addr, "127.0.0.1", "2000");
-    // p67_addr_set_host(&client->remote_addr, "127.0.0.1", "2020");
-    
-    // p67_err_print_err(p67_client_start_serve(client));
+    p67_addr_t local, remote;
+    int linit, rinit, len;
+    p67_err err;
 
-    // p67_err_print_err(p67_client_connect(client, 0));
+    p67_lib_init();
 
-    // getchar();
+    linit = 0;
+    rinit = 0;
 
-    // p67_err_print_err(p67_client_connect(client, 0));
+    if((err = p67_addr_set_host(
+            &local, "127.0.0.1", "10000", P67_SFD_TP_DGRAM_UDP)) != 0) {
+        return 1;
+    }
 
-    // getchar();
+    linit = 1;
 
-    // free(client->cert.certpath);
-    // free(client->cert.keypath);
-    // free(client->cert.trusted_chain_path);
-    // p67_addr_free(&client->local_addr);
-    // p67_addr_free(&client->remote_addr);
-    // free(client);
+    if((err = p67_addr_set_host(
+            &remote, "127.0.0.1", "10100", P67_SFD_TP_DGRAM_UDP)) != 0) {
+        goto end;
+    }
+
+    rinit = 1;
+
+    err = p67_net_connect(
+                &local, &remote, 
+                read_callback, 
+                "server_private_key", 
+                "server_cert.pem");
+
+    if(err != 0) goto end;
+
+    len = 5;
+    if((err = p67_net_write(&remote, "hello", &len)) != 0) goto end;
+
+end:
+    if(err != 0) p67_err_print_err("Main: ", err);
+    if(linit) p67_addr_free(&local);
+    if(rinit) p67_addr_free(&remote);
+    p67_lib_free();
+    if(err == 0) return 0; else return 2;
 }

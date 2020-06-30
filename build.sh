@@ -41,7 +41,7 @@ sudo cp $LIB /usr/local/lib/;
 
 sudo mkdir -p /usr/include/p67;
 
-#sudo rm /usr/include/p67/*
+sudo rm /usr/include/p67/*
 
 sudo cp $FP/*.h /usr/include/p67;
 

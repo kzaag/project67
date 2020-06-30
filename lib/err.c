@@ -11,37 +11,39 @@ p67_err_print_err(const char * hdr, p67_err err)
     unsigned long sslerr;
     char errbuf[128];
     char fb = 0;
+    int sslp;
 
-    if(hdr == NULL) {
-        hdr = &fb;
-    }
+    if(hdr == NULL) hdr = &fb;
 
     if(err == p67_err_eok) return;
-
+    
+    sslp = 0;
     if(err & p67_err_essl) {
         while((sslerr = ERR_get_error()) != 0) {
             ERR_error_string_n(sslerr, errbuf, 128);
-            fprintf(stderr, "%s: %s\n", hdr, errbuf);
+            fprintf(stderr, "%s%s\n", hdr, errbuf);
+            sslp = 1;
         }
+        if(sslp == 0) fprintf(stderr, "%sUnknown OpenSSL error occurred.\n", hdr); 
     }
 
     if((err & p67_err_eerrno) && errno != 0) {
-        fprintf(stderr, "%s: errno: %s\n", hdr, strerror(errno));
+        fprintf(stderr, "%sErrno: %s\n", hdr, strerror(errno));
     }
 
     if(err & p67_err_einval) {
-        fprintf(stderr, "%s: Invalid argument\n", hdr);
+        fprintf(stderr, "%sInvalid argument\n", hdr);
     }
 
     if(err & p67_err_eaconn) {
-        fprintf(stderr, "%s: Already connected\n", hdr);
+        fprintf(stderr, "%sAlready connected\n", hdr);
     }
 
     if(err & p67_err_enconn) {
-        fprintf(stderr, "%s: Connection gone\n", hdr);
+        fprintf(stderr, "%sConnection gone\n", hdr);
     }
 
     if(err & p67_err_enetdb) {
-        fprintf(stderr, "%s: Couldnt obtain address information\n", hdr);
+        fprintf(stderr, "%sCouldnt obtain address information\n", hdr);
     }
 }
