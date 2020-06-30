@@ -12,6 +12,14 @@
 #include <netdb.h>
 #include <sys/socket.h>
 
+/* 
+    actual value will depend on the function. 
+    proto is usualy defaulted to IPPROTO_IP (0) 
+    type will be SOCK_STREAM unless specified by other parameters */
+#define P67_SFD_TP_DEF 0 
+#define P67_SFD_TP_STREAM_TCP 1 /* SOCK_STREAM with IPPROTO_TCP */
+#define P67_SFD_TP_DGRAM_UDP 2 /* SOCK_DGRAM with IPPRORO UDP */
+
 #define p67_sfd_initialized(sfd) ((sfd) > 0)
 
 typedef int p67_sfd_t;
@@ -37,45 +45,68 @@ struct p67_addr {
 };
 
 #define p67_addr_is_initialized(addr) \
-    (((addr)->hostname != NULL) && ((addr)->service != NULL) && ((addr)->sock.sa.sa_family != 0))
+    (((addr)->hostname != NULL) \
+        && ((addr)->service != NULL) \
+            && ((addr)->sock.sa.sa_family != 0))
 
 typedef struct p67_addr p67_addr_t;
 
 void
-p67_addr_free(p67_addr_t * addr);
+p67_addr_free(p67_addr_t * __restrict__ addr);
 
 p67_err
 p67_addr_set_host(
-                p67_addr_t * addr, 
-                const char * protocol,
-                const char * hostname, 
-                const char * service);
+                p67_addr_t * __restrict__ addr, 
+                const char * __restrict__ protocol,
+                const char * __restrict__ hostname, 
+                const int p67_sfd_tp)
+    __nonnull((1, 2, 3));
 
 p67_err
 p67_addr_set_sockaddr(
-                p67_addr_t * addr,
-                const struct sockaddr * sa,
-                socklen_t sal);
+                p67_addr_t * __restrict__ addr,
+                const struct sockaddr * __restrict__ sa,
+                socklen_t sal)
+    __nonnull((1, 2));
+
+#define P67_SFD_C_BIND    1
+#define P67_SFD_C_CONNECT 2
+#define P67_SFD_C_REUSE   4
 
 p67_err
 p67_sfd_create_from_hint(
-            p67_sfd_t * sfd,
-            const char * protocol,
-            const char * hostname, 
-            const char * service,
-            int flags);
+            p67_sfd_t * __restrict__ sfd,
+            const int p67_sfd_tp,
+            const char * __restrict__ hostname,
+            const char * __restrict__ service,
+            int flags)
+    __nonnull((1, 3, 4));
 
 p67_err
-p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src);
+p67_addr_dup(p67_addr_t * __restrict__ dest, const p67_addr_t * __restrict__ src)
+    __nonnull((1, 2));
 
 p67_err
-p67_addr_parse_str(const char * str, p67_addr_t * addr);
+p67_addr_parse_str(const char * str, p67_addr_t * __restrict__ addr, int p67_sfd_tp)
+    __nonnull((2));
+
+
+/*
+    sfd  is socket to be created.
+    addr is hint address
+    p67_sfd_tp is type / proto specification.
+            to get p67_sfd_tp possible values look for P67_SFD_TP_* constants.
+*/
+p67_err
+p67_sfd_create_from_addr(
+            p67_sfd_t * __restrict__ sfd, 
+            p67_addr_t * __restrict__ addr, 
+            int p67_sfd_tp)
+    __nonnull((2));
 
 p67_err
-p67_sfd_create_tcp_from_addr(p67_sfd_t * sfd, p67_addr_t * addr);
-
-p67_err
-p67_sfd_connect(p67_sfd_t sfd, p67_addr_t * addr);
+p67_sfd_connect(p67_sfd_t sfd, p67_addr_t * addr)
+    __nonnull((2));
 
 p67_err
 p67_sfd_listen(p67_sfd_t sfd);
@@ -93,18 +124,21 @@ p67_err
 p67_sfd_close(p67_sfd_t sfd);
 
 p67_sfd_t
-p67_sfd_accept(p67_sfd_t sfd, p67_addr_t * addr);
+p67_sfd_accept(p67_sfd_t sfd, p67_addr_t * __restrict__ addr)
+    __nonnull((2));
 
 p67_err
 p67_sfd_valid(p67_sfd_t sfd);
 
 p67_err
-p67_sfd_bind(p67_sfd_t sfd, p67_addr_t * addr);
+p67_sfd_bind(p67_sfd_t sfd, p67_addr_t * addr)
+    __nonnull((2));
 
 p67_err
 p67_sfd_set_noblocking(p67_sfd_t sfd);
 
 p67_err
-p67_sfd_get_peer_name(p67_sfd_t sfd, p67_addr_t * addr);
+p67_sfd_get_peer_name(p67_sfd_t sfd, p67_addr_t * __restrict__ addr)
+    __nonnull((2));
 
 #endif

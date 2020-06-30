@@ -29,6 +29,7 @@ gcc \
     -Wmissing-prototypes \
     -Wstrict-prototypes \
     -Wold-style-definition \
+    -Wno-nonnull-compare  \
     `pkg-config --libs openssl` \
     $FILES \
     $DEBUG \

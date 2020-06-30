@@ -2,6 +2,15 @@
     "files.associations": {
         "unordered_map": "c",
         "unordered_set": "c",
-        "cerrno": "c"
+        "cerrno": "c",
+        "array": "c",
+        "chrono": "c",
+        "functional": "c",
+        "istream": "c",
+        "ostream": "c",
+        "ratio": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c"
     }
 }

@@ -17,8 +17,8 @@ enum p67_err {
 typedef enum p67_err p67_err;
 
 void
-p67_err_print_err(p67_err err);
+p67_err_print_err(const char * hdr, p67_err err);
 
-#define p67_err_print_all() p67_err_print_err(p67_err_essl | p67_err_eerrno)
+#define p67_err_print_all(hdr) p67_err_print_err(hdr, p67_err_essl | p67_err_eerrno)
 
 #endif

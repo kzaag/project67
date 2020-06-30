@@ -43,13 +43,27 @@ struct p67_conn {
     p67_addr_t addr_local;
     SSL * ssl;
     p67_conn_callback_t callback;
+
+    p67_thread_t __read_thr;
+
+    unsigned int __read_thr_running : 1;
 };
+
+typedef struct p67_conn_pass {
+    p67_addr_t local;
+    p67_addr_t remote;
+    p67_conn_callback_t handler;
+    char * keypath;
+    char * certpath;
+} p67_conn_pass_t;
 
 typedef __uint16_t p67_state_t;
 
 #define P67_NODE_STATE_QUEUE 1
 
 #define P67_NODE_STATE_ALL 1
+
+#define DAYS_TO_SEC(day) ((long)(60*60*24*day))
 
 /*
     Structure representing known ( not nessesarily connected ) peers.
@@ -121,7 +135,15 @@ p67_hash_lookup(int p67_ct, const p67_addr_t * key);
     (p67_conn_lookup((addr)) != NULL)
 
 p67_err
-p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret);
+p67_hash_insert(
+    int p67_ct, 
+    const p67_addr_t * key, 
+    p67_liitem_t ** ret, 
+    p67_liitem_t * prealloc)
+__nonnull((2));
+
+#define p67_conn_insert_existing(conn) \
+    p67_hash_insert(P67_CT_CONN, &(conn)->addr_remote, NULL, (p67_liitem_t *)(conn))
 
 p67_err
 p67_conn_insert(
@@ -158,13 +180,13 @@ p67_hash_remove(
         dispose_callback_t callback);
 
 int 
-p67_net_verify_cookie(
+p67_net_verify_cookie_callback(
         SSL *ssl, 
         const unsigned char *cookie, 
         unsigned int cookie_len);
 
 int 
-p67_net_generate_cookie(
+p67_net_generate_cookie_callback(
         SSL *ssl, 
         unsigned char *cookie,
         unsigned int *cookie_len);
@@ -190,7 +212,101 @@ char *
 p67_net_get_pem_str(X509 * x509, int type);
 
 int 
-p67_net_verify_callback(int ok, X509_STORE_CTX *ctx);
+p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx);
+
+p67_err
+p67_net_get_peer_pk(p67_addr_t * addr, char ** pk);
+
+void * 
+__p67_net_accept(void * args);
+
+p67_err
+p67_net_connect(
+            p67_addr_t * __restrict__ local, 
+            p67_addr_t * __restrict__ remote, 
+            p67_conn_callback_t handler, 
+            const char * __restrict__ keypath,
+            const char * __restrict__ certpath)
+    __nonnull((1, 2, 4, 5));
+
+p67_err
+p67_net_nat_connect(
+                p67_addr_t * __restrict__ local, 
+                p67_addr_t * __restrict__ remote, 
+                p67_conn_callback_t handler, 
+                const char * __restrict__ keypath,
+                const char * __restrict__ certpath, 
+                int p67_conn_cn_t)
+    __nonnull((1, 2, 4, 5));
+
+void *
+__p67_net_persist_connect(void * arg)
+    __nonnull((1));
+
+p67_err
+p67_net_start_persist_connect(
+                    p67_thread_t * __restrict__ thr,
+                    p67_addr_t * __restrict__ local,
+                    p67_addr_t * __restrict__ remote,
+                    p67_conn_callback_t handler,
+                    const char * __restrict__ keypath,
+                    const char * __restrict__ certpath)
+    __nonnull((1, 2, 3, 5, 6));
+
+p67_err
+__p67_net_write(
+                p67_conn_t * __restrict__ conn, 
+                const char * __restrict__ msg, 
+                int * __restrict__ msgl)
+    __nonnull((1, 2, 3));
+
+p67_err
+p67_net_write(
+            p67_addr_t * __restrict__ addr, 
+            const char * __restrict__ msg, 
+            int * __restrict__ msgl)
+    __nonnull((1, 2, 3));
+
+p67_err
+p67_net_write_connect(
+            const char * __restrict__ msg,
+            int * msgl,
+            p67_addr_t * __restrict__ local, 
+            p67_addr_t * __restrict__ remote, 
+            p67_conn_callback_t handler, 
+            const char * __restrict__ keypath,
+            const char * __restrict__ certpath)
+    __nonnull((1, 2, 3, 4, 6, 7));
+
+void
+p67_conn_remove_all(void);
+
+p67_err
+net_ssl_listen(
+            p67_addr_t * __restrict__ local, 
+            p67_conn_callback_t handler, 
+            const char * __restrict__ keypath,
+            const char * __restrict__ certpath)
+    __nonnull((1, 3, 4));
+
+void
+p67_net_init(void);
+
+p67_err
+p67_net_create_cert_from_key(
+            const char * __restrict__ path, 
+            const char * __restrict__ address)
+    __nonnull((1, 2));
+
+p67_err
+p67_net_new_cert(
+            char * __restrict__ path, 
+            char * __restrict__ address)
+    __nonnull((1, 2));
+
+p67_err
+p67_net_new_key(char * __restrict__ path)
+    __nonnull((1));
 
 /*---END PRIVATE PROTOTYPES---*/
 
@@ -202,7 +318,7 @@ p67_conn_free(void * ptr, int also_free_ptr)
 
     if(ptr == NULL) return;
 
-    DLOG("shutdown for %s:%s\n", conn->addr_remote.hostname, conn->addr_remote.service);
+    DLOG("Shutdown for %s:%s\n", conn->addr_remote.hostname, conn->addr_remote.service);
 
     p67_addr_free(&conn->addr_local);
     p67_addr_free(&conn->addr_remote);
@@ -300,7 +416,7 @@ p67_hash_lookup(int p67_ct, const p67_addr_t * key)
 }
 
 p67_err
-p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret)
+p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret, p67_liitem_t * prealloc)
 {
     if(key == NULL) return p67_err_einval;
 
@@ -326,6 +442,12 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret)
         np = &r->next;
     }
 
+    if(prealloc != NULL) {
+        *np = prealloc;
+        *ret = *np;
+        return 0;
+    }
+
     switch(p67_ct) {
     case P67_CT_NODE:
         if((*np = calloc(sizeof(p67_node_t), 1)) == NULL) goto err;
@@ -345,9 +467,6 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret)
     return 0;
 
 err:
-    if(np == NULL || *np == NULL)
-        return p67_err_eerrno;
-
     free(*np);
     *np = NULL;
 
@@ -371,7 +490,7 @@ p67_conn_insert(
 
     if(p67_addr_dup(&laddr, local) != 0) return p67_err_eerrno;
 
-    if((err = p67_hash_insert(P67_CT_CONN, remote, (p67_liitem_t**)&conn)) != 0) {
+    if((err = p67_hash_insert(P67_CT_CONN, remote, (p67_liitem_t**)&conn, NULL)) != 0) {
         p67_addr_free(&laddr);
         return err;
     }
@@ -405,7 +524,7 @@ p67_node_insert(
         }
     }
 
-    if((err = p67_hash_insert(P67_CT_NODE, addr, (p67_liitem_t**)&node)) != 0) {
+    if((err = p67_hash_insert(P67_CT_NODE, addr, (p67_liitem_t**)&node, NULL)) != 0) {
         return err;
     }
 
@@ -459,7 +578,7 @@ p67_hash_remove(
 }
 
 int 
-p67_net_generate_cookie(SSL *ssl, unsigned char *cookie, unsigned int *cookie_len)
+p67_net_generate_cookie_callback(SSL *ssl, unsigned char *cookie, unsigned int *cookie_len)
 {
 	unsigned char result[EVP_MAX_MD_SIZE];
 	unsigned int resultlength;
@@ -494,7 +613,7 @@ p67_net_generate_cookie(SSL *ssl, unsigned char *cookie, unsigned int *cookie_le
 }
 
 int 
-p67_net_verify_cookie(SSL *ssl, const unsigned char *cookie, unsigned int cookie_len)
+p67_net_verify_cookie_callback(SSL *ssl, const unsigned char *cookie, unsigned int cookie_len)
 {
 	unsigned char result[EVP_MAX_MD_SIZE];
 	unsigned int resultlength;
@@ -683,7 +802,7 @@ p67_net_get_pem_str(X509 * x509, int type)
 }
 
 int 
-p67_net_verify_callback(int ok, X509_STORE_CTX *ctx) 
+p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx) 
 {
     p67_addr_t addr;
     X509 * x509;
@@ -820,3 +939,768 @@ end:
 
 	return success;
 }
+
+p67_err
+p67_net_get_peer_pk(p67_addr_t * addr, char ** pk) 
+{
+    p67_conn_t * conn;
+    X509 * rcert;
+
+    if(pk == NULL) return p67_err_einval;
+
+    if((conn = p67_conn_lookup(addr)) == NULL)
+        return p67_err_enconn;
+
+    if(conn->ssl == NULL) return p67_err_enconn;
+
+    if((rcert = SSL_get_peer_certificate(conn->ssl)) == NULL)
+        return p67_err_essl;
+
+    if((*pk = p67_net_get_pem_str(rcert, P67_PEM_PUBKEY)) == NULL) 
+        return p67_err_essl | p67_err_eerrno;
+
+    return 0;
+}
+
+void * 
+__p67_net_accept(void * args)
+{
+    p67_conn_t * __restrict__ pass = (p67_conn_t *)args;
+    p67_err err;
+    BIO * rbio;
+    p67_sfd_t sfd;
+    int ret;
+
+    p67_err_mask_all(err);
+
+    if(p67_conn_is_already_connected(&pass->addr_remote)) {
+        err = p67_err_eaconn;
+        goto end;
+    }
+ 
+    if((rbio = SSL_get_rbio(pass->ssl)) == NULL) goto end;
+
+    if((p67_sfd_create_from_hint(
+            &sfd, 
+            P67_SFD_TP_DGRAM_UDP, 
+            pass->addr_local.hostname, 
+            pass->addr_local.service,
+            P67_SFD_C_REUSE | P67_SFD_C_BIND)) != 0)
+        goto end;
+
+    if(p67_sfd_connect(sfd, &pass->addr_remote) != 0) goto end;
+
+    if(BIO_set_fd(rbio, sfd, BIO_NOCLOSE) != 1) goto end;
+
+    if(BIO_ctrl(
+            rbio, 
+            BIO_CTRL_DGRAM_SET_CONNECTED, 
+            0, 
+            &pass->addr_remote.sock) != 1) 
+        goto end;
+
+    do {
+        ret = SSL_accept(pass->ssl);
+    } while (ret == 0);
+    
+    if(ret < 0) goto end;
+
+    if(p67_net_bio_set_timeout(rbio, 1) != 0) goto end;
+
+    if(p67_conn_insert_existing(pass) != 0) goto end;
+
+    DLOG("Accepted %s:%s\n", pass->addr_remote.hostname, pass->addr_remote.service);
+
+    if(pass->__read_thr_running) {
+        if(p67_cmn_thread_kill(pass->__read_thr) != 0) goto end;
+        pass->__read_thr_running = 0;
+    }
+
+    if(p67_cmn_thread_create(&pass->__read_thr, __p67_net_read_loop, pass) == 0) {
+        return NULL;
+    } else {
+        goto end;
+    }
+
+end:
+    p67_err_print_err("In accept", err);
+    if(sfd > 0) p67_sfd_close(sfd);
+    return NULL;
+}
+
+p67_err
+p67_net_connect(
+    p67_addr_t * local, 
+    p67_addr_t * remote, 
+    p67_conn_callback_t handler, 
+    const char * keypath,
+    const char * certpath)
+{
+    if(local == NULL || remote == NULL || keypath == NULL || certpath == NULL)
+        return p67_err_einval;
+
+    int sfd;
+    p67_err err;
+    SSL * ssl = NULL;
+    BIO * bio = NULL;
+    SSL_CTX * ctx = NULL;
+    p67_conn_t * conn;
+    
+    p67_err_mask_all(err);
+
+    if(p67_conn_is_already_connected(remote) != 0) {
+        return p67_err_eaconn;
+    }
+
+    if((sfd = p67_sfd_create_from_addr(
+                &sfd, 
+                local, 
+                P67_SFD_TP_DGRAM_UDP)) <= 0) goto end;
+
+    if(p67_sfd_set_reuseaddr(sfd) != 0) goto end;
+
+    if(p67_sfd_bind(sfd, local) != 0) goto end;
+
+    if(p67_sfd_connect(sfd, remote) != 0) goto end;
+
+    if((ctx = SSL_CTX_new(DTLS_client_method())) == NULL) goto end;
+
+    if(SSL_CTX_set_cipher_list(ctx, CIPHER) != 1) goto end;
+
+    if(SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM) != 1) goto end;
+
+    if(SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM) != 1) goto end;
+
+    if(SSL_CTX_check_private_key(ctx) != 1) goto end;
+
+    SSL_CTX_set_verify(
+                    ctx, 
+                    SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 
+                    p67_net_verify_ssl_callback);
+
+	SSL_CTX_set_read_ahead(ctx, 1);
+
+    if((ssl = SSL_new(ctx)) == NULL) goto end;
+
+    if((bio = BIO_new_dgram(sfd, BIO_NOCLOSE)) == NULL) goto end;
+
+    BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &remote->sock);
+
+    SSL_set_bio(ssl, bio, bio);
+
+    p67_net_bio_set_timeout(bio, 1);
+
+   if (SSL_connect(ssl) != 1) goto end;
+
+    DLOG("Connected to %s:%s\n", remote->hostname, remote->service);
+
+    if(p67_conn_insert(local, remote, ssl, handler, &conn) != 0) goto end;
+
+    if(p67_cmn_thread_create(&conn->__read_thr, __p67_net_read_loop, conn) == 0) {
+        conn->__read_thr_running = 1;
+        err = 0;
+    }
+
+    end:
+    if(err != 0) {
+        if(ssl != NULL) {
+            SSL_clear(ssl);
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+        }
+        if(sfd > 0) p67_sfd_close(sfd);
+    }
+    if(ctx != NULL) SSL_CTX_free(ctx);
+    return err;
+}
+
+
+#define P67_CONN_CNT_DEF     0 /* equal to 1 unless specified otherwise by the function */
+#define P67_CONN_CNT_PASS    1
+#define P67_CONN_CNT_ACT     2
+#define P67_CONN_CNT_PERSIST 3
+
+p67_err
+p67_net_nat_connect(
+                p67_addr_t * local, 
+                p67_addr_t * remote, 
+                p67_conn_callback_t handler, 
+                const char * keypath,
+                const char * certpath, 
+                int p67_conn_cn_t)
+{
+    if(local == NULL || remote == NULL || keypath == NULL || certpath == NULL)
+        return p67_err_einval;
+
+    unsigned long interv;
+    struct timespec sleepspec;
+    int retries = 5;
+    p67_err err;
+
+    while(retries-->0) {
+        if(p67_conn_lookup(remote) != NULL) {
+            DLOG("\rConnect:%d Connection exists.\n", p67_conn_cn_t);
+            return p67_err_eaconn;
+        }
+
+        // hiding net_cache_get error
+        if((err = p67_net_connect(
+                    local, remote, handler, keypath, certpath)) == 0) {
+            break;
+        }
+
+        if(p67_conn_cn_t == P67_CONN_CNT_PASS || p67_conn_cn_t == P67_CONN_CNT_DEF)
+            break;
+
+        if(p67_conn_cn_t == P67_CONN_CNT_ACT) {
+            err = p67_net_connect(local, remote, handler, keypath, certpath);
+            break;
+        }
+
+        if(p67_conn_cn_t == P67_CONN_CNT_PERSIST) {
+
+            if(1 != RAND_bytes((unsigned char *)&interv, sizeof(interv))) {
+                p67_err_mask_all(err);
+                break;
+            }
+            interv = (interv % 3000) + 1000;
+            DLOG("Connect:%d Sleeping for %lu\n", p67_conn_cn_t, interv);
+            sleepspec.tv_sec = interv / 1000;
+            sleepspec.tv_nsec = (interv % 1000) * 1000000;
+            if(nanosleep(&sleepspec, &sleepspec) != 0) {
+                err = p67_err_eerrno;
+                break;
+            }
+
+            continue;
+        }
+
+        err = p67_err_einval;
+        break;
+    }
+
+    if(err == 0) {
+        DLOG("Connect:%d Succeeded.\n", p67_conn_cn_t);
+    } else {
+        DLOG("Connect:%d Failed.\n", p67_conn_cn_t);
+    }
+
+    return err;
+}
+
+void *
+__p67_net_persist_connect(void * arg)
+{
+    p67_conn_pass_t * pass = (p67_conn_pass_t *)arg;
+    unsigned long interval;
+    p67_err err;
+
+    while(1) {
+        DLOG("Background connect iteration for %s:%s\n", 
+            pass->remote.hostname, pass->remote.service);
+
+        if(p67_conn_lookup(&pass->remote) == NULL) {
+            if((err = p67_net_nat_connect(
+                            &pass->local, 
+                            &pass->remote, 
+                            pass->handler, 
+                            pass->keypath, 
+                            pass->certpath, 
+                            P67_CONN_CNT_PASS)) != 0) {
+                p67_err_print_err("Background connect ", err);
+            } else {
+                DLOG("Background connected to %s:%s\n", 
+                    pass->remote.hostname, pass->remote.service);
+            }
+        }
+
+        if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval))) {
+            p67_err_print_err("Background connect RAND_bytes ", p67_err_eerrno | p67_err_essl);
+            break;
+        }
+        interval = (interval % 6000) + 4000;
+        DLOG("Background connect: Sleeping for %lu\n", interval);
+        if(p67_cmn_sleep_ms(interval) != 0) {
+            p67_err_print_err("Background connect p67_cmn_sleep_ms ", p67_err_eerrno);
+            break;
+        }
+    }
+
+    return NULL;
+}
+
+p67_err
+p67_net_start_persist_connect(
+                    p67_thread_t * thr,
+                    p67_addr_t * local,
+                    p67_addr_t * remote,
+                    p67_conn_callback_t handler,
+                    const char * keypath,
+                    const char * certpath)
+{
+    p67_conn_pass_t * pass;
+    p67_err err;
+
+    /*
+        OPTIMIZE IT!
+        that is awfull lot of mallocations 
+        one should optimize it by 
+            1. add duplicate flags to conn_pass which determines whether to duplicate address, and key/cert paths
+            2. pass (stack allocked) conn_pass to this method
+            3. create callocked heap copy of conn_pass here but only copy those fields which have 
+                duplicate flag ( see point 1) set to 1. 
+        In this way user can signal that he already have heap allocated value 
+            and there is no need of duplicating it here.
+        You should add const attributes in parameters to ensure user we will not mess with his memory
+    */
+
+    if((pass = calloc(sizeof(*pass), 1)) == NULL)
+        return p67_err_eerrno;
+
+    if((err = p67_addr_dup(&pass->remote, remote)) != 0) goto err;
+
+    if((err = p67_addr_dup(&pass->local, local)) != 0) goto err;
+
+    if((pass->keypath = strdup(keypath)) == NULL) goto err;
+
+    if((pass->certpath = strdup(certpath)) == NULL) goto err;
+
+    pass->handler = handler;
+    
+    if(p67_cmn_thread_create(thr, __p67_net_persist_connect, pass) != 0) {
+        err = p67_err_eerrno;
+        goto err;
+    }
+
+err:
+    free(pass->certpath);
+    free(pass->keypath);
+    p67_addr_free(&pass->local);
+    p67_addr_free(&pass->remote);
+    free(pass);
+    return err;
+}
+
+p67_err
+__p67_net_write(p67_conn_t * conn, const char * msg, int * msgl)
+{
+    ssize_t wrote;
+    p67_err err;
+
+    if(conn == NULL)
+        return p67_err_enconn;
+
+    if(conn->ssl == NULL || SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) {
+        /*
+            could try to reestablish communication. right now just return error
+        */
+        p67_conn_remove(&conn->addr_remote);
+        return p67_err_enconn;
+    }
+
+    p67_err_mask_all(err);
+
+    wrote = SSL_write(conn->ssl, msg, *msgl);
+
+    *msgl = wrote;
+
+    switch (SSL_get_error(conn->ssl, wrote)) {
+		case SSL_ERROR_NONE:
+            err = 0;
+            break;
+		case SSL_ERROR_WANT_WRITE:
+		case SSL_ERROR_SYSCALL:
+		case SSL_ERROR_SSL:
+		default:
+			break;
+	}
+    
+    return err;
+}
+
+p67_err
+p67_net_write(p67_addr_t * addr, const char * msg, int * msgl)
+{
+    p67_conn_t * conn;
+
+    if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
+
+    return __p67_net_write(conn, msg, msgl);
+}
+
+p67_err
+p67_net_write_connect(
+            const char * msg,
+            int * msgl,
+            p67_addr_t * local, 
+            p67_addr_t * remote, 
+            p67_conn_callback_t handler, 
+            const char * keypath,
+            const char * certpath) 
+{
+    p67_conn_t * conn;
+    p67_err err;
+
+    if((conn = p67_conn_lookup(remote)) != NULL) {
+        return __p67_net_write(conn, msg, msgl);
+    }
+
+    if((err = p67_net_nat_connect(
+                local, remote, handler, keypath, certpath, P67_CONN_CNT_PERSIST)) != 0) {
+        return err;
+    }
+
+    if((conn = p67_conn_lookup(remote)) != NULL) {
+        return __p67_net_write(conn, msg, msgl);
+    }
+
+    return p67_err_enconn;
+}
+
+void
+p67_conn_remove_all(void)
+{
+    size_t i;
+    
+    for(i = 0; i < CONN_CACHE_LEN; i++) {
+        if(conn_cache[i] == NULL) continue;
+        p67_conn_remove(&conn_cache[i]->addr_remote);
+    }
+}
+
+void
+p67_net_init(void)
+{
+    OpenSSL_add_ssl_algorithms();
+    SSL_load_error_strings();
+}
+
+p67_err
+net_ssl_listen(
+            p67_addr_t * local, 
+            p67_conn_callback_t handler, 
+            const char * keypath,
+            const char * certpath)
+{
+    if(local == NULL || keypath == NULL || certpath == NULL)
+        return p67_err_einval;
+
+    p67_sfd_t sfd;
+    SSL_CTX * ctx;
+    SSL * ssl;
+    BIO * bio;
+    p67_addr_t * remote;
+    p67_conn_t * pass;
+    p67_err err;
+    p67_thread_t accept_thr;
+
+    p67_err_mask_all(err);
+
+    ctx = NULL;
+    ssl = NULL;
+    bio = NULL;
+    remote = NULL;
+    pass = NULL;
+    sfd = 0;
+
+    if((ctx = SSL_CTX_new(DTLS_server_method())) == NULL)
+        return err;
+
+    if((SSL_CTX_set_cipher_list(ctx, CIPHER)) != 1)
+        goto end;
+
+    SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+
+    if(SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM) != 1)
+        goto end;
+
+    if(SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM) != 1)
+        goto end;
+
+    if(SSL_CTX_check_private_key(ctx) != 1) goto end;
+
+    SSL_CTX_set_verify(ctx, 
+        SSL_VERIFY_PEER | SSL_VERIFY_CLIENT_ONCE |  SSL_VERIFY_FAIL_IF_NO_PEER_CERT, 
+        p67_net_verify_ssl_callback);
+
+	SSL_CTX_set_read_ahead(ctx, 1);
+	SSL_CTX_set_cookie_generate_cb(ctx, p67_net_generate_cookie_callback);
+	SSL_CTX_set_cookie_verify_cb(ctx, p67_net_verify_cookie_callback);
+
+    if((err = p67_sfd_create_from_addr(&sfd, local, P67_SFD_TP_DGRAM_UDP)) != 0)
+        goto end;
+
+    if((err = p67_sfd_bind(sfd, local)) != 0) goto end;
+
+    if((err = p67_sfd_set_reuseaddr(sfd)) != 0) goto end;
+
+    for(;;) {
+        p67_err_mask_all(err);
+        ssl = NULL;
+
+        if((bio = BIO_new_dgram(sfd, BIO_NOCLOSE)) == NULL) goto end;
+
+        p67_net_bio_set_timeout(bio, 1);
+
+        if((ssl = SSL_new(ctx)) == NULL) goto end;
+
+        SSL_set_bio(ssl, bio, bio);
+        if(SSL_set_options(ssl, SSL_OP_COOKIE_EXCHANGE) != 1) goto end;
+
+        bzero(&remote, sizeof(remote));
+
+        while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote) <= 0);
+
+        DLOG("Accepting incoming connection...\n");
+
+        do {
+            if((pass = calloc(sizeof(p67_conn_t), 1)) == NULL) break;
+            if((err = p67_addr_dup(&pass->addr_local, local)) != 0) break;
+            if((err = p67_addr_dup(&pass->addr_remote, remote)) != 0) break;
+            pass->callback = handler;
+            pass->ssl = ssl;
+            if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, pass)) != 0) break;
+            //err = 0;
+        } while(0);
+
+        if(err != 0) 
+            p67_conn_free(pass, 1);
+    }
+
+end:
+    if(ctx != NULL) SSL_CTX_free(ctx);
+    p67_sfd_close(sfd);
+    if(ssl != NULL) SSL_free(ssl);
+
+    return err;
+}
+
+/*
+    generate cert from pre existing key
+*/
+p67_err
+p67_net_create_cert_from_key(const char * path, const char * address)
+{
+    if(path == NULL || strlen(path) == 0) return p67_err_einval;
+
+    X509 * x = NULL;
+    EVP_PKEY * priv = NULL, * pub = NULL;
+    BIO * privb = NULL, * pubb = NULL;
+    FILE * keypr = NULL, * keypub = NULL, * cert = NULL;
+    X509_NAME * name;
+    size_t pathl = strlen(path);
+    size_t extpl = pathl + 6;
+    p67_err err;
+    char * extp;
+
+    p67_err_mask_all(err);
+
+    if((extp = malloc(extpl)) == NULL) goto end;
+
+    if(memcpy(extp, path, pathl) == NULL) goto end;
+
+    if((keypr = fopen(extp, "w")) == NULL) goto end;
+
+    if((privb = BIO_new_fp(keypr, BIO_NOCLOSE)) == NULL) goto end;
+
+    if((PEM_read_bio_PrivateKey(privb, &priv, NULL, NULL)) == NULL) goto end;
+
+    sprintf(extp+pathl, ".pub");
+    if((keypub = fopen(extp, "w")) == NULL) goto end;
+
+    if((pubb = BIO_new_fp(keypub, BIO_NOCLOSE)) == NULL) goto end;
+
+    if((PEM_read_bio_PUBKEY(pubb, &pub, NULL, NULL)) == NULL) goto end;
+    
+    if((x = X509_new()) == NULL) goto end;
+
+    X509_set_version(x, 2);
+	X509_gmtime_adj(X509_get_notBefore(x),0);
+	X509_gmtime_adj(X509_get_notAfter(x),DAYS_TO_SEC(30));
+	X509_set_pubkey(x,pub);
+
+    name = X509_get_subject_name(x);
+    X509_NAME_add_entry_by_txt(
+        name, "CN", MBSTRING_ASC, (const unsigned char *)address, -1, -1, 0);
+	X509_set_issuer_name(x,name);
+
+    if(X509_sign(x, priv, EVP_sha256()) <= 0) goto end;
+
+    sprintf(extp+pathl, ".cert");
+    if((cert = fopen(extp, "w")) == NULL) goto end;
+
+    if(PEM_write_X509(cert, x) != 1) goto end;
+
+    err = 0;
+
+end:
+    BIO_free_all(privb);
+    BIO_free_all(pubb);
+    EVP_PKEY_free(priv);
+    EVP_PKEY_free(pub);
+    X509_free(x);
+    if(keypr != NULL)
+        fclose(keypr);
+    if(keypub != NULL)
+        fclose(keypub);
+    if(cert != NULL)
+        fclose(cert);
+    if(extp != NULL)
+        free(extp);
+
+    return err;
+}
+
+/*
+    generate key pair
+*/
+p67_err
+p67_net_new_key(char * path) 
+{
+    if(path == NULL || strlen(path) == 0) return p67_err_einval;
+
+    EVP_PKEY * keystor = NULL;
+    EC_KEY * key = NULL;
+    BIO * fbio = NULL;
+    FILE * keypr = NULL, * keypub = NULL;
+    size_t pathl = strlen(path);
+    size_t extpl = pathl + 6;
+    char * extp = malloc(extpl);
+    p67_err err;
+
+    p67_err_mask_all(err);
+
+    if(extp == NULL) goto end;
+
+    bzero(extp, extpl);
+
+    if(memcpy(extp, path, pathl) == NULL) goto end;
+
+    if((keystor = EVP_PKEY_new()) == NULL) goto end;
+
+    if((key = EC_KEY_new_by_curve_name(NID_secp384r1)) == NULL) goto end;
+
+    EC_KEY_set_asn1_flag(key, OPENSSL_EC_NAMED_CURVE);
+
+    if(EC_KEY_generate_key(key) != 1) goto end;
+
+    if(EVP_PKEY_assign_EC_KEY(keystor, key) != 1) goto end;
+
+    if((keypr = fopen(extp, "w")) == NULL) goto end;
+
+    if((fbio = BIO_new_fp(keypr, BIO_NOCLOSE)) == NULL) goto end;
+
+    if(PEM_write_bio_PrivateKey(
+            fbio, keystor, NULL, NULL, 0, 0, NULL) != 1) goto end;
+
+    sprintf(extp+pathl, ".pub");
+    if((keypub = fopen(extp, "w")) == NULL) goto end;
+
+    if(BIO_set_fp(fbio, keypub, BIO_NOCLOSE) != 1) goto end;
+
+    if(PEM_write_bio_PUBKEY(fbio, keystor) != 1) goto end;
+
+    err = 0;
+
+end:
+    BIO_free_all(fbio);
+    EVP_PKEY_free(keystor);
+    if(keypr != NULL)
+        fclose(keypr);
+    if(keypub != NULL)
+        fclose(keypub);
+    if(extp != NULL)
+        free(extp);
+
+    return err;
+}
+
+
+/*
+    generate certificate along with its key.
+    address is null terminated public ip of the host
+*/
+p67_err
+p67_net_new_cert(char * path, char * address)
+{
+    if(path == NULL || strlen(path) == 0) return p67_err_einval;
+
+    X509 * x = NULL;
+    EVP_PKEY * keystor = NULL;
+    EC_KEY * key = NULL;
+    BIO * fbio = NULL;
+    FILE * keypr = NULL, * keypub = NULL, * cert = NULL;
+    X509_NAME * name;
+    size_t pathl = strlen(path);
+    size_t extpl = pathl + 6;
+    char * extp = malloc(extpl);
+    p67_err err;
+
+    p67_err_mask_all(err);
+
+    if(extp == NULL) goto end;
+    
+    bzero(extp, extpl);
+    
+    if(memcpy(extp, path, pathl) == NULL) goto end;
+
+    if((keystor = EVP_PKEY_new()) == NULL) goto end;
+
+    if((key = EC_KEY_new_by_curve_name(NID_secp384r1)) == NULL) goto end;
+
+    EC_KEY_set_asn1_flag(key, OPENSSL_EC_NAMED_CURVE);
+
+    if(EC_KEY_generate_key(key) != 1) goto end;
+
+    if(EVP_PKEY_assign_EC_KEY(keystor, key) != 1) goto end;
+
+    if((keypr = fopen(extp, "w")) == NULL) goto end;
+
+    if((fbio = BIO_new_fp(keypr, BIO_NOCLOSE)) == NULL) goto end;
+
+    if(PEM_write_bio_PrivateKey(fbio, keystor, NULL, NULL, 0, 0, NULL) != 1) goto end;
+
+    sprintf(extp+pathl, ".pub");
+    if((keypub = fopen(extp, "w")) == NULL) goto end;
+
+    if(BIO_set_fp(fbio, keypub, BIO_NOCLOSE) != 1) goto end;
+
+    if(PEM_write_bio_PUBKEY(fbio, keystor) != 1) goto end;
+
+    if((x = X509_new()) == NULL) goto end;
+
+    X509_set_version(x, 2);
+	X509_gmtime_adj(X509_get_notBefore(x),0);
+	X509_gmtime_adj(X509_get_notAfter(x),DAYS_TO_SEC(30));
+	X509_set_pubkey(x,keystor);
+
+    name = X509_get_subject_name(x);
+    X509_NAME_add_entry_by_txt(
+            name, "CN", MBSTRING_ASC, (const unsigned char *)address, -1, -1, 0);
+	X509_set_issuer_name(x,name);
+
+    if(X509_sign(x, keystor, EVP_sha256()) <= 0) goto end;
+
+    sprintf(extp+pathl, ".cert");
+    if((cert = fopen(extp, "w")) == NULL) goto end;
+
+    if(PEM_write_X509(cert, x) != 1) goto end;
+
+    err = 0;
+
+end:
+    BIO_free_all(fbio);
+    EVP_PKEY_free(keystor);
+    X509_free(x);
+    if(keypr != NULL)
+        fclose(keypr);
+    if(keypub != NULL)
+        fclose(keypub);
+    if(cert != NULL)
+        fclose(cert);
+    if(extp != NULL)
+        free(extp);
+
+    return err;
+}
+
