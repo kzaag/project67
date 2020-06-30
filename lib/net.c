@@ -164,6 +164,10 @@ __p67_net_write(
                 int * __restrict__ msgl)
     __nonnull((1, 2, 3));
 
+void
+p67_conn_pass_free(p67_conn_pass_t * pass)
+    __nonnull((1));
+
 /*---END PRIVATE PROTOTYPES---*/
 
 void
@@ -1054,6 +1058,16 @@ p67_net_nat_connect(
     return err;
 }
 
+void
+p67_conn_pass_free(p67_conn_pass_t * pass)
+{
+    free(pass->certpath);
+    free(pass->keypath);
+    p67_addr_free(&pass->local);
+    p67_addr_free(&pass->remote);
+    free(pass);
+}
+
 void *
 __p67_net_persist_connect(void * arg)
 {
@@ -1091,6 +1105,8 @@ __p67_net_persist_connect(void * arg)
             break;
         }
     }
+
+    p67_conn_pass_free(pass);
 
     return NULL;
 }
