@@ -45,6 +45,8 @@ p67_addr_set_host(
     int ret;
     struct addrinfo hint, * info, *cp;
     
+    if(addr == NULL || hostname == NULL || service == NULL) return p67_err_einval;
+
     bzero(addr, sizeof(*addr));
 
     hint.ai_addr = NULL;
@@ -144,22 +146,22 @@ end:
     Method is not thread safe
 */
 p67_err
-p67_addr_set_sockaddr(p67_addr_t * addr, const struct sockaddr * sa, socklen_t sal)
+p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sal)
 {
     char cb[AL], svc[10];
 
     if(addr == NULL) return p67_err_einval;
 
-    switch(sa->sa_family) {
+    switch(sa->sa.sa_family) {
     case AF_INET:
-        addr->sock.sin = *(struct sockaddr_in *)sa;
-        inet_ntop(sa->sa_family, &((struct sockaddr_in *)addr)->sin_addr, cb, AL);
-        sprintf(svc, "%u", ((struct sockaddr_in *)&addr)->sin_port);
+        addr->sock.sin = sa->sin;
+        inet_ntop(sa->sa.sa_family, &sa->sin.sin_addr, cb, AL);
+        sprintf(svc, "%hu", ntohs(sa->sin.sin_port));
         break;
     case AF_INET6:
-        addr->sock.sin6 = *(struct sockaddr_in6 *)sa;
-        inet_ntop(sa->sa_family, &((struct sockaddr_in6 *)addr)->sin6_addr, cb, AL);
-        sprintf(svc, "%u", ((struct sockaddr_in6 *)&addr)->sin6_port);
+        addr->sock.sin6 = sa->sin6;
+        inet_ntop(sa->sa.sa_family, &sa->sin6.sin6_addr, cb, AL);
+        sprintf(svc, "%hu", ntohs(sa->sin6.sin6_port));
         break;
     default:
         addr->sock.sa.sa_family = AF_UNSPEC;
@@ -228,7 +230,7 @@ p67_sfd_accept(p67_sfd_t sfd, p67_addr_t * addr)
         if(csfd < 0)
             continue;
 
-        if(p67_addr_set_sockaddr(addr, (struct sockaddr *)&saddr, saddrl) != 0) {
+        if(p67_addr_set_sockaddr(addr, &saddr, saddrl) != 0) {
             p67_addr_free(addr);
             close(csfd);
             continue;
@@ -454,5 +456,5 @@ p67_sfd_get_peer_name(p67_sfd_t sfd, p67_addr_t * addr)
     if(getpeername(sfd, &sockaddr.sa, &len) != 0)
         return p67_err_eerrno;
 
-    return p67_addr_set_sockaddr(addr, &sockaddr.sa, len);
+    return p67_addr_set_sockaddr(addr, &sockaddr, len);
 }

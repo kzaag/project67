@@ -7,38 +7,56 @@ read_callback(p67_conn_t * conn, const char * msg, int msgl)
 }
 
 int
-main()
+main(int argc, char ** argv)
 {
     p67_addr_t local, remote;
     int linit, rinit, len;
     p67_err err;
+    p67_thread_t lthr, cthr;
 
     p67_lib_init();
 
     linit = 0;
     rinit = 0;
 
+    if(argc < 3) {
+        printf("Usage: ./p67test [source port] [dest port]\n");
+        return 2;
+    }
+
     if((err = p67_addr_set_host(
-            &local, "127.0.0.1", "10000", P67_SFD_TP_DGRAM_UDP)) != 0) {
-        return 1;
+            &local, "127.0.0.1", argv[1], P67_SFD_TP_DGRAM_UDP)) != 0) {
+        return 2;
     }
 
     linit = 1;
 
     if((err = p67_addr_set_host(
-            &remote, "127.0.0.1", "10100", P67_SFD_TP_DGRAM_UDP)) != 0) {
+            &remote, "127.0.0.1", argv[2], P67_SFD_TP_DGRAM_UDP)) != 0) {
         goto end;
     }
 
     rinit = 1;
 
-    err = p67_net_connect(
-                &local, &remote, 
+    if(argc > 3) {
+        err = p67_net_start_listen(
+                &lthr,
+                &local, 
                 read_callback, 
-                "server_private_key", 
-                "server_cert.pem");
+                "p2pcert", 
+                "p2pcert.cert");
+    } else {
+        err = p67_net_start_persist_connect(
+                    &cthr,
+                    &local, &remote, 
+                    read_callback, 
+                    "p2pcert", 
+                    "p2pcert.cert");
+    }
 
     if(err != 0) goto end;
+
+    getchar();
 
     len = 5;
     if((err = p67_net_write(&remote, "hello", &len)) != 0) goto end;

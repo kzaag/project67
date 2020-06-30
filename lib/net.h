@@ -141,12 +141,21 @@ p67_net_create_cert_from_key(
 
 p67_err
 p67_net_new_cert(
-            char * __restrict__ path, 
-            char * __restrict__ address)
+            const char * __restrict__ path, 
+            const char * __restrict__ address)
     __nonnull((1, 2));
 
 p67_err
 p67_net_new_key(char * __restrict__ path)
     __nonnull((1));
+
+p67_err
+p67_net_start_listen(
+            p67_thread_t * __restrict__ thr,
+            p67_addr_t * __restrict__ local, 
+            p67_conn_callback_t handler, 
+            const char * __restrict__ keypath,
+            const char * __restrict__ certpath)
+    __nonnull((1, 2, 3, 4, 5));
 
 #endif

@@ -16,7 +16,6 @@ DEBUG="-D DEBUG -g -fsanitize=address";
 # build so
 
 LIB=$WD/bin/libp67.so
-EXE=$WD/bin/p67test
 
 gcc \
     -std=c99 \
@@ -47,11 +46,11 @@ sudo cp $FP/*.h /usr/include/p67;
 
 sudo ldconfig;
 
-# build executable
+# build tests
 
 FP="$WD/test"
-FILES=`find $FP -name "*.c"`;
 
-gcc $FILES $DEBUG -std=c99 -lp67 -o $EXE -W -g;
-    
+gcc $FP/main.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67test -W -g;
+gcc $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g;
+
 bash $WD/devcert.sh $WD;

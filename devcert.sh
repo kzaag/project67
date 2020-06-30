@@ -48,6 +48,13 @@ openssl req -new -batch -key server_private_key -out .csr -config .cnf
 openssl x509 -req -days 100 -in .csr -CA chain.pem -CAkey ca_private_key \
         -out server_cert.pem -CAcreateserial -extensions req_ext -extfile .cnf > /dev/null 2>&1;
 
+# ---- begin generate default certs ---- #
+
+./p67gencert > /dev/null;
+
+# ---- end generate default certs ---- #
+
+
 rm .csr;
 rm .cnf;
 rm *.srl

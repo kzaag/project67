@@ -28,11 +28,7 @@ union p67_sockaddr {
     struct sockaddr         sa;
     struct sockaddr_in      sin;
     struct sockaddr_in6     sin6;
-    /* 
-        Only inet and inet6 is supported at the moment. 
-        So sockaddr_storage is not needed (biggest address is sin6) 
-        struct sockaddr_storage __ss;
-    */
+    struct sockaddr_storage __ss;
 };
 
 typedef union p67_sockaddr p67_sockaddr_t;
@@ -65,7 +61,7 @@ p67_addr_set_host(
 p67_err
 p67_addr_set_sockaddr(
                 p67_addr_t * __restrict__ addr,
-                const struct sockaddr * __restrict__ sa,
+                const p67_sockaddr_t * sa,
                 socklen_t sal)
     __nonnull((1, 2));
 
