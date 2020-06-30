@@ -1,4 +1,3 @@
-#include <openssl/ssl.h>
 #include <openssl/rand.h>
 #include <openssl/err.h>
 
@@ -10,22 +9,13 @@
 #include <sys/time.h>
 #include <errno.h>
 
-#include "err.h"
-#include "sfd.h"
 #include "log.h"
-#include "cmn.h"
+#include "net.h"
 
 p67_mutex_t cookie_lock = P67_CMN_MUTEX_INITIALIZER;
 int cookie_initialized=0;
 #define COOKIE_SECRET_LENGTH 32
 unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
-
-typedef struct p67_conn p67_conn_t;
-typedef struct p67_node p67_node_t;
-
-typedef struct p67_liitem p67_liitem_t;
-
-typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, char *, int); 
 
 /* linked item - generic structure used in hash table operations */
 struct p67_liitem {
@@ -60,7 +50,6 @@ typedef struct p67_conn_pass {
 typedef __uint16_t p67_state_t;
 
 #define P67_NODE_STATE_QUEUE 1
-
 #define P67_NODE_STATE_ALL 1
 
 #define DAYS_TO_SEC(day) ((long)(60*60*24*day))
@@ -102,49 +91,6 @@ typedef unsigned long p67_hash_t;
 
 /*---BEGIN PRIVATE PROTOTYPES---*/
 
-/*
-    if also_free_ptr is set to 1 then free conn pointer itself.
-    otherwise only free dependencies.
-*/
-void
-p67_conn_free(void * ptr, int also_free_ptr);
-
-void
-p67_node_free(void * ptr, int also_free_ptr);
-
-extern inline p67_hash_t
-p67_hash_fn(const __u_char * key, int len);
-
-/* cache types for nodes */
-#define P67_CT_NODE 1
-#define P67_CT_CONN 2
-
-extern inline p67_err 
-p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl);
-
-#define p67_conn_lookup(addr) \
-    ((p67_conn_t *)p67_hash_lookup(P67_CT_CONN, (addr)))
-
-#define p67_node_lookup(addr) \
-    ((p67_node_t *)p67_hash_lookup(P67_CT_NODE, (addr)))
-
-p67_liitem_t * 
-p67_hash_lookup(int p67_ct, const p67_addr_t * key);
-
-#define p67_conn_is_already_connected(addr) \
-    (p67_conn_lookup((addr)) != NULL)
-
-p67_err
-p67_hash_insert(
-    int p67_ct, 
-    const p67_addr_t * key, 
-    p67_liitem_t ** ret, 
-    p67_liitem_t * prealloc)
-__nonnull((2));
-
-#define p67_conn_insert_existing(conn) \
-    p67_hash_insert(P67_CT_CONN, &(conn)->addr_remote, NULL, (p67_liitem_t *)(conn))
-
 p67_err
 p67_conn_insert(
     p67_addr_t * local, 
@@ -153,31 +99,24 @@ p67_conn_insert(
     p67_conn_callback_t callback, 
     p67_conn_t ** ret);
 
-p67_err
-p67_node_insert(
-    const p67_addr_t * addr,
-    const char * trusted_key,
-    int strdup_key,
-    p67_node_t ** ret);
+/*
+    if also_free_ptr is set to 1 then free conn pointer itself.
+    otherwise only free dependencies.
+*/
+void
+p67_conn_free(void * ptr, int also_free_ptr);
 
-typedef void (* dispose_callback_t)(void * p, int);
+extern inline p67_hash_t
+p67_hash_fn(const __u_char * key, int len);
+
+extern inline p67_err 
+p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl);
+
+#define p67_conn_insert_existing(conn) \
+    p67_hash_insert(P67_CT_CONN, &(conn)->addr_remote, NULL, (p67_liitem_t *)(conn))
 
 #define p67_conn_remove(addr) \
     p67_hash_remove(P67_CT_CONN, addr, NULL, p67_conn_free)
-
-#define p67_node_remove(addr) \
-    p67_hash_remove(P67_CT_NODE, addr, NULL, p67_node_free)
-
-/*
-    removes ptr from hash tbl and places it in * out so user can free it.
-    If callback is provided then item will be disposed and nothing will be placed in *out
-*/
-p67_err
-p67_hash_remove(
-        int p67_ct, 
-        p67_addr_t * addr, 
-        p67_liitem_t ** out, 
-        dispose_callback_t callback);
 
 int 
 p67_net_verify_cookie_callback(
@@ -194,11 +133,8 @@ p67_net_generate_cookie_callback(
 p67_err
 p67_net_bio_set_timeout(BIO * bio, time_t sec);
 
-void * 
-__p67_net_read_loop(void * args);
-
-void
-p67_net_read_loop(p67_conn_t * conn);
+void *
+__p67_net_enter_read_loop(void * args);
 
 p67_err
 p67_net_get_addr_from_x509_store_ctx(X509_STORE_CTX *ctx, p67_addr_t * addr);
@@ -214,44 +150,12 @@ p67_net_get_pem_str(X509 * x509, int type);
 int 
 p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx);
 
-p67_err
-p67_net_get_peer_pk(p67_addr_t * addr, char ** pk);
-
 void * 
 __p67_net_accept(void * args);
-
-p67_err
-p67_net_connect(
-            p67_addr_t * __restrict__ local, 
-            p67_addr_t * __restrict__ remote, 
-            p67_conn_callback_t handler, 
-            const char * __restrict__ keypath,
-            const char * __restrict__ certpath)
-    __nonnull((1, 2, 4, 5));
-
-p67_err
-p67_net_nat_connect(
-                p67_addr_t * __restrict__ local, 
-                p67_addr_t * __restrict__ remote, 
-                p67_conn_callback_t handler, 
-                const char * __restrict__ keypath,
-                const char * __restrict__ certpath, 
-                int p67_conn_cn_t)
-    __nonnull((1, 2, 4, 5));
 
 void *
 __p67_net_persist_connect(void * arg)
     __nonnull((1));
-
-p67_err
-p67_net_start_persist_connect(
-                    p67_thread_t * __restrict__ thr,
-                    p67_addr_t * __restrict__ local,
-                    p67_addr_t * __restrict__ remote,
-                    p67_conn_callback_t handler,
-                    const char * __restrict__ keypath,
-                    const char * __restrict__ certpath)
-    __nonnull((1, 2, 3, 5, 6));
 
 p67_err
 __p67_net_write(
@@ -259,54 +163,6 @@ __p67_net_write(
                 const char * __restrict__ msg, 
                 int * __restrict__ msgl)
     __nonnull((1, 2, 3));
-
-p67_err
-p67_net_write(
-            p67_addr_t * __restrict__ addr, 
-            const char * __restrict__ msg, 
-            int * __restrict__ msgl)
-    __nonnull((1, 2, 3));
-
-p67_err
-p67_net_write_connect(
-            const char * __restrict__ msg,
-            int * msgl,
-            p67_addr_t * __restrict__ local, 
-            p67_addr_t * __restrict__ remote, 
-            p67_conn_callback_t handler, 
-            const char * __restrict__ keypath,
-            const char * __restrict__ certpath)
-    __nonnull((1, 2, 3, 4, 6, 7));
-
-void
-p67_conn_remove_all(void);
-
-p67_err
-net_ssl_listen(
-            p67_addr_t * __restrict__ local, 
-            p67_conn_callback_t handler, 
-            const char * __restrict__ keypath,
-            const char * __restrict__ certpath)
-    __nonnull((1, 3, 4));
-
-void
-p67_net_init(void);
-
-p67_err
-p67_net_create_cert_from_key(
-            const char * __restrict__ path, 
-            const char * __restrict__ address)
-    __nonnull((1, 2));
-
-p67_err
-p67_net_new_cert(
-            char * __restrict__ path, 
-            char * __restrict__ address)
-    __nonnull((1, 2));
-
-p67_err
-p67_net_new_key(char * __restrict__ path)
-    __nonnull((1));
 
 /*---END PRIVATE PROTOTYPES---*/
 
@@ -652,20 +508,34 @@ p67_net_bio_set_timeout(BIO * bio, time_t sec)
     return 0;
 }
 
-void * 
-__p67_net_read_loop(void * args)
+p67_err
+p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb)
 {
-    p67_net_read_loop((p67_conn_t *)args);
-    return NULL;
+    p67_conn_t * conn;
+
+    if((conn = p67_conn_lookup(addr)) == NULL)
+        return p67_err_enconn;
+
+    if(conn->__read_thr_running)
+        return p67_err_eaconn;
+
+    conn->callback = cb;
+
+    if(p67_cmn_thread_create(
+                &conn->__read_thr, __p67_net_enter_read_loop, conn) != 0)
+        return p67_err_eerrno;
+
+    return 0;
 }
 
-void
-p67_net_read_loop(p67_conn_t * conn)
+void *
+__p67_net_enter_read_loop(void * args)
 {
     ssize_t len;
     BIO * bio;
     char rbuff[READ_BUFFER_LENGTH], errbuf[ERR_BUFFER_LENGTH];
     int num_timeouts = 0, max_timeouts = 5, sslr = 1, err, callret;
+    p67_conn_t * conn = (p67_conn_t *)args;
 
     p67_err_mask_all(err);
     
@@ -708,7 +578,7 @@ p67_net_read_loop(p67_conn_t * conn)
     end:
     DLOG("Exitting read loop\n");
     if(conn != NULL) p67_conn_remove(&conn->addr_remote);
-    return;
+    return NULL;
 }
 
 p67_err
@@ -1016,7 +886,7 @@ __p67_net_accept(void * args)
         pass->__read_thr_running = 0;
     }
 
-    if(p67_cmn_thread_create(&pass->__read_thr, __p67_net_read_loop, pass) == 0) {
+    if(p67_cmn_thread_create(&pass->__read_thr, __p67_net_enter_read_loop, pass) == 0) {
         return NULL;
     } else {
         goto end;
@@ -1096,7 +966,7 @@ p67_net_connect(
 
     if(p67_conn_insert(local, remote, ssl, handler, &conn) != 0) goto end;
 
-    if(p67_cmn_thread_create(&conn->__read_thr, __p67_net_read_loop, conn) == 0) {
+    if(p67_cmn_thread_create(&conn->__read_thr, __p67_net_enter_read_loop, conn) == 0) {
         conn->__read_thr_running = 1;
         err = 0;
     }
