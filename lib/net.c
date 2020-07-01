@@ -12,6 +12,12 @@
 #include "log.h"
 #include "net.h"
 
+#define P67_DEFAULT_TIMEOUT_MS 200
+
+/* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */
+#define P67_MIN_SLEEP_MS 500
+#define P67_MOD_SLEEP_MS 1000
+
 p67_mutex_t cookie_lock = P67_CMN_MUTEX_INITIALIZER;
 int cookie_initialized=0;
 #define COOKIE_SECRET_LENGTH 32
@@ -131,7 +137,7 @@ p67_net_generate_cookie_callback(
         unsigned int *cookie_len);
 
 p67_err
-p67_net_bio_set_timeout(BIO * bio, time_t sec);
+p67_net_bio_set_timeout(BIO * bio, time_t msec);
 
 void *
 __p67_net_enter_read_loop(void * args);
@@ -171,12 +177,7 @@ p67_conn_pass_free(p67_conn_pass_t * pass)
 void *
 __p67_net_listen(void * args);
 
-
-
 /*---END PRIVATE PROTOTYPES---*/
-
-
-
 
 void
 p67_conn_free(void * ptr, int also_free_ptr)
@@ -191,6 +192,12 @@ p67_conn_free(void * ptr, int also_free_ptr)
     p67_addr_free(&conn->addr_local);
     p67_addr_free(&conn->addr_remote);
     
+    if(conn->__read_thr_running) {
+        conn->__read_thr_running = 0;
+        p67_cmn_thread_kill(conn->__read_thr);
+        conn->__read_thr = 0;
+    }
+
     if(conn->ssl != NULL) {
         SSL_shutdown(conn->ssl);
         if((sfd = SSL_get_fd(conn->ssl)) > 0) p67_sfd_close(sfd);
@@ -357,7 +364,7 @@ p67_conn_insert(
         so in case of error one doesnt need to remove item from hash table */
 
     if(p67_addr_dup(&laddr, local) != 0) return p67_err_eerrno;
-
+    
     if((err = p67_hash_insert(P67_CT_CONN, remote, (p67_liitem_t**)&conn, NULL)) != 0) {
         p67_addr_free(&laddr);
         return err;
@@ -411,7 +418,7 @@ p67_hash_remove(
         p67_liitem_t ** out, 
         dispose_callback_t callback)
 {
-    if(addr == NULL || out == NULL) return p67_err_einval;
+    if(addr == NULL) return p67_err_einval;
 
     p67_liitem_t * ptr, * prev, ** cc;
     unsigned long hash = p67_hash_fn((__u_char *)&addr->sock, addr->socklen);
@@ -440,7 +447,7 @@ p67_hash_remove(
         return 0;
     }
 
-    *out = ptr;
+    if(out != NULL) *out = ptr;
 
     return 0;
 }
@@ -505,11 +512,11 @@ p67_net_verify_cookie_callback(SSL *ssl, const unsigned char *cookie, unsigned i
 }
 
 p67_err
-p67_net_bio_set_timeout(BIO * bio, time_t sec)
+p67_net_bio_set_timeout(BIO * bio, time_t msec)
 {
     struct timeval tv;
-    tv.tv_sec = sec;
-    tv.tv_usec = 0;
+    tv.tv_sec = msec / 1000;
+    tv.tv_usec = (msec % 1000)*1000;
     if(BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &tv) != 1) {
         return p67_err_essl | p67_err_eerrno;
     }
@@ -557,8 +564,7 @@ __p67_net_enter_read_loop(void * args)
     while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN && num_timeouts < max_timeouts)) {
         sslr = 1;
         while(sslr) {
-            len = SSL_read(conn->ssl, rbuff, READ_BUFFER_LENGTH-1);
-            rbuff[len] = 0;
+            len = SSL_read(conn->ssl, rbuff, READ_BUFFER_LENGTH);
 
             err = SSL_get_error(conn->ssl, len);
 
@@ -587,7 +593,7 @@ __p67_net_enter_read_loop(void * args)
     }
 
     end:
-    DLOG("Exitting read loop\n");
+    DLOG("Leaving read loop\n");
     if(conn != NULL) p67_conn_remove(&conn->addr_remote);
     return NULL;
 }
@@ -869,7 +875,7 @@ __p67_net_accept(void * args)
             &pass->addr_remote.sock.__ss) != 1) 
         goto end;
 
-    if(p67_net_bio_set_timeout(rbio, 1) != 0) goto end;
+    if(p67_net_bio_set_timeout(rbio, P67_DEFAULT_TIMEOUT_MS) != 0) goto end;
 
     do {
         ret = SSL_accept(pass->ssl);
@@ -958,7 +964,7 @@ p67_net_connect(
 
     SSL_set_bio(ssl, bio, bio);
 
-    p67_net_bio_set_timeout(bio, 1);
+    p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
 
     if (SSL_connect(ssl) != 1) goto end;
 
@@ -1106,7 +1112,7 @@ __p67_net_persist_connect(void * arg)
             p67_err_print_err("Background connect RAND_bytes ", p67_err_eerrno | p67_err_essl);
             break;
         }
-        interval = (interval % 6000) + 4000;
+        interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
         if(p67_cmn_sleep_ms(interval) != 0) {
             p67_err_print_err("Background connect p67_cmn_sleep_ms ", p67_err_eerrno);
             break;
@@ -1384,15 +1390,13 @@ p67_net_listen(
 
         if((bio = BIO_new_dgram(sfd, BIO_NOCLOSE)) == NULL) goto end;
 
-        p67_net_bio_set_timeout(bio, 1);
+        p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
 
         if((ssl = SSL_new(ctx)) == NULL) goto end;
 
         SSL_set_bio(ssl, bio, bio);
         if(!(SSL_set_options(ssl, SSL_OP_COOKIE_EXCHANGE) & SSL_OP_COOKIE_EXCHANGE))
             goto end;
-
-        /* bzero(&remote, sizeof(remote)) */
 
         while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote.__ss) <= 0);
 

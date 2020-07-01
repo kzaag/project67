@@ -125,6 +125,8 @@ p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src)
     if(dest == NULL || src == NULL)
         return p67_err_einval;
 
+    bzero(dest, sizeof(p67_addr_t));
+
     if((dest->hostname = strdup(src->hostname)) == NULL)
         return p67_err_eerrno;
 
@@ -149,6 +151,7 @@ p67_err
 p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sal)
 {
     char cb[AL], svc[10];
+    (void)sal;
 
     if(addr == NULL) return p67_err_einval;
 
@@ -157,11 +160,13 @@ p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sa
         addr->sock.sin = sa->sin;
         inet_ntop(sa->sa.sa_family, &sa->sin.sin_addr, cb, AL);
         sprintf(svc, "%hu", ntohs(sa->sin.sin_port));
+        addr->socklen = sizeof(struct sockaddr_in);
         break;
     case AF_INET6:
         addr->sock.sin6 = sa->sin6;
         inet_ntop(sa->sa.sa_family, &sa->sin6.sin6_addr, cb, AL);
         sprintf(svc, "%hu", ntohs(sa->sin6.sin6_port));
+        addr->socklen = sizeof(struct sockaddr_in6);
         break;
     default:
         addr->sock.sa.sa_family = AF_UNSPEC;
@@ -175,8 +180,6 @@ p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sa
         free(addr->hostname);
         return p67_err_eerrno;
     }
-
-    addr->socklen = sal;
 
     return 0;
 }
