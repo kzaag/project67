@@ -312,7 +312,7 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret, p67_lii
 
     if(prealloc != NULL) {
         *np = prealloc;
-        *ret = *np;
+        if(ret != NULL) *ret = *np;
         return 0;
     }
 
