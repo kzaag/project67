@@ -40,6 +40,7 @@ main(int argc, char ** argv)
 
     err = p67_net_p2p_connect(
                 &local,
+                &remote,
                 read_callback,
                 "p2pcert", 
                 "p2pcert.cert");
