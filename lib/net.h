@@ -170,4 +170,13 @@ p67_net_start_listen(
             const char * __restrict__ certpath)
     __nonnull((1, 2, 3, 4, 5));
 
+p67_err
+p67_net_p2p_connect(
+        p67_addr_t * __restrict__ local, 
+        p67_addr_t * __restrict__ remote, 
+        p67_conn_callback_t cb, 
+        const char * __restrict__ keypath, 
+        const char * __restrict__ certpath)
+    __nonnull((1, 2, 3, 4, 5));
+
 #endif

@@ -38,37 +38,12 @@ main(int argc, char ** argv)
 
     rinit = 1;
 
-    err = p67_net_start_listen(
-                &lthr,
+    err = p67_net_p2p_connect(
                 &local,
                 read_callback,
                 "p2pcert", 
                 "p2pcert.cert");
     
-
-    if(err != 0) goto end;
-
-    err = p67_net_start_persist_connect(
-                    &cthr,
-                    &local, &remote, 
-                    read_callback, 
-                    "p2pcert", 
-                    "p2pcert.cert");
-
-    // if(argc > 3) {
-    //     err = p67_net_listen(
-    //             &local, 
-    //             read_callback, 
-    //             "p2pcert", 
-    //             "p2pcert.cert");
-    // } else {
-    //     err = p67_net_connect(
-    //                 &local, &remote, 
-    //                 read_callback, 
-    //                 "p2pcert", 
-    //                 "p2pcert.cert");
-    // }
-
     if(err != 0) goto end;
 
     getchar();

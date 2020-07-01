@@ -1653,3 +1653,33 @@ end:
     return err;
 }
 
+p67_err
+p67_net_p2p_connect(
+        p67_addr_t * local, 
+        p67_addr_t * remote, 
+        p67_conn_callback_t cb, 
+        const char * keypath, 
+        const char * certpath)
+{
+    p67_err err;
+    p67_thread_t lt, ct;
+
+    err = p67_net_start_listen(
+                &lt,
+                local,
+                cb,
+                keypath,
+                certpath);
+
+    if(err != 0) return err;
+
+    err = p67_net_start_persist_connect(
+                    &ct,
+                    local, 
+                    remote, 
+                    cb, 
+                    keypath,
+                    certpath);
+
+    return err;
+}
