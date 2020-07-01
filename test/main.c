@@ -25,7 +25,7 @@ main(int argc, char ** argv)
     }
 
     if((err = p67_addr_set_host(
-            &local, "127.0.0.1", argv[1], P67_SFD_TP_DGRAM_UDP)) != 0) {
+            &local, "0.0.0.0", argv[1], P67_SFD_TP_DGRAM_UDP)) != 0) {
         return 2;
     }
 

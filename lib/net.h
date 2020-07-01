@@ -111,6 +111,10 @@ p67_net_write(
             int * __restrict__ msgl)
     __nonnull((1, 2, 3));
 
+/*
+    local address must point to ANY IP address( ::1 or 0.0.0.0) 
+    Otherwise user will experience timeouts on SSL_Accept. 
+*/
 p67_err
 p67_net_write_connect(
             const char * __restrict__ msg,
@@ -122,6 +126,10 @@ p67_net_write_connect(
             const char * __restrict__ certpath)
     __nonnull((1, 2, 3, 4, 6, 7));
 
+/*
+    local address must point to ANY IP address( ::1 or 0.0.0.0) 
+    Otherwise user will experience timeouts on SSL_Accept. 
+*/
 p67_err
 p67_net_listen(
             p67_addr_t * __restrict__ local, 
@@ -149,6 +157,10 @@ p67_err
 p67_net_new_key(char * __restrict__ path)
     __nonnull((1));
 
+/*
+    local address must point to ANY IP address( ::1 or 0.0.0.0) 
+    Otherwise user will experience timeouts on SSL_Accept. 
+*/
 p67_err
 p67_net_start_listen(
             p67_thread_t * __restrict__ thr,
