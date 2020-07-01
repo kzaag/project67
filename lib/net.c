@@ -511,10 +511,10 @@ p67_net_bio_set_timeout(BIO * bio, time_t sec)
     tv.tv_sec = sec;
     tv.tv_usec = 0;
     if(BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &tv) != 1) {
-        return -1;
+        return p67_err_essl | p67_err_eerrno;
     }
     if(BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_SEND_TIMEOUT, 0, &tv) != 1) {
-        return -1;
+        return p67_err_essl | p67_err_eerrno;
     }
     return 0;
 }
