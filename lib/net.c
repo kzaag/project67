@@ -992,7 +992,7 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
     int retries = 5;
     p67_err err;
 
-    while(retries-->0 && (pass->t_conn.state == P67_ASYNC_STATE_RUNNING)) {
+    while(retries-->0 && (pass->hconnect.state == P67_ASYNC_STATE_RUNNING)) {
         if(p67_conn_lookup(&pass->remote) != NULL) {
             DLOG("\rNAT Connect:%d Connection exists.\n", p67_conn_cn_t);
             return p67_err_eaconn;
@@ -1037,7 +1037,7 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
         DLOG("NAT Connect:%d Failed.\n", p67_conn_cn_t);
     }
 
-    p67_async_set_state(&pass->t_conn, 
+    p67_async_set_state(&pass->hconnect, 
             P67_ASYNC_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);
 
     return err;
@@ -1052,7 +1052,12 @@ __p67_net_persist_connect(void * arg)
 
     DLOG("Background connect start\n");
 
-    while(pass->t_conn.state == P67_ASYNC_STATE_RUNNING) {
+    while(1) {
+        if(pass->hconnect.state != P67_ASYNC_STATE_RUNNING) {
+            err |= p67_err_eint;
+            break;
+        }
+
         DLOG("Background connect iteration for %s:%s. Slept %lu ms\n", 
             pass->remote.hostname, pass->remote.service, interval);
 
@@ -1065,8 +1070,10 @@ __p67_net_persist_connect(void * arg)
             }
         }
 
-        if(pass->t_conn.state != P67_ASYNC_STATE_RUNNING)
+        if(pass->hconnect.state != P67_ASYNC_STATE_RUNNING) {
+            err |= p67_err_eint;
             break;
+        }
 
         if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval))) {
             p67_err_print_err("Background connect RAND_bytes ", p67_err_eerrno | p67_err_essl);
@@ -1080,8 +1087,9 @@ __p67_net_persist_connect(void * arg)
     }
 
     DLOG("Background connect end\n");
+    if(err != 0) p67_err_print_err("Background connect: ", err);
     p67_async_set_state(
-            &pass->t_conn, 
+            &pass->hconnect, 
             P67_ASYNC_STATE_SIG_STOP, 
             P67_ASYNC_STATE_STOP);
     return NULL;
@@ -1092,10 +1100,14 @@ p67_net_start_persist_connect(p67_conn_pass_t * pass)
 {
     p67_err err;
 
-    if(pass->t_conn.state != P67_ASYNC_STATE_STOP) 
+    /*
+        this check is not needed but is placed here for convenience.
+        better to return p67_err_eaconn than p67_err_easync
+    */
+    if(pass->hconnect.state != P67_ASYNC_STATE_STOP) 
         return p67_err_eaconn;
 
-    if((err = p67_async_set_state(&pass->t_conn, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0) 
+    if((err = p67_async_set_state(&pass->hconnect, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0) 
         return err;
 
     /* 
@@ -1103,13 +1115,13 @@ p67_net_start_persist_connect(p67_conn_pass_t * pass)
         P67_ASYNC_STATE_RUNNING before we start thread.
     */
 
-    if((err = p67_cmn_thread_create(&pass->t_conn.thr, __p67_net_persist_connect, pass)) != 0)
+    if((err = p67_cmn_thread_create(&pass->hconnect.thr, __p67_net_persist_connect, pass)) != 0)
         goto end;
 
 end:
     
     if(err != 0)
-        err |= p67_async_set_state(&pass->t_conn, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
+        err |= p67_async_set_state(&pass->hconnect, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
         
     return err;
 }
@@ -1210,12 +1222,21 @@ p67_net_init(void)
 }
 
 p67_err
-p67_net_start_listen(p67_thread_t * thr, p67_conn_pass_t * pass)
+p67_net_start_listen(p67_conn_pass_t * pass)
 {
     p67_err err;
 
-    if((err = p67_cmn_thread_create(thr, __p67_net_listen, pass)) != 0)
+    /* for explanation see body of p67_net_start_persist_connect */
+    if(pass->hlisten.state != P67_ASYNC_STATE_STOP) return p67_err_eaconn;
+
+    if((err = p67_async_set_state(
+                &pass->hlisten, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0)
         return err;
+
+    if((err = p67_cmn_thread_create(&pass->hlisten.thr, __p67_net_listen, pass)) != 0) {
+        err |= p67_async_set_state(&pass->hlisten, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
+        return err;
+    }
 
     return 0;
 }
@@ -1244,12 +1265,17 @@ p67_net_listen(p67_conn_pass_t * pass)
     p67_err err;
     p67_thread_t accept_thr;
 
+    // if(pass->hlisten.state != P67_ASYNC_STATE_STOP)
+    //     return p67_err_eaconn;
+    // if((err = p67_async_set_state(
+    //                 &pass->hlisten, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0)
+    //     return err;
+
     p67_err_mask_all(err);
 
     ctx = NULL;
     ssl = NULL;
     bio = NULL;
-    pass = NULL;
     sfd = 0;
 
     if((ctx = SSL_CTX_new(DTLS_server_method())) == NULL)
@@ -1298,8 +1324,18 @@ p67_net_listen(p67_conn_pass_t * pass)
         SSL_set_bio(ssl, bio, bio);
         if(!(SSL_set_options(ssl, SSL_OP_COOKIE_EXCHANGE) & SSL_OP_COOKIE_EXCHANGE))
             goto end;
+        
+        if(pass->hlisten.state != P67_ASYNC_STATE_RUNNING) {
+            err = p67_err_eint;
+            goto end;
+        }
 
-        while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote.__ss) <= 0);
+        while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote.__ss) <= 0) {
+            if(pass->hlisten.state != P67_ASYNC_STATE_RUNNING) {
+                err = p67_err_eint;
+                goto end;
+            }
+        }
 
         do {
             if((conn = calloc(sizeof(p67_conn_t), 1)) == NULL) break;
@@ -1321,6 +1357,10 @@ end:
     if(ctx != NULL) SSL_CTX_free(ctx);
     p67_sfd_close(sfd);
     if(ssl != NULL) SSL_free(ssl);
+    err |= p67_async_set_state(
+                &pass->hlisten, 
+                P67_ASYNC_STATE_SIG_STOP, 
+                P67_ASYNC_STATE_STOP);
 
     return err;
 }

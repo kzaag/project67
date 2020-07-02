@@ -24,7 +24,8 @@ typedef struct p67_conn_pass {
     p67_conn_callback_t handler;
     char * keypath;
     char * certpath;
-    p67_async_t t_conn;
+    p67_async_t hconnect;
+    p67_async_t hlisten;
 } p67_conn_pass_t;
 
 /* cache types for nodes */
@@ -147,13 +148,11 @@ p67_net_new_key(char * __restrict__ path)
     __nonnull((1));
 
 /*
-    local address must point to ANY IP address( ::1 or 0.0.0.0) 
+    local address must point to ANY IP address( :: or 0.0.0.0) 
     Otherwise user will experience timeouts on SSL_Accept. 
 */
 p67_err
-p67_net_start_listen(
-            p67_thread_t * __restrict__ thr,
-            p67_conn_pass_t * pass)
-    __nonnull((1, 2));
+p67_net_start_listen(p67_conn_pass_t * pass)
+    __nonnull((1));
 
 #endif

@@ -54,4 +54,8 @@ p67_err_print_err(const char * hdr, p67_err err)
     if(err & p67_err_etime) {
         fprintf(stderr, "%sTimeout\n", hdr);
     }
+
+    if(err & p67_err_eint) {
+        fprintf(stderr, "%sOperation has been interrupted\n", hdr);
+    }
 }

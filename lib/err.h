@@ -6,14 +6,15 @@
 enum p67_err {
     /* no error */
     p67_err_eok    = 0,
-    p67_err_essl   = 1,  /* error in ssl */
-    p67_err_eerrno = 2,  /* syscall ( linux / unix ) */
-    p67_err_einval = 4,  /* argument */
-    p67_err_eaconn = 8,  /* already connected */
-    p67_err_enconn = 16, /* connection gone */
-    p67_err_enetdb = 32, /* getaddrinfo */
-    p67_err_easync = 64, /* async state changed */
-    p67_err_etime  = 128 /* Timeout */
+    p67_err_essl   = 1,   /* error in ssl */
+    p67_err_eerrno = 2,   /* syscall ( linux / unix ) */
+    p67_err_einval = 4,   /* argument */
+    p67_err_eaconn = 8,   /* already connected */
+    p67_err_enconn = 16,  /* connection gone */
+    p67_err_enetdb = 32,  /* getaddrinfo */
+    p67_err_easync = 64,  /* async state changed */
+    p67_err_etime  = 128, /* Timeout */
+    p67_err_eint   = 256  /* Interrupted */
 };
 
 typedef enum p67_err p67_err;
