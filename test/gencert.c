@@ -1,6 +1,12 @@
 #include <p67/p67.h>
 
 
+/*
+    core cert testing 
+        - [*] certificates, 
+        - [*] key pairs
+*/
+
 int
 main(int argc, const char ** argv)
 {

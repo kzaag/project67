@@ -6,6 +6,8 @@
 #include <p67/log.h>
 #include <p67/net.h>
 
+#include <p67/pcm.h>
+
 void
 p67_lib_init(void);
 

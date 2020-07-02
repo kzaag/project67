@@ -30,6 +30,7 @@ gcc \
     -Wold-style-definition \
     -Wno-nonnull-compare  \
     `pkg-config --libs openssl` \
+    `pkg-config --libs alsa` \
     $FILES \
     $DEBUG \
     -shared -o $LIB -fPIC;
@@ -40,7 +41,7 @@ sudo cp $LIB /usr/local/lib/;
 
 sudo mkdir -p /usr/include/p67;
 
-sudo rm /usr/include/p67/*
+sudo rm -f /usr/include/p67/*
 
 sudo cp $FP/*.h /usr/include/p67;
 
@@ -50,7 +51,8 @@ sudo ldconfig;
 
 FP="$WD/test"
 
-gcc $FP/main.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67test -W -g;
+gcc $FP/corenet.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67corenet -W -g;
 gcc $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g;
+gcc $FP/wrtc.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67wrtc -W -g `pkg-config --libs alsa`
 
 bash $WD/devcert.sh $WD;

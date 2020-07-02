@@ -2,6 +2,12 @@
 #include <stdlib.h>
 #include <alloca.h>
 
+/*
+    core networking integration testing 
+        - [ ] crypto, 
+        - [*] p2p communication
+*/
+
 p67_err
 read_callback(p67_conn_t * conn, const char * msg, int msgl)
 {
@@ -26,7 +32,7 @@ main(int argc, char ** argv)
     pass.handler = read_callback;
 
     if(argc < 3) {
-        printf("Usage: ./p67test [source port] [dest port]\n");
+        printf("Usage: ./p67corenet [source port] [dest port]\n");
         return 2;
     }
 
