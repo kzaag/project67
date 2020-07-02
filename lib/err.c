@@ -46,4 +46,12 @@ p67_err_print_err(const char * hdr, p67_err err)
     if(err & p67_err_enetdb) {
         fprintf(stderr, "%sCouldnt obtain address information\n", hdr);
     }
+
+    if(err & p67_err_easync) {
+        fprintf(stderr, "%sAsync state changed\n", hdr);
+    }
+
+    if(err & p67_err_etime) {
+        fprintf(stderr, "%sTimeout\n", hdr);
+    }
 }

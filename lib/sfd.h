@@ -12,6 +12,12 @@
 #include <netdb.h>
 #include <sys/socket.h>
 
+#define IP4_ANY "0.0.0.0"
+#define IP4_LO1 "127.0.0.1"
+#define IP6_LO1 "::1"
+#define IP6_ANY "::"
+
+
 /* 
     actual value will depend on the function. 
     proto is usualy defaulted to IPPROTO_IP (0) 
@@ -38,24 +44,26 @@ struct p67_addr {
     socklen_t      socklen;
     char           * hostname;
     char           * service;
+    unsigned long  rdonly : 1;
 };
-
-#define p67_addr_is_initialized(addr) \
-    (((addr)->hostname != NULL) \
-        && ((addr)->service != NULL) \
-            && ((addr)->sock.sa.sa_family != 0))
 
 typedef struct p67_addr p67_addr_t;
 
 void
 p67_addr_free(p67_addr_t * __restrict__ addr);
 
+#define p67_addr_set_host_udp(addr, host, svc) \
+    p67_addr_set_host((addr), (host), (svc), P67_SFD_TP_DGRAM_UDP)
+
+#define p67_addr_set_localhost4_udp(addr, svc) \
+    p67_addr_set_host_udp(addr, IP4_ANY, svc)
+
 p67_err
 p67_addr_set_host(
                 p67_addr_t * __restrict__ addr, 
                 const char * __restrict__ protocol,
                 const char * __restrict__ hostname, 
-                const int p67_sfd_tp)
+                int p67_sfd_tp)
     __nonnull((1, 2, 3));
 
 p67_err
@@ -96,12 +104,12 @@ p67_addr_parse_str(const char * str, p67_addr_t * __restrict__ addr, int p67_sfd
 p67_err
 p67_sfd_create_from_addr(
             p67_sfd_t * __restrict__ sfd, 
-            p67_addr_t * __restrict__ addr, 
+            const p67_addr_t * __restrict__ addr, 
             int p67_sfd_tp)
     __nonnull((2));
 
 p67_err
-p67_sfd_connect(p67_sfd_t sfd, p67_addr_t * addr)
+p67_sfd_connect(p67_sfd_t sfd, const p67_addr_t * addr)
     __nonnull((2));
 
 p67_err
@@ -127,7 +135,7 @@ p67_err
 p67_sfd_valid(p67_sfd_t sfd);
 
 p67_err
-p67_sfd_bind(p67_sfd_t sfd, p67_addr_t * addr)
+p67_sfd_bind(p67_sfd_t sfd, const p67_addr_t * addr)
     __nonnull((2));
 
 p67_err

@@ -42,12 +42,14 @@ p67_addr_set_host(
                 const char * service,
                 int p67_sfd_tp)
 {
-    int ret;
+    int ret, rdonly;
     struct addrinfo hint, * info, *cp;
-    
+
     if(addr == NULL || hostname == NULL || service == NULL) return p67_err_einval;
 
+    rdonly = addr->rdonly;
     bzero(addr, sizeof(*addr));
+    addr->rdonly = rdonly;
 
     hint.ai_addr = NULL;
     hint.ai_addrlen = 0;
@@ -96,10 +98,15 @@ p67_addr_set_host(
     if(ret == 1)
         return p67_err_enetdb;
 
-    if((addr->hostname = strdup(hostname)) == NULL) return p67_err_eerrno;
-    if((addr->service = strdup(service)) == NULL) {
-        free(addr->hostname);
-        return p67_err_eerrno;
+    if(addr->rdonly) {
+        addr->hostname = (char *)hostname;
+        addr->service = (char *)service;    
+    } else {
+        if((addr->hostname = strdup(hostname)) == NULL) return p67_err_eerrno;
+        if((addr->service = strdup(service)) == NULL) {
+            free(addr->hostname);
+            return p67_err_eerrno;
+        }
     }
 
     return 0;
@@ -111,6 +118,7 @@ p67_addr_set_host(
 void
 p67_addr_free(p67_addr_t * addr)
 {
+    if(addr == NULL || addr->rdonly) return;
     free((addr)->hostname);
     free((addr)->service);
 }
@@ -126,6 +134,8 @@ p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src)
         return p67_err_einval;
 
     bzero(dest, sizeof(p67_addr_t));
+
+    dest->rdonly = 0;
 
     if((dest->hostname = strdup(src->hostname)) == NULL)
         return p67_err_eerrno;
@@ -175,6 +185,7 @@ p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sa
         break;
     }
 
+    addr->rdonly = 0;
     if((addr->hostname = strdup(cb)) == NULL) return p67_err_eerrno;
     if((addr->service = strdup(svc)) == NULL) {
         free(addr->hostname);
@@ -216,7 +227,6 @@ p67_sfd_listen(p67_sfd_t sfd)
 
 /*
     Keep calling accept until valid request arrives.
-    On failure return 0.
 */
 p67_sfd_t
 p67_sfd_accept(p67_sfd_t sfd, p67_addr_t * addr)
@@ -301,7 +311,7 @@ p67_sfd_close(p67_sfd_t sfd)
 }
 
 p67_err
-p67_sfd_connect(p67_sfd_t sfd, p67_addr_t * addr)
+p67_sfd_connect(p67_sfd_t sfd, const p67_addr_t * addr)
 {
     if(connect(sfd, &addr->sock.sa, addr->socklen) != 0) {
         return p67_err_eerrno;
@@ -311,7 +321,7 @@ p67_sfd_connect(p67_sfd_t sfd, p67_addr_t * addr)
 }
 
 p67_err
-p67_sfd_bind(p67_sfd_t sfd, p67_addr_t * addr)
+p67_sfd_bind(p67_sfd_t sfd, const p67_addr_t * addr)
 {
     if(addr == NULL)
         return p67_err_einval;
@@ -323,7 +333,7 @@ p67_sfd_bind(p67_sfd_t sfd, p67_addr_t * addr)
 }
 
 p67_err
-p67_sfd_create_from_addr(p67_sfd_t * sfd, p67_addr_t * addr, int p67_sfd_tp)
+p67_sfd_create_from_addr(p67_sfd_t * sfd, const p67_addr_t * addr, int p67_sfd_tp)
 {
     if(addr == NULL || sfd == NULL)
         return p67_err_einval;
@@ -420,22 +430,21 @@ p67_sfd_create_from_hint(
 p67_err
 p67_addr_parse_str(const char * str, p67_addr_t * addr, int p67_sfd_tp) 
 {
+    if(addr == NULL)
+        return p67_err_einval;
+
     const char * portstr;
     const char * ipstr;
     int ipstrl;
     char ip[ADDR_STR_LEN + 1];
 
-    if((portstr = strrchr(str, ':')) == NULL) {
-        errno = EBFONT;
-        return p67_err_eerrno;
-    }
+    if((portstr = strrchr(str, ':')) == NULL)
+        return p67_err_einval;
 
     portstr++;
 
-    if(portstr <= str) {
-        errno = EBFONT;
-        return p67_err_eerrno;
-    }
+    if(portstr <= str)
+        return p67_err_einval;
 
     if(str[0] == '[') {
         ipstr = str + 1;
@@ -448,6 +457,7 @@ p67_addr_parse_str(const char * str, p67_addr_t * addr, int p67_sfd_tp)
     memcpy(ip, ipstr, ipstrl);
     ip[ipstrl] = 0;
 
+    addr->rdonly = 0;
     return p67_addr_set_host(addr, ip, portstr, p67_sfd_tp);
 }
 

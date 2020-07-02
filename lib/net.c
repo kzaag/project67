@@ -45,14 +45,6 @@ struct p67_conn {
     unsigned int __read_thr_running : 1;
 };
 
-typedef struct p67_conn_pass {
-    p67_addr_t local;
-    p67_addr_t remote;
-    p67_conn_callback_t handler;
-    char * keypath;
-    char * certpath;
-} p67_conn_pass_t;
-
 typedef __uint16_t p67_state_t;
 
 #define P67_NODE_STATE_QUEUE 1
@@ -169,10 +161,6 @@ __p67_net_write(
                 const char * __restrict__ msg, 
                 int * __restrict__ msgl)
     __nonnull((1, 2, 3));
-
-void
-p67_conn_pass_free(p67_conn_pass_t * pass)
-    __nonnull((1));
 
 void *
 __p67_net_listen(void * args);
@@ -905,16 +893,8 @@ end:
 }
 
 p67_err
-p67_net_connect(
-    p67_addr_t * local, 
-    p67_addr_t * remote, 
-    p67_conn_callback_t handler, 
-    const char * keypath,
-    const char * certpath)
+p67_net_connect(p67_conn_pass_t * pass)
 {
-    if(local == NULL || remote == NULL || keypath == NULL || certpath == NULL)
-        return p67_err_einval;
-
     int sfd, noclose;
     p67_err err;
     SSL * ssl = NULL;
@@ -924,26 +904,26 @@ p67_net_connect(
     
     noclose = 0;
 
-    if(p67_conn_is_already_connected(remote) != 0) return p67_err_eaconn;
+    if(p67_conn_is_already_connected(&pass->remote) != 0) return p67_err_eaconn;
 
     if((err = p67_sfd_create_from_addr(
                 &sfd, 
-                local, 
+                &pass->local, 
                 P67_SFD_TP_DGRAM_UDP)) != 0) goto end;
 
     p67_err_mask_all(err);
 
     if(p67_sfd_set_reuseaddr(sfd) != 0) goto end;
 
-    if(p67_sfd_bind(sfd, local) != 0) goto end;
+    if(p67_sfd_bind(sfd, &pass->local) != 0) goto end;
 
     if((ctx = SSL_CTX_new(DTLS_client_method())) == NULL) goto end;
 
     if(SSL_CTX_set_cipher_list(ctx, CIPHER) != 1) goto end;
 
-    if(SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM) != 1) goto end;
+    if(SSL_CTX_use_certificate_file(ctx, pass->certpath, SSL_FILETYPE_PEM) != 1) goto end;
 
-    if(SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM) != 1) goto end;
+    if(SSL_CTX_use_PrivateKey_file(ctx, pass->keypath, SSL_FILETYPE_PEM) != 1) goto end;
 
     if(SSL_CTX_check_private_key(ctx) != 1) goto end;
 
@@ -958,9 +938,9 @@ p67_net_connect(
 
     if((bio = BIO_new_dgram(sfd, BIO_NOCLOSE)) == NULL) goto end;
 
-    if(p67_sfd_connect(sfd, remote) != 0) goto end;
+    if(p67_sfd_connect(sfd, &pass->remote) != 0) goto end;
 
-    BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &remote->sock.__ss);
+    BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &pass->remote.sock.__ss);
 
     SSL_set_bio(ssl, bio, bio);
 
@@ -968,9 +948,9 @@ p67_net_connect(
 
     if (SSL_connect(ssl) != 1) goto end;
 
-    if(p67_conn_insert(local, remote, ssl, handler, &conn) != 0) goto end;
+    if(p67_conn_insert(&pass->local, &pass->remote, ssl, pass->handler, &conn) != 0) goto end;
 
-    DLOG("Connected to %s:%s\n", remote->hostname, remote->service);
+    DLOG("Connected to %s:%s\n", pass->remote.hostname, pass->remote.service);
 
     /*
         As of this moment we are connected 
@@ -1005,39 +985,27 @@ end:
 #define P67_CONN_CNT_PERSIST 3
 
 p67_err
-p67_net_nat_connect(
-                p67_addr_t * local, 
-                p67_addr_t * remote, 
-                p67_conn_callback_t handler, 
-                const char * keypath,
-                const char * certpath, 
-                int p67_conn_cn_t)
+p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
 {
-    if(local == NULL || remote == NULL || keypath == NULL || certpath == NULL)
-        return p67_err_einval;
-
     unsigned long interv;
     struct timespec sleepspec;
     int retries = 5;
     p67_err err;
 
-    while(retries-->0) {
-        if(p67_conn_lookup(remote) != NULL) {
+    while(retries-->0 && (pass->t_conn.state == P67_ASYNC_STATE_RUNNING)) {
+        if(p67_conn_lookup(&pass->remote) != NULL) {
             DLOG("\rNAT Connect:%d Connection exists.\n", p67_conn_cn_t);
             return p67_err_eaconn;
         }
 
         // hiding net_cache_get error
-        if((err = p67_net_connect(
-                    local, remote, handler, keypath, certpath)) == 0) {
-            break;
-        }
+        if((err = p67_net_connect(pass)) == 0) break;
 
         if(p67_conn_cn_t == P67_CONN_CNT_PASS || p67_conn_cn_t == P67_CONN_CNT_DEF)
             break;
 
         if(p67_conn_cn_t == P67_CONN_CNT_ACT) {
-            err = p67_net_connect(local, remote, handler, keypath, certpath);
+            err = p67_net_connect(pass);
             break;
         }
 
@@ -1069,17 +1037,10 @@ p67_net_nat_connect(
         DLOG("NAT Connect:%d Failed.\n", p67_conn_cn_t);
     }
 
-    return err;
-}
+    p67_async_set_state(&pass->t_conn, 
+            P67_ASYNC_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);
 
-void
-p67_conn_pass_free(p67_conn_pass_t * pass)
-{
-    free(pass->certpath);
-    free(pass->keypath);
-    p67_addr_free(&pass->local);
-    p67_addr_free(&pass->remote);
-    free(pass);
+    return err;
 }
 
 void *
@@ -1089,24 +1050,23 @@ __p67_net_persist_connect(void * arg)
     unsigned long interval = 0;
     p67_err err;
 
-    while(1) {
+    DLOG("Background connect start\n");
+
+    while(pass->t_conn.state == P67_ASYNC_STATE_RUNNING) {
         DLOG("Background connect iteration for %s:%s. Slept %lu ms\n", 
             pass->remote.hostname, pass->remote.service, interval);
 
         if(p67_conn_lookup(&pass->remote) == NULL) {
-            if((err = p67_net_nat_connect(
-                            &pass->local, 
-                            &pass->remote, 
-                            pass->handler, 
-                            pass->keypath, 
-                            pass->certpath, 
-                            P67_CONN_CNT_PASS)) != 0) {
+            if((err = p67_net_nat_connect(pass, P67_CONN_CNT_PASS)) != 0) {
                 p67_err_print_err("Background connect ", err);
             } else {
                 DLOG("Background connected to %s:%s\n", 
                     pass->remote.hostname, pass->remote.service);
             }
         }
+
+        if(pass->t_conn.state != P67_ASYNC_STATE_RUNNING)
+            break;
 
         if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval))) {
             p67_err_print_err("Background connect RAND_bytes ", p67_err_eerrno | p67_err_essl);
@@ -1119,59 +1079,38 @@ __p67_net_persist_connect(void * arg)
         }
     }
 
-    p67_conn_pass_free(pass);
-
+    DLOG("Background connect end\n");
+    p67_async_set_state(
+            &pass->t_conn, 
+            P67_ASYNC_STATE_SIG_STOP, 
+            P67_ASYNC_STATE_STOP);
     return NULL;
 }
 
 p67_err
-p67_net_start_persist_connect(
-                    p67_thread_t * thr,
-                    p67_addr_t * local,
-                    p67_addr_t * remote,
-                    p67_conn_callback_t handler,
-                    const char * keypath,
-                    const char * certpath)
+p67_net_start_persist_connect(p67_conn_pass_t * pass)
 {
-    p67_conn_pass_t * pass;
     p67_err err;
 
-    /*
-        OPTIMIZE IT!
-        that is awfull lot of mallocations 
-        one should optimize it by 
-            1. add duplicate flags to conn_pass which determines whether to duplicate address, and key/cert paths
-            2. pass (stack allocked) conn_pass to this method
-            3. create callocked heap copy of conn_pass here but only copy those fields which have 
-                duplicate flag ( see point 1) set to 1. 
-        In this way user can signal that he already have heap allocated value 
-            and there is no need of duplicating it here.
-        You should add const attributes in parameters to ensure user we will not mess with his memory
+    if(pass->t_conn.state != P67_ASYNC_STATE_STOP) 
+        return p67_err_eaconn;
+
+    if((err = p67_async_set_state(&pass->t_conn, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0) 
+        return err;
+
+    /* 
+        since we dont simply pthread_kill or pthread_cancel there is no danger from putting 
+        P67_ASYNC_STATE_RUNNING before we start thread.
     */
 
-    if((pass = calloc(sizeof(*pass), 1)) == NULL)
-        return p67_err_eerrno;
+    if((err = p67_cmn_thread_create(&pass->t_conn.thr, __p67_net_persist_connect, pass)) != 0)
+        goto end;
 
-    if((err = p67_addr_dup(&pass->remote, remote)) != 0) goto err;
-
-    if((err = p67_addr_dup(&pass->local, local)) != 0) goto err;
-
-    err = p67_err_eerrno;
-
-    if((pass->keypath = strdup(keypath)) == NULL) goto err;
-
-    if((pass->certpath = strdup(certpath)) == NULL) goto err;
-
-    pass->handler = handler;
+end:
     
-    if(p67_cmn_thread_create(thr, __p67_net_persist_connect, pass) != 0) {
-        goto err;
-    }
-
-    return 0;
-
-err:
-    p67_conn_pass_free(pass);
+    if(err != 0)
+        err |= p67_async_set_state(&pass->t_conn, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
+        
     return err;
 }
 
@@ -1224,27 +1163,22 @@ p67_net_write(p67_addr_t * addr, const char * msg, int * msgl)
 
 p67_err
 p67_net_write_connect(
+            p67_conn_pass_t * pass,
             const char * msg,
-            int * msgl,
-            p67_addr_t * local, 
-            p67_addr_t * remote, 
-            p67_conn_callback_t handler, 
-            const char * keypath,
-            const char * certpath) 
+            int * msgl) 
 {
     p67_conn_t * conn;
     p67_err err;
 
-    if((conn = p67_conn_lookup(remote)) != NULL) {
+    if((conn = p67_conn_lookup(&pass->remote)) != NULL) {
         return __p67_net_write(conn, msg, msgl);
     }
 
-    if((err = p67_net_nat_connect(
-                local, remote, handler, keypath, certpath, P67_CONN_CNT_PERSIST)) != 0) {
+    if((err = p67_net_nat_connect(pass, P67_CONN_CNT_PERSIST)) != 0) {
         return err;
     }
 
-    if((conn = p67_conn_lookup(remote)) != NULL) {
+    if((conn = p67_conn_lookup(&pass->remote)) != NULL) {
         return __p67_net_write(conn, msg, msgl);
     }
 
@@ -1276,36 +1210,14 @@ p67_net_init(void)
 }
 
 p67_err
-p67_net_start_listen(
-            p67_thread_t * thr,
-            p67_addr_t * local, 
-            p67_conn_callback_t handler, 
-            const char * keypath,
-            const char * certpath)
+p67_net_start_listen(p67_thread_t * thr, p67_conn_pass_t * pass)
 {
-    p67_conn_pass_t * pass;
     p67_err err;
 
-    pass = NULL;
-    err = p67_err_eerrno;
+    if((err = p67_cmn_thread_create(thr, __p67_net_listen, pass)) != 0)
+        return err;
 
-    if((pass = calloc(sizeof(*pass), 1)) == NULL) goto end;
-
-    if((pass->certpath = strdup(certpath)) == NULL) goto end;
-
-    if((pass->keypath = strdup(keypath)) == NULL) goto end;
-
-    if((err = p67_addr_dup(&pass->local, local)) != 0) goto end;
-
-    pass->handler = handler;
-
-    if((err = p67_cmn_thread_create(thr, __p67_net_listen, pass)) != 0) goto end;
-
-    err = 0;
-
-end:
-    if(err != 0) p67_conn_pass_free(pass);
-    return err;
+    return 0;
 }
 
 void *
@@ -1314,32 +1226,21 @@ __p67_net_listen(void * args)
     p67_err err;
     p67_conn_pass_t * pass = (p67_conn_pass_t *)args;
 
-    if((err = p67_net_listen(
-                    &pass->local, 
-                    pass->handler, 
-                    pass->keypath, 
-                    pass->certpath)) != 0)
+    if((err = p67_net_listen(pass)) != 0)
         p67_err_print_err("__Listen: ", err);
 
     return NULL;
 }
 
 p67_err
-p67_net_listen(
-            p67_addr_t * local, 
-            p67_conn_callback_t handler, 
-            const char * keypath,
-            const char * certpath)
+p67_net_listen(p67_conn_pass_t * pass)
 {
-    if(local == NULL || keypath == NULL || certpath == NULL)
-        return p67_err_einval;
-
     p67_sfd_t sfd;
     SSL_CTX * ctx;
     SSL * ssl;
     BIO * bio;
     p67_sockaddr_t remote;
-    p67_conn_t * pass;
+    p67_conn_t * conn;
     p67_err err;
     p67_thread_t accept_thr;
 
@@ -1359,10 +1260,10 @@ p67_net_listen(
 
     SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
 
-    if(SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM) != 1)
+    if(SSL_CTX_use_certificate_file(ctx, pass->certpath, SSL_FILETYPE_PEM) != 1)
         goto end;
 
-    if(SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM) != 1)
+    if(SSL_CTX_use_PrivateKey_file(ctx, pass->keypath, SSL_FILETYPE_PEM) != 1)
         goto end;
 
     if(SSL_CTX_check_private_key(ctx) != 1) goto end;
@@ -1375,14 +1276,14 @@ p67_net_listen(
 	SSL_CTX_set_cookie_generate_cb(ctx, p67_net_generate_cookie_callback);
 	SSL_CTX_set_cookie_verify_cb(ctx, p67_net_verify_cookie_callback);
 
-    if((err = p67_sfd_create_from_addr(&sfd, local, P67_SFD_TP_DGRAM_UDP)) != 0)
+    if((err = p67_sfd_create_from_addr(&sfd, &pass->local, P67_SFD_TP_DGRAM_UDP)) != 0)
         goto end;
 
     if((err = p67_sfd_set_reuseaddr(sfd)) != 0) goto end;
     
-    if((err = p67_sfd_bind(sfd, local)) != 0) goto end;
+    if((err = p67_sfd_bind(sfd, &pass->local)) != 0) goto end;
 
-    DLOG("Listening @ %s:%s\n", local->hostname, local->service);
+    DLOG("Listening @ %s:%s\n", pass->local.hostname, pass->local.service);
 
     while(1) {
         p67_err_mask_all(err);
@@ -1401,19 +1302,19 @@ p67_net_listen(
         while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote.__ss) <= 0);
 
         do {
-            if((pass = calloc(sizeof(p67_conn_t), 1)) == NULL) break;
-            if((err = p67_addr_dup(&pass->addr_local, local)) != 0) break;
-            if((err = p67_addr_set_sockaddr(&pass->addr_remote, &remote, sizeof(remote))) != 0)
+            if((conn = calloc(sizeof(p67_conn_t), 1)) == NULL) break;
+            if((err = p67_addr_dup(&conn->addr_local, &pass->local)) != 0) break;
+            if((err = p67_addr_set_sockaddr(&conn->addr_remote, &remote, sizeof(remote))) != 0)
                 break;
-            DLOG("Accepting %s:%s...\n", pass->addr_remote.hostname, pass->addr_remote.service);
-            pass->callback = handler;
-            pass->ssl = ssl;
-            if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, pass)) != 0) break;
+            DLOG("Accepting %s:%s...\n", conn->addr_remote.hostname, conn->addr_remote.service);
+            conn->callback = pass->handler;
+            conn->ssl = ssl;
+            if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, conn)) != 0) break;
             //err = 0;
         } while(0);
 
         if(err != 0) 
-            p67_conn_free(pass, 1);
+            p67_conn_free(conn, 1);
     }
 
 end:
@@ -1653,33 +1554,39 @@ end:
     return err;
 }
 
-p67_err
-p67_net_p2p_connect(
-        p67_addr_t * local, 
-        p67_addr_t * remote, 
-        p67_conn_callback_t cb, 
-        const char * keypath, 
-        const char * certpath)
-{
-    p67_err err;
-    p67_thread_t lt, ct;
+// #error implement proper connect and listen cancellation mechanics
+// #error start with introducing struct instead of block of params
 
-    err = p67_net_start_listen(
-                &lt,
-                local,
-                cb,
-                keypath,
-                certpath);
+// p67_err
+// p67_net_p2p_connect(
+//         p67_addr_t * local, 
+//         p67_addr_t * remote, 
+//         p67_conn_callback_t cb, 
+//         const char * keypath, 
+//         const char * certpath,
+//         p67_p2p_hndl_t * h)
+// {
+//     p67_err err;
 
-    if(err != 0) return err;
+//     bzero(h, sizeof(p67_p2p_hndl_t));
 
-    err = p67_net_start_persist_connect(
-                    &ct,
-                    local, 
-                    remote, 
-                    cb, 
-                    keypath,
-                    certpath);
+//     err = p67_net_start_listen(
+//                 &h->lt,
+//                 local,
+//                 cb,
+//                 keypath,
+//                 certpath);
 
-    return err;
-}
+//     if(err != 0) return err;
+
+//     err = p67_net_start_persist_connect(
+//                     &h->ct,
+//                     local, 
+//                     remote, 
+//                     cb, 
+//                     keypath,
+//                     certpath);
+
+//     return err;
+// }
+

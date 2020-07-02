@@ -12,6 +12,8 @@ enum p67_err {
     p67_err_eaconn = 8,  /* already connected */
     p67_err_enconn = 16, /* connection gone */
     p67_err_enetdb = 32, /* getaddrinfo */
+    p67_err_easync = 64, /* async state changed */
+    p67_err_etime  = 128 /* Timeout */
 };
 
 typedef enum p67_err p67_err;

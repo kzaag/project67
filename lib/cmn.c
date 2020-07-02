@@ -46,7 +46,7 @@ p67_cmn_thread_create(p67_thread_t * thr, p67_thread_callback cb, void * arg)
 p67_err
 p67_cmn_thread_kill(p67_thread_t t)
 {
-    if(pthread_kill(t, SIGINT) != 0) {
+    if(pthread_cancel(t) != 0) {
         return p67_err_eerrno;
     }
     return 0;
