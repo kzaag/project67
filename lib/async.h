@@ -22,6 +22,6 @@ p67_err
 p67_async_wait_change(p67_async_t * async, int state, int maxms);
 
 p67_err
-p67_async_terminate_thread(p67_async_t * async, int to);
+p67_async_terminate(p67_async_t * async, int to);
 
 #endif

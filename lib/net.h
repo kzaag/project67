@@ -88,7 +88,12 @@ p67_err
 p67_net_get_peer_pk(p67_addr_t * addr, char ** pk);
 
 p67_err
-p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb);
+p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb)
+    __nonnull((1));
+
+p67_err
+p67_net_start_read_loop_conn(p67_conn_t * conn)
+    __nonnull((1));
 
 p67_err
 p67_net_connect(p67_conn_pass_t * __restrict__ pass)
@@ -154,5 +159,12 @@ p67_net_new_key(char * __restrict__ path)
 p67_err
 p67_net_start_listen(p67_conn_pass_t * pass)
     __nonnull((1));
+
+p67_err
+p67_net_start_connect_and_listen(p67_conn_pass_t * pass)
+    __nonnull((1));
+
+p67_err
+p67_net_async_terminate(p67_conn_pass_t * pass);
 
 #endif

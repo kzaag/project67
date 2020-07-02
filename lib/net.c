@@ -39,10 +39,7 @@ struct p67_conn {
     p67_addr_t addr_local;
     SSL * ssl;
     p67_conn_callback_t callback;
-
-    p67_thread_t __read_thr;
-
-    unsigned int __read_thr_running : 1;
+    p67_async_t hread;
 };
 
 typedef __uint16_t p67_state_t;
@@ -132,7 +129,9 @@ p67_err
 p67_net_bio_set_timeout(BIO * bio, time_t msec);
 
 void *
-__p67_net_enter_read_loop(void * args);
+__p67_net_enter_read_loop(void * args)
+    __nonnull((1))
+    __attribute_deprecated_msg__("This method will not check whether read loop is already running");
 
 p67_err
 p67_net_get_addr_from_x509_store_ctx(X509_STORE_CTX *ctx, p67_addr_t * addr);
@@ -175,16 +174,8 @@ p67_conn_free(void * ptr, int also_free_ptr)
 
     if(ptr == NULL) return;
 
-    DLOG("Shutdown for %s:%s\n", conn->addr_remote.hostname, conn->addr_remote.service);
-
-    p67_addr_free(&conn->addr_local);
-    p67_addr_free(&conn->addr_remote);
-    
-    if(conn->__read_thr_running) {
-        conn->__read_thr_running = 0;
-        p67_cmn_thread_kill(conn->__read_thr);
-        conn->__read_thr = 0;
-    }
+    if(conn->hread.state == P67_ASYNC_STATE_RUNNING)
+        p67_async_terminate(&conn->hread, P67_TO_DEF);
 
     if(conn->ssl != NULL) {
         SSL_shutdown(conn->ssl);
@@ -192,6 +183,11 @@ p67_conn_free(void * ptr, int also_free_ptr)
         SSL_free(conn->ssl);
         conn->ssl = NULL;
     }
+
+    DLOG("Shutdown for %s:%s\n", conn->addr_remote.hostname, conn->addr_remote.service);
+
+    p67_addr_free(&conn->addr_local);
+    p67_addr_free(&conn->addr_remote);
 
     if(also_free_ptr) free(conn);
     
@@ -515,6 +511,38 @@ p67_net_bio_set_timeout(BIO * bio, time_t msec)
 }
 
 p67_err
+p67_net_start_read_loop_conn(p67_conn_t * conn)
+{
+    p67_err err;
+
+    if(conn->hread.state != P67_ASYNC_STATE_STOP)
+        return p67_err_eaconn;
+
+    if((err = p67_async_set_state(
+                    &conn->hread, 
+                    P67_ASYNC_STATE_STOP, 
+                    P67_ASYNC_STATE_RUNNING)) != 0)
+        return err;
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    if((err = p67_cmn_thread_create(
+                &conn->hread.thr, __p67_net_enter_read_loop, conn)) != 0) {
+#pragma GCC diagnostic pop
+        err |= p67_async_set_state(
+                    &conn->hread,
+                    P67_ASYNC_STATE_RUNNING,
+                    P67_ASYNC_STATE_STOP);
+        return err;
+    }
+
+    return 0;
+}
+
+/*
+    entry point for __p67_net_enter_read_loop
+*/
+p67_err
 p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb)
 {
     p67_conn_t * conn;
@@ -522,16 +550,9 @@ p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb)
     if((conn = p67_conn_lookup(addr)) == NULL)
         return p67_err_enconn;
 
-    if(conn->__read_thr_running)
-        return p67_err_eaconn;
-
     conn->callback = cb;
 
-    if(p67_cmn_thread_create(
-                &conn->__read_thr, __p67_net_enter_read_loop, conn) != 0)
-        return p67_err_eerrno;
-
-    return 0;
+    return p67_net_start_read_loop_conn(conn);
 }
 
 void *
@@ -552,14 +573,23 @@ __p67_net_enter_read_loop(void * args)
     while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN && num_timeouts < max_timeouts)) {
         sslr = 1;
         while(sslr) {
+            if(conn->hread.state != P67_ASYNC_STATE_RUNNING) {
+                err = 0;
+                goto end;
+            }
+
             len = SSL_read(conn->ssl, rbuff, READ_BUFFER_LENGTH);
 
             err = SSL_get_error(conn->ssl, len);
 
             switch (err) {
             case SSL_ERROR_NONE:
+                if(conn->callback == NULL) break;
                 callret = (*conn->callback)(conn, rbuff, len);
-                if(callret != 0) goto end;
+                if(callret != 0) {
+                    err = callret;
+                    goto end;
+                }
                 break;
             case SSL_ERROR_WANT_READ:
                 if (BIO_ctrl(bio, BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP, 0, NULL)) {
@@ -569,11 +599,13 @@ __p67_net_enter_read_loop(void * args)
                 break;
             case SSL_ERROR_ZERO_RETURN:
                 goto end;
+            case SSL_ERROR_SYSCALL:
+                if(errno == EAGAIN || errno == EWOULDBLOCK)
+                    break;
+                DLOG("ssl_read: %d : %s\n", errno, strerror(errno));
+                goto end;
             default:
-                if(err == SSL_ERROR_SYSCALL)
-                    DLOG("ssl_read: %d : %s\n", errno, strerror(errno));
-                else
-                    DLOG("in read loop: %s\n", ERR_error_string(err, errbuf));
+                DLOG("in read loop: %s\n", ERR_error_string(err, errbuf));
                 sslr = 0;
                 break;
             }
@@ -582,7 +614,15 @@ __p67_net_enter_read_loop(void * args)
 
     end:
     DLOG("Leaving read loop\n");
-    if(conn != NULL) p67_conn_remove(&conn->addr_remote);
+    p67_async_set_state(
+            &conn->hread, 
+            P67_ASYNC_STATE_RUNNING, 
+            P67_ASYNC_STATE_STOP); /* leave on error */
+    p67_async_set_state(
+            &conn->hread, 
+            P67_ASYNC_STATE_SIG_STOP, 
+            P67_ASYNC_STATE_STOP); /* leave on interrupt */
+    if(err != 0) p67_conn_remove(&conn->addr_remote);
     return NULL;
 }
 
@@ -624,8 +664,8 @@ char *
 p67_net_get_pem_str(X509 * x509, int type)
 {
     BIO * bio;
-    X509_PUBKEY * xpubk;
-    EVP_PKEY * pubk;
+    X509_PUBKEY * xpubk = NULL;
+    EVP_PKEY * pubk = NULL;
     char * outbuff;
     uint64_t wrote;
     int err = 1;
@@ -673,6 +713,7 @@ p67_net_get_pem_str(X509 * x509, int type)
     
     end:
     if(bio != NULL) BIO_free(bio);
+    if(pubk != NULL) EVP_PKEY_free(pubk);
     return err == 0 ? outbuff : NULL;
 }
 
@@ -860,8 +901,10 @@ __p67_net_accept(void * args)
             rbio, 
             BIO_CTRL_DGRAM_SET_CONNECTED,
             0, 
-            &pass->addr_remote.sock.__ss) != 1) 
+            &pass->addr_remote.sock) != 1) 
         goto end;
+
+    p67_err_mask_all(err);
 
     if(p67_net_bio_set_timeout(rbio, P67_DEFAULT_TIMEOUT_MS) != 0) goto end;
 
@@ -873,17 +916,29 @@ __p67_net_accept(void * args)
 
     if((err = p67_conn_insert_existing(pass)) != 0) goto end;
 
+    // DLOG("DBG SOCKET: testing socket\n");
+
+    // sfd = SSL_get_fd(pass->ssl);
+
+    // err = p67_sfd_get_err(sfd);
+    // err |= p67_sfd_valid(sfd);
+    // char buff[1];
+    // if(SSL_get_error(pass->ssl, SSL_read(pass->ssl, buff, 1)) != SSL_ERROR_NONE) {
+    //     err |= (p67_err_essl | p67_err_eerrno);
+    // }
+
+    // if(err != 0) {
+    //     p67_err_print_err("DBG SOCKET: ", err);
+    // } else {
+    //     DLOG("DBG SOCKET: ok\n");
+    // }
+
     DLOG("Accepted %s:%s\n", pass->addr_remote.hostname, pass->addr_remote.service);
 
-    if(pass->__read_thr_running) {
-        if((err = p67_cmn_thread_kill(pass->__read_thr)) != 0) goto end;
-        pass->__read_thr_running = 0;
-    }
-
-    if((err = p67_cmn_thread_create(&pass->__read_thr, __p67_net_enter_read_loop, pass)) == 0) {
-        return NULL;
-    } else {
+    if((err = p67_net_start_read_loop_conn(pass)) != 0) {
         goto end;
+    } else {
+        return NULL;
     }
 
 end:
@@ -958,13 +1013,8 @@ p67_net_connect(p67_conn_pass_t * pass)
     */
     noclose = 1;
 
-    if((err = p67_cmn_thread_create(&conn->__read_thr, __p67_net_enter_read_loop, conn)) == 0) {
-        conn->__read_thr_running = 1;
-        err = 0;
-    } else {
-        err = p67_err_eerrno;
-    }
-    
+    err = p67_net_start_read_loop_conn(conn);
+
 end:
     if(err != 0 && !noclose) {
         if(ssl != NULL) {
@@ -1034,7 +1084,7 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
     if(err == 0) {
         DLOG("NAT Connect:%d Succeeded.\n", p67_conn_cn_t);
     } else {
-        DLOG("NAT Connect:%d Failed.\n", p67_conn_cn_t);
+        //DLOG("NAT Connect:%d Failed.\n", p67_conn_cn_t);
     }
 
     p67_async_set_state(&pass->hconnect, 
@@ -1058,12 +1108,12 @@ __p67_net_persist_connect(void * arg)
             break;
         }
 
-        DLOG("Background connect iteration for %s:%s. Slept %lu ms\n", 
-            pass->remote.hostname, pass->remote.service, interval);
+        // DLOG("Background connect iteration for %s:%s. Slept %lu ms\n", 
+        //     pass->remote.hostname, pass->remote.service, interval);
 
         if(p67_conn_lookup(&pass->remote) == NULL) {
             if((err = p67_net_nat_connect(pass, P67_CONN_CNT_PASS)) != 0) {
-                p67_err_print_err("Background connect ", err);
+                // p67_err_print_err("Background connect ", err);
             } else {
                 DLOG("Background connected to %s:%s\n", 
                     pass->remote.hostname, pass->remote.service);
@@ -1086,7 +1136,7 @@ __p67_net_persist_connect(void * arg)
         }
     }
 
-    DLOG("Background connect end\n");
+    DLOG("Background connect: End\n");
     if(err != 0) p67_err_print_err("Background connect: ", err);
     p67_async_set_state(
             &pass->hconnect, 
@@ -1247,8 +1297,11 @@ __p67_net_listen(void * args)
     p67_err err;
     p67_conn_pass_t * pass = (p67_conn_pass_t *)args;
 
-    if((err = p67_net_listen(pass)) != 0)
-        p67_err_print_err("__Listen: ", err);
+    err = p67_net_listen(pass);
+
+    DLOG("Background listen: End\n");
+
+    if(err != 0) p67_err_print_err("Background listen: ", err);
 
     return NULL;
 }
@@ -1330,7 +1383,7 @@ p67_net_listen(p67_conn_pass_t * pass)
             goto end;
         }
 
-        while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote.__ss) <= 0) {
+        while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote) <= 0) {
             if(pass->hlisten.state != P67_ASYNC_STATE_RUNNING) {
                 err = p67_err_eint;
                 goto end;
@@ -1594,39 +1647,30 @@ end:
     return err;
 }
 
-// #error implement proper connect and listen cancellation mechanics
-// #error start with introducing struct instead of block of params
+p67_err
+p67_net_start_connect_and_listen(p67_conn_pass_t * pass)
+{
+    p67_err err;
 
-// p67_err
-// p67_net_p2p_connect(
-//         p67_addr_t * local, 
-//         p67_addr_t * remote, 
-//         p67_conn_callback_t cb, 
-//         const char * keypath, 
-//         const char * certpath,
-//         p67_p2p_hndl_t * h)
-// {
-//     p67_err err;
+    err = p67_net_start_listen(pass);
 
-//     bzero(h, sizeof(p67_p2p_hndl_t));
+    if(err != 0) return err;
 
-//     err = p67_net_start_listen(
-//                 &h->lt,
-//                 local,
-//                 cb,
-//                 keypath,
-//                 certpath);
+    err = p67_net_start_persist_connect(pass);
 
-//     if(err != 0) return err;
+    if(err != 0)
+        err |= p67_async_terminate(&pass->hconnect, P67_TO_DEF);
+    
+    return err;
+}
 
-//     err = p67_net_start_persist_connect(
-//                     &h->ct,
-//                     local, 
-//                     remote, 
-//                     cb, 
-//                     keypath,
-//                     certpath);
+p67_err
+p67_net_async_terminate(p67_conn_pass_t * pass)
+{
+    p67_err err = 0;
 
-//     return err;
-// }
+    err |= p67_async_terminate(&pass->hconnect, P67_TO_DEF);
+    err |= p67_async_terminate(&pass->hlisten, P67_TO_DEF);
 
+    return err;
+}
