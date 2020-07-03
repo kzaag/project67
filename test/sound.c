@@ -80,6 +80,8 @@ run_music(const char * wavpath)
         }
     }
 
+    rjmp(fc == NULL, err, p67_err_einval, end);
+
     close(mfd);
 
     out.channels = fmt.channels;
@@ -108,6 +110,8 @@ run_echo()
 {
     p67_err err = 0;
     p67_pcm_t in = P67_PCM_INTIIALIZER_IN, out = P67_PCM_INTIIALIZER_OUT;
+    //in.sampling = P67_PCM_SAMPLING_44_1K;
+    //out.sampling = P67_PCM_SAMPLING_44_1K;
     char * buff = NULL;
     size_t rd;
 
@@ -115,7 +119,7 @@ run_echo()
     if((err = p67_pcm_create_io(&out)) != 0) goto end;
 
     if(!p67_pcm_in_sync(in, out)) {
-        printf("pcm devices not synced.\n");
+        printf("pcm devices not in sync.\n");
         err = p67_err_einval;
         goto end;
     }
