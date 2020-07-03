@@ -58,4 +58,12 @@ p67_err_print_err(const char * hdr, p67_err err)
     if(err & p67_err_eint) {
         fprintf(stderr, "%sOperation has been interrupted\n", hdr);
     }
+    
+    if(err & p67_err_epcm) {
+        fprintf(stderr, "%sSound hardware/driver error\n", hdr);
+    }
+
+    if(err & p67_err_eagain) {
+        fprintf(stderr, "%sResource temporarily unavailable\n", hdr);
+    }
 }

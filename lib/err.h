@@ -14,7 +14,9 @@ enum p67_err {
     p67_err_enetdb = 32,  /* getaddrinfo */
     p67_err_easync = 64,  /* async state changed */
     p67_err_etime  = 128, /* Timeout */
-    p67_err_eint   = 256  /* Interrupted */
+    p67_err_eint   = 256, /* Interrupted */
+    p67_err_epcm   = 512,  /* Sound hw / driver fault */
+    p67_err_eagain = 1024  /* Resource temporarily unavailable */
 };
 
 typedef enum p67_err p67_err;

@@ -2,24 +2,58 @@
 #define PCM_H 1
 
 #include "err.h"
+#include <stdlib.h>
 
-#define P67_SAMPLING_HIGH      48000
+typedef struct p67_pcm p67_pcm_t;
 
-#define P67_FRAME_SIZE_DEFAULT 512
+struct p67_pcm {
+    void * __hw;
+    char * name;
+    int name_rdonly;
+    unsigned long frame_size;
+    unsigned int sampling;
+    unsigned int channels;
+    unsigned int bits_per_sample;
+    int pcm_tp;
+};
 
-typedef void p67_pcm_t;
+#define p67_pcm_buff_size(pcm) (pcm.channels * 2 * pcm.frame_size)
+
+#define p67_pcm_in_sync(p1, p2) \
+    ((p1).frame_size == (p2).frame_size && (p1).channels == (p2).channels)
+
+#define P67_PCM_NAME_DEFAULT "default"
+#define P67_PCM_SAMPLING_48K 48000
+#define P67_PCM_SAMPLING_44_1K 44100
+#define P67_PCM_FRAME_SIZE_UNSPEC 0
+#define P67_PCM_PBS_16 16
+
+#define P67_PCM_TP_I 1
+#define P67_PCM_TP_O 2
+
+#define P67_PCM_INTIIALIZER_IN \
+    {NULL, NULL, 0, P67_PCM_FRAME_SIZE_UNSPEC, P67_PCM_SAMPLING_48K, 1, P67_PCM_PBS_16, P67_PCM_TP_I}
+
+#define P67_PCM_INTIIALIZER_OUT \
+    {NULL, NULL, 0, P67_PCM_FRAME_SIZE_UNSPEC, P67_PCM_SAMPLING_48K, 1, P67_PCM_PBS_16, P67_PCM_TP_O}
 
 p67_err
-p67_pcm_read(p67_pcm_t * __restrict__ __in, unsigned long frame_size)
-    __nonnull((1));
-
-p67_err
-p67_pcm_create_in(
-        p67_pcm_t ** __restrict__ __pcm, 
-        const char * __restrict__ name,
-        unsigned int * __restrict__ sampling,
-        unsigned long * __restrict__ frame_size)
+p67_pcm_write(
+            p67_pcm_t * __restrict__ pcm, 
+            void * __restrict__ buff, 
+            size_t * __restrict__ buffl)
     __nonnull((1, 2));
+
+p67_err
+p67_pcm_read(
+            p67_pcm_t * __restrict__ __in, 
+            void * __restrict__ buff,
+            size_t * __restrict__ buffl)
+    __nonnull((1, 2, 3));
+
+p67_err
+p67_pcm_create_io(p67_pcm_t * __restrict__ __pcm)
+    __nonnull((1));
 
 void
 p67_pcm_free(p67_pcm_t * __restrict__ __pcm)
