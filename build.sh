@@ -53,6 +53,6 @@ FP="$WD/test"
 
 gcc $FP/corenet.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67corenet -W -g;
 gcc $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g;
-gcc $FP/wrtc.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67wrtc -W -g `pkg-config --libs alsa`
+gcc $FP/sound.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67sound -W -g
 
 bash $WD/devcert.sh $WD;
