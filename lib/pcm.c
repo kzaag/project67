@@ -25,11 +25,12 @@ p67_pcm_write(p67_pcm_t * pcm, void * buff, size_t * buffl)
     ssize_t ret;
     p67_err err = 0;
     ret = snd_pcm_writei((snd_pcm_t *)pcm->__hw, buff, *buffl);
-    if(ret <= 0) {
+    if(ret < 0) {
+        ret = snd_pcm_recover((snd_pcm_t *)pcm->__hw, ret, 0);
         if(ret == -EPIPE) {
             snd_pcm_prepare((snd_pcm_t *)pcm->__hw);
             err = p67_err_eagain;
-        } else {
+        } else if(ret < 0) {
             err = p67_err_epcm | p67_err_eerrno;
         }
     }

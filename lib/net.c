@@ -19,7 +19,7 @@
 #define P67_MOD_SLEEP_MS 1000
 
 p67_mutex_t cookie_lock = P67_CMN_MUTEX_INITIALIZER;
-int cookie_initialized=0;
+static volatile int cookie_initialized=0;
 #define COOKIE_SECRET_LENGTH 32
 unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
 

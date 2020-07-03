@@ -31,7 +31,7 @@ run_music(const char * wavpath)
     ssize_t rd;
     const char * wave = "WAVE";
     char * fc = NULL;
-    size_t fcl = 0, c = 0, wr;
+    size_t fcl = 0, c = 0, wr = 0;
     p67_err err;
     int iffidl = 4, mfd = 0;
 
@@ -88,36 +88,18 @@ run_music(const char * wavpath)
 
     if((err = p67_pcm_create_io(&out)) != 0) goto end;
 
-    out.frame_size = (fcl * 8) / (out.bits_per_sample * out.channels);
-
-    printf("%u, %u, %d, %lu\n", fmt.channels, fmt.samples_per_sec, fmt.bitsPerSample, out.frame_size);
-
-    goto end;
-
     do {
-        wr = out.frame_size - c;
+        if(wr <= 0) wr = out.frame_size;
         if((err = p67_pcm_write(&out, fc+c, &wr)) != 0 && err != p67_err_eagain)
             goto end;
-        c+=wr;
-    } while(c < out.frame_size);
-
-    // while(1) {
-    //     rd = out.frame_size;
-    //     err = 0;
-    //     if((rd = read(mfd, buff, bfl)) <= 0) {
-    //         if(rd < 0) err = p67_err_eerrno;
-    //         goto end;
-    //     }
-    //     rd /= (2+out.channels);
-    //     if((err = p67_pcm_write(&out, buff, rd)) != 0 && err != p67_err_eagain)
-    //         goto end;
-    // }
+        c+=wr*out.channels*out.bits_per_sample/8;
+    } while(c < fcl);///
 
 end:
+    p67_pcm_free(&out);
     if(fc != NULL) free(fc);
     if(mfd > 0) close(mfd);
     if(err != 0) p67_err_print_err(NULL, err);
-    p67_pcm_free(&out);
     return err == 0 ? 0 : 2;
 }
 
