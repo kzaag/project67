@@ -90,6 +90,10 @@ run_music(const char * wavpath)
 
     out.frame_size = (fcl * 8) / (out.bits_per_sample * out.channels);
 
+    printf("%u, %u, %d, %lu\n", fmt.channels, fmt.samples_per_sec, fmt.bitsPerSample, out.frame_size);
+
+    goto end;
+
     do {
         wr = out.frame_size - c;
         if((err = p67_pcm_write(&out, fc+c, &wr)) != 0 && err != p67_err_eagain)
