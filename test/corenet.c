@@ -9,7 +9,7 @@
 */
 
 p67_err
-read_callback(p67_conn_t * conn, const char * msg, int msgl)
+process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     printf("%*.*s\n", msgl, msgl, msg);
     return 0;
@@ -29,7 +29,7 @@ main(int argc, char ** argv)
     pass.remote.rdonly = 1u;
     pass.certpath = certpath;
     pass.keypath = keypath;
-    pass.handler = read_callback;
+    pass.handler = process_message;
 
     if(argc < 3) {
         printf("Usage: ./p67corenet [source port] [dest port]\n");

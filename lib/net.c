@@ -39,6 +39,7 @@ struct p67_conn {
     p67_addr_t addr_local;
     SSL * ssl;
     p67_conn_callback_t callback;
+    void * args;
     p67_async_t hread;
 };
 
@@ -543,7 +544,7 @@ p67_net_start_read_loop_conn(p67_conn_t * conn)
     entry point for __p67_net_enter_read_loop
 */
 p67_err
-p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb)
+p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb, void * args)
 {
     p67_conn_t * conn;
 
@@ -551,6 +552,7 @@ p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb)
         return p67_err_enconn;
 
     conn->callback = cb;
+    conn->args = args;
 
     return p67_net_start_read_loop_conn(conn);
 }
@@ -585,7 +587,7 @@ __p67_net_enter_read_loop(void * args)
             switch (err) {
             case SSL_ERROR_NONE:
                 if(conn->callback == NULL) break;
-                callret = (*conn->callback)(conn, rbuff, len);
+                callret = (*conn->callback)(conn, rbuff, len, conn->args);
                 if(callret != 0) {
                     err = callret;
                     goto end;
@@ -1397,6 +1399,7 @@ p67_net_listen(p67_conn_pass_t * pass)
                 break;
             DLOG("Accepting %s:%s...\n", conn->addr_remote.hostname, conn->addr_remote.service);
             conn->callback = pass->handler;
+            conn->args = pass->args;
             conn->ssl = ssl;
             if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, conn)) != 0) break;
             //err = 0;

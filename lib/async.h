@@ -10,6 +10,8 @@
 
 #define P67_TO_DEF 5000
 
+#define P67_ASYNC_INITIALIZER {0}
+
 typedef struct p67_async {
     int          state;
     p67_thread_t thr;

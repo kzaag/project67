@@ -17,9 +17,9 @@ struct p67_pcm {
     int pcm_tp;
 };
 
-#define p67_pcm_buff_size(pcm) (pcm.channels * 2 * pcm.frame_size)
+#define p67_pcm_act_size(pcm, s) ((s * (pcm).channels * (pcm).bits_per_sample)/8)
 
-#define p67_pcm_act_size(pcm, s) ((s*(pcm).channels*(pcm).bits_per_sample)/8)
+#define p67_pcm_buff_size(pcm) (p67_pcm_act_size(pcm, (pcm).frame_size))
 
 #define p67_pcm_in_sync(p1, p2) \
     ((p1).frame_size == (p2).frame_size && (p1).channels == (p2).channels)

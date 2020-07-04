@@ -14,7 +14,7 @@ typedef struct p67_p2p_hndl p67_p2p_hndl_t;
 
 typedef struct p67_liitem p67_liitem_t;
 
-typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, const char *, int); 
+typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, const char *, int, void *); 
 
 #define P67_CONN_PASS_INITIALIZER {0}
 
@@ -22,6 +22,7 @@ typedef struct p67_conn_pass {
     p67_addr_t local;
     p67_addr_t remote;
     p67_conn_callback_t handler;
+    void * args;
     char * keypath;
     char * certpath;
     p67_async_t hconnect;
@@ -88,7 +89,10 @@ p67_err
 p67_net_get_peer_pk(p67_addr_t * addr, char ** pk);
 
 p67_err
-p67_net_start_read_loop(p67_addr_t * addr, p67_conn_callback_t cb)
+p67_net_start_read_loop
+            (p67_addr_t * addr, 
+            p67_conn_callback_t cb, 
+            void * args)
     __nonnull((1));
 
 p67_err
