@@ -75,7 +75,7 @@ get_p67_pcm_from_wav_file(
                 rjmp(rd == 0 || rd != chunk.len, err, p67_err_einval, end);
             } else if(data_offset != NULL) {
                 *data_offset = lseek(mfd, 0, 1);
-                rjmp(*data_offset, err, p67_err_eerrno, end);
+                rjmp(*data_offset < 0, err, p67_err_eerrno, end);
             }
         } else if(memcmp(chunk.id, "fmt", 3) == 0 && sizeof(fmt) <= chunk.len) {
             rd = read(mfd, &fmt, sizeof(fmt));
@@ -92,6 +92,7 @@ get_p67_pcm_from_wav_file(
             rjmp(rd == -1, err, p67_err_eerrno, end);
         }
     }
+
 
     rjmp(fc != NULL && *fc == NULL, err, p67_err_einval, end);
 

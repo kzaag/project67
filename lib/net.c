@@ -167,6 +167,12 @@ __p67_net_listen(void * args);
 
 /*---END PRIVATE PROTOTYPES---*/
 
+const p67_addr_t *
+p67_conn_get_addr(p67_conn_t * conn)
+{
+    return &conn->addr_remote; 
+}
+
 void
 p67_conn_free(void * ptr, int also_free_ptr)
 {
@@ -1216,13 +1222,59 @@ __p67_net_write(p67_conn_t * conn, const char * msg, int * msgl)
 }
 
 p67_err
-p67_net_write(p67_addr_t * addr, const char * msg, int * msgl)
+p67_net_must_write(const p67_addr_t * addr, const char * msg, int msgl)
+{
+    p67_conn_t * conn;
+    int wl = msgl;
+    p67_err err;
+
+    while(1) {
+        if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
+
+        err = __p67_net_write(conn, msg, &wl);
+
+        if(err != 0)
+            return err;
+
+        if(wl == msgl) return 0;
+
+        if(wl > msgl) return p67_err_einval;
+
+        msg+=wl;
+        msgl-=wl;
+    }
+}
+
+p67_err
+p67_net_write(const p67_addr_t * addr, const char * msg, int * msgl)
 {
     p67_conn_t * conn;
 
     if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
 
     return __p67_net_write(conn, msg, msgl);
+}
+
+#warning shit code - must refractor it
+p67_err
+p67_net_must_write_connect(p67_conn_pass_t * pass, const char * msg, int msgl)
+{
+    p67_conn_t * conn;
+    p67_err err;
+
+    if((conn = p67_conn_lookup(&pass->remote)) != NULL) {
+        return p67_net_must_write(&conn->addr_remote, msg, msgl);
+    }
+
+    if((err = p67_net_nat_connect(pass, P67_CONN_CNT_PERSIST)) != 0 && err != p67_err_eaconn) {
+        return err;
+    }
+
+    if((conn = p67_conn_lookup(&pass->remote)) != NULL) {
+        return p67_net_must_write(&conn->addr_remote, msg, msgl);
+    }
+
+    return p67_err_enconn;
 }
 
 p67_err
@@ -1238,7 +1290,7 @@ p67_net_write_connect(
         return __p67_net_write(conn, msg, msgl);
     }
 
-    if((err = p67_net_nat_connect(pass, P67_CONN_CNT_PERSIST)) != 0) {
+    if((err = p67_net_nat_connect(pass, P67_CONN_CNT_PERSIST)) != 0 && err != p67_err_eaconn) {
         return err;
     }
 

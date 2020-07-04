@@ -30,6 +30,9 @@ struct p67_pcm {
 #define P67_PCM_FRAME_SIZE_UNSPEC 0
 #define P67_PCM_PBS_16 16
 
+#define P67_PCM_CHAN_MONO 1
+#define P67_PCM_CHAN_STEREO 2
+
 #define P67_PCM_TP_I 1
 #define P67_PCM_TP_O 2
 
