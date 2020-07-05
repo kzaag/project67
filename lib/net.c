@@ -1255,7 +1255,6 @@ p67_net_write(const p67_addr_t * addr, const char * msg, int * msgl)
     return __p67_net_write(conn, msg, msgl);
 }
 
-#warning shit code - must refractor it
 p67_err
 p67_net_must_write_connect(p67_conn_pass_t * pass, const char * msg, int msgl)
 {

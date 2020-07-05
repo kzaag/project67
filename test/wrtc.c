@@ -15,7 +15,7 @@ static p67_async_t sm = {STATE_STREAM, 0};
 static volatile int cix;
 static volatile int head = 0;
 static volatile int tail = 0;
-#define QUEUELEN 50240
+#define QUEUELEN 50240000
 static char __mqueue[QUEUELEN];
 
 #define TC_YELLOW "\033[33m"
@@ -42,7 +42,15 @@ queue_enqueue(const char * chunk, int chunkl)
         if(e >= h || e < tail) goto end;
     }
 
-    memcpy(__mqueue+tail, chunk, chunkl);
+    if(chunkl > (QUEUELEN-tail)) {
+        // [*|*|*| |L*|*]
+        //  0 1 2 3 4  5
+        memcpy(__mqueue+tail, chunk, (QUEUELEN-tail));
+        memcpy(__mqueue,  chunk+QUEUELEN-tail, chunkl - QUEUELEN + tail);
+    } else {
+        memcpy(__mqueue+tail, chunk, chunkl);
+    }
+
     tail=(tail+chunkl)%QUEUELEN;
 
     err = 0;
