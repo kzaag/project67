@@ -34,4 +34,7 @@ p67_cmn_thread_kill(p67_thread_t t);
 p67_err
 p67_cmn_sleep_ms(int ms);
 
+p67_err
+p67_cmn_sleep_micro(int micro);
+
 #endif
