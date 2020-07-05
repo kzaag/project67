@@ -15,7 +15,7 @@ static p67_async_t sm = {STATE_STREAM, 0};
 static volatile int cix;
 static volatile int head = 0;
 static volatile int tail = 0;
-#define QUEUELEN 502400
+#define QUEUELEN 50240
 static char __mqueue[QUEUELEN];
 
 #define TC_YELLOW "\033[33m"
@@ -148,7 +148,7 @@ recv_song(p67_conn_pass_t * pass)
     out.sampling = P67_PCM_SAMPLING_44_1K;
     out.bits_per_sample = P67_PCM_PBS_16;
     p67_err err = 0;
-    size_t read = 0;
+    size_t read = 0, r;
     char * b = NULL;
     pass->handler = receiver_callback;
     size_t chunksize = p67_pcm_buff_size(out);
@@ -159,17 +159,17 @@ recv_song(p67_conn_pass_t * pass)
         goto end;
 
     if((b = malloc(chunksize)) == NULL) goto end;
+
     
     while(1) {
-        chunksize = p67_pcm_buff_size(out);
         err = queue_dequeue(b, chunksize);
         p67_cmn_sleep_micro(500);
         if(err != 0) continue; //p67_err_print_err("Dequeue: ", err);
         // else printf(TC_GREEN "%*.*s\n" TC_DEFAULT, 2, 2, b);
         // sleep(1);
-        read+=chunksize;
-        chunksize = out.frame_size;
-        p67_pcm_write(&out, b, &chunksize);
+        r = out.frame_size;
+        p67_pcm_write(&out, b, &r);
+        read+=p67_pcm_act_size(out, r);
         printf("read: %lu\n", read);
     }
 

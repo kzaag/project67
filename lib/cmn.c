@@ -67,7 +67,7 @@ p67_cmn_sleep_micro(int micro)
 {
     struct timespec ts;
     ts.tv_sec = micro / 1000000;
-    ts.tv_nsec = (micro % 1000) * 1000;
+    ts.tv_nsec = (micro % 1000000) * 1000;
     if(nanosleep(&ts, &ts) != 0) return p67_err_einval;
     return 0;
 }
