@@ -20,7 +20,7 @@ static volatile int tail = 0;
 static char __mqueue[QUEUELEN];
 
 static volatile int interval;
-static volatile const int slow_delta = 20;
+static volatile const int slow_delta = 10;
 static volatile const int fast_delta = 400;
 
 #define TC_YELLOW "\033[33m"
@@ -187,7 +187,7 @@ recv_song(p67_conn_pass_t * pass)
     out.frame_size = 128;
     out.channels = P67_PCM_CHAN_STEREO;
     out.sampling = P67_PCM_SAMPLING_44_1K;
-    out.bits_per_sample = P67_PCM_PBS_16;
+    out.bits_per_sample = P67_PCM_BPS_16;
     register p67_err err = 0;
     size_t read = 0, r;
     register int taken;
@@ -231,6 +231,53 @@ end:
     p67_pcm_free(&out);
     return err;
 
+}
+
+
+p67_err
+send_mic(p67_conn_pass_t * pass)
+{
+    p67_pcm_t in = P67_PCM_INTIIALIZER_IN;
+    in.channels = P67_PCM_CHAN_STEREO;
+    in.sampling = P67_PCM_SAMPLING_44_1K;
+    in.bits_per_sample = P67_PCM_BPS_16;
+    in.frame_size = 128;
+    register p67_err err;
+    size_t s, r;
+    register size_t wrote = 0;
+    char * buf = NULL;
+    pass->handler = sender_callback;
+
+    if((err = p67_pcm_create_io(&in)) != 0) goto end;
+    in.frame_size = 128;
+
+    if((err = p67_net_start_connect_and_listen(pass)) != 0)
+        goto end;
+
+    s = p67_pcm_buff_size(in);// + sizeof(nethdr);
+
+    if((buf = malloc(s)) == NULL) {
+        err = p67_err_eerrno;
+        goto end;
+    }
+
+    interval = 0;
+    
+    while(1) {
+        r = in.frame_size;
+        err = p67_pcm_read(&in, buf, &r);
+        p67_cmn_sleep_micro(interval);
+        r = p67_pcm_act_size(in, r);
+        if((err = p67_net_write_connect(pass, buf, (int *)&r)) != 0) 
+            goto end;
+        wrote += r;
+        printf("\rwrote: %lu", wrote);
+    }
+
+end:
+    free(buf);
+    if(err != 0) p67_err_print_err(NULL, err);
+    return err;
 }
 
 p67_err
@@ -326,6 +373,7 @@ main(int argc, char ** argv)
 
     if(argc > 3) {
         err = send_song(&pass, argv[3]);
+        //err = send_mic(&pass);
     } else {
         err = recv_song(&pass);
     }

@@ -87,7 +87,7 @@ p67_pcm_create_io(p67_pcm_t * __pcm)
              *pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED)) != 0) goto end;
 
     switch(__pcm->bits_per_sample) {
-    case P67_PCM_PBS_16:
+    case P67_PCM_BPS_16:
         fmt = SND_PCM_FORMAT_S16_LE;
         break;
     default:
