@@ -15,7 +15,7 @@ static p67_async_t sm = {STATE_STREAM, 0};
 static volatile int cix;
 static volatile int head = 0;
 static volatile int tail = 0;
-#define QUEUELEN 5024000
+#define QUEUELEN 502400
 static char __mqueue[QUEUELEN];
 
 #define TC_YELLOW "\033[33m"
@@ -226,7 +226,7 @@ send_song(p67_conn_pass_t * pass, const char * path)
     while((r = read(fd, buf, s)) > 0) {
         if((err = p67_net_write_connect(pass, buf, &r)) != 0) 
             goto end;
-        p67_cmn_sleep_ms(2);
+        p67_cmn_sleep_micro(2500);
         wrote += r;
         printf("wrote: %lu\n", wrote);
         rjmp(r < (int)s && lseek(fd, -(s-r), 1) < 0, err, p67_err_eerrno, end);
