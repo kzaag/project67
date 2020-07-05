@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 
 #include "wav.h"
 
@@ -15,14 +16,21 @@ static p67_async_t sm = {STATE_STREAM, 0};
 static volatile int cix;
 static volatile int head = 0;
 static volatile int tail = 0;
-#define QUEUELEN 50240000
+#define QUEUELEN 50240
 static char __mqueue[QUEUELEN];
+
+static volatile int interval;
+static volatile const int slow_delta = 20;
+static volatile const int fast_delta = 400;
 
 #define TC_YELLOW "\033[33m"
 #define TC_GREEN "\033[32m"
 #define TC_DEFAULT "\033[0m"
 
-static p67_mutex_t __lock = P67_CMN_MUTEX_INITIALIZER;
+#define T_HIDE_CURSOR() printf("\e[?25l")
+#define T_SHOW_CURSOR() printf("\e[?25h")
+
+#define T_CLEAN_RET "\e[2K"
 
 p67_err
 queue_enqueue(const char * chunk, int chunkl)
@@ -57,6 +65,20 @@ queue_enqueue(const char * chunk, int chunkl)
 
 end:
     return err;
+}
+
+int
+queue_space_taken()
+{
+    int t = tail;
+    int h = head;
+    if(t == h) {
+        return 0;
+    } else if(t > h) {
+        return t - h;
+    } else {
+        return QUEUELEN - h + t;
+    }
 }
 
 p67_err
@@ -96,7 +118,18 @@ p67_err
 sender_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     const p67_addr_t * remote = p67_conn_get_addr(conn);
-    printf(TC_YELLOW "%s:%s: %*.*s\n" TC_DEFAULT, remote->hostname, remote->service, msgl, msgl, msg);
+    printf(TC_YELLOW "\r%s:%s: %*.*s\n" TC_DEFAULT, remote->hostname, remote->service, msgl, msgl, msg);
+    if(msgl < 7) return 0;
+    if(memcmp(msg, "slower!", 7) == 0) {
+        interval+=slow_delta;
+        return 0;
+    }
+    if(memcmp(msg, "faster!", 7) == 0) {
+        if(interval == 0)
+            return 0;
+        interval-=fast_delta;
+        return 0;
+    }
     return 0;
 }
 
@@ -155,30 +188,42 @@ recv_song(p67_conn_pass_t * pass)
     out.channels = P67_PCM_CHAN_STEREO;
     out.sampling = P67_PCM_SAMPLING_44_1K;
     out.bits_per_sample = P67_PCM_PBS_16;
-    p67_err err = 0;
+    register p67_err err = 0;
     size_t read = 0, r;
+    register int taken;
     char * b = NULL;
     pass->handler = receiver_callback;
     size_t chunksize = p67_pcm_buff_size(out);
 
     if((err = p67_pcm_create_io(&out)) != 0) goto end;
+    out.frame_size = 128;
 
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
     if((b = malloc(chunksize)) == NULL) goto end;
-
     
+    interval = 500;
+
     while(1) {
         err = queue_dequeue(b, chunksize);
-        p67_cmn_sleep_micro(500);
+        p67_cmn_sleep_micro(interval);
         if(err != 0) continue; //p67_err_print_err("Dequeue: ", err);
         // else printf(TC_GREEN "%*.*s\n" TC_DEFAULT, 2, 2, b);
         // sleep(1);
         r = out.frame_size;
-        p67_pcm_write(&out, b, &r);
+        err = p67_pcm_write(&out, b, &r);
+        if(err == p67_err_epipe) {
+            printf(T_CLEAN_RET"\rfaster!\n");
+            if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+        }
         read+=p67_pcm_act_size(out, r);
-        printf("read: %lu\n", read);
+        taken = queue_space_taken();
+        if(taken > 0) {
+            printf(T_CLEAN_RET"\rslower!\n");
+            if((err = p67_net_must_write_connect(pass, "slower!", 7)) != 0) goto end;
+        }
+        printf("\rread: %lu. buffered: %d.", read, taken);
     }
 
 end:
@@ -192,9 +237,10 @@ p67_err
 send_song(p67_conn_pass_t * pass, const char * path)
 {
     p67_pcm_t out = P67_PCM_INTIIALIZER_OUT;
-    p67_err err;
+    register p67_err err;
     int fd, r;
-    size_t s, wrote = 0;
+    size_t s;
+    register size_t wrote = 0;
     char * buf = NULL;
     long dof;
     pass->handler = sender_callback;
@@ -231,12 +277,14 @@ send_song(p67_conn_pass_t * pass, const char * path)
         goto end;
     }
 
+    interval = 5000;
+
     while((r = read(fd, buf, s)) > 0) {
         if((err = p67_net_write_connect(pass, buf, &r)) != 0) 
             goto end;
-        p67_cmn_sleep_micro(2500);
+        p67_cmn_sleep_micro(interval);
         wrote += r;
-        printf("wrote: %lu\n", wrote);
+        printf("\rwrote: %lu", wrote);
         rjmp(r < (int)s && lseek(fd, -(s-r), 1) < 0, err, p67_err_eerrno, end);
     }
     if(r < 0) err = p67_err_eerrno;
@@ -250,6 +298,8 @@ end:
 int
 main(int argc, char ** argv)
 {
+    T_HIDE_CURSOR();
+
     p67_conn_pass_t pass = P67_CONN_PASS_INITIALIZER;
     p67_err err;
     

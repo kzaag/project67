@@ -17,6 +17,10 @@ typedef struct p67_async {
     p67_thread_t thr;
 } p67_async_t;
 
+typedef struct p67_sm {
+    int state;
+} p67_sm_t;
+
 p67_err
 p67_async_set_state(p67_async_t * async, int old, int new);
 

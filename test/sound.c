@@ -22,7 +22,7 @@ run_music(const char * wavpath)
 
     do {
         if(wr <= 0) wr = out.frame_size;
-        if((err = p67_pcm_write(&out, fc+c, &wr)) != 0 && err != p67_err_eagain)
+        if((err = p67_pcm_write(&out, fc+c, &wr)) != 0)
             goto end;
         c+=p67_pcm_act_size(out, wr);
     } while(c < fcl);
@@ -60,9 +60,9 @@ run_echo()
 
     while(1) {
         rd = in.frame_size;
-        if((err = p67_pcm_read(&in, buff, &rd)) != 0 && err != p67_err_eagain)
+        if((err = p67_pcm_read(&in, buff, &rd)) != 0)
             goto end;
-        if((err = p67_pcm_write(&out, buff, &rd)) != 0 && err != p67_err_eagain)
+        if((err = p67_pcm_write(&out, buff, &rd)) != 0)
             goto end;
     }
 
