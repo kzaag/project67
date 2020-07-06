@@ -93,15 +93,25 @@ p67_pcm_create_io(p67_pcm_t * __pcm)
     default:
         goto end;
     }
-
+    
     if((ret = snd_pcm_hw_params_set_format(
         *pcm, params, fmt)) != 0) goto end;
 
-    if((ret = snd_pcm_hw_params_set_channels(
+    if(__pcm->channels == P67_PCM_UNSPEC) {
+        if((ret = snd_pcm_hw_params_get_channels_max(
+                    params, &__pcm->channels)) != 0) goto end;
+    } else {
+        if((ret = snd_pcm_hw_params_set_channels(
                     *pcm, params, __pcm->channels)) != 0) goto end;
+    }
 
-    if((ret = snd_pcm_hw_params_set_rate_near(
+    if(__pcm->channels == P67_PCM_UNSPEC) {
+        if((ret = snd_pcm_hw_params_get_rate_max(
+                    params, &__pcm->sampling, &tmp)) != 0) goto end;
+    } else {
+        if((ret = snd_pcm_hw_params_set_rate_near(
                     *pcm, params, &__pcm->sampling, &tmp)) != 0) goto end;
+    }
 
     if(__pcm->frame_size > 0) {
         if((ret = snd_pcm_hw_params_set_period_size_near(
@@ -112,18 +122,18 @@ p67_pcm_create_io(p67_pcm_t * __pcm)
 
     if((ret = snd_pcm_hw_params(*pcm, params)) != 0) goto end;
 
-    if(__pcm->frame_size <= 0) {
+    if(__pcm->frame_size == 0) {
         if((ret = snd_pcm_hw_params_get_period_size(
                         params, &__pcm->frame_size, &tmp)) != 0) goto end;
-        if(__pcm->frame_size <= 0) {
-            ret = -1;
-            goto end;
-        }
     }
 
     return 0;
 
 end:
+    if(*pcm != NULL){
+        snd_pcm_hw_free(*pcm);
+        *pcm = NULL;
+    }
     if(ret != 0)
         fprintf(stderr, "%s\n", snd_strerror(ret));
     return p67_err_eerrno | p67_err_epcm;

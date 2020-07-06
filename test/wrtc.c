@@ -198,6 +198,8 @@ recv_song(p67_conn_pass_t * pass)
     if((err = p67_pcm_create_io(&out)) != 0) goto end;
     out.frame_size = 128;
 
+    p67_pcm_printf(out);
+
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
@@ -261,7 +263,7 @@ send_mic(p67_conn_pass_t * pass)
         goto end;
     }
 
-    interval = 0;
+    interval = 2500;
     
     while(1) {
         r = in.frame_size;
@@ -299,6 +301,7 @@ send_song(p67_conn_pass_t * pass, const char * path)
         goto end;
 
     out.frame_size = 128;
+    p67_pcm_printf(out);
     
     s = p67_pcm_buff_size(out);// + sizeof(nethdr);
 

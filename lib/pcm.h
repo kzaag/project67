@@ -17,6 +17,9 @@ struct p67_pcm {
     int pcm_tp;
 };
 
+#define p67_pcm_printf(p) \
+    printf("%s: sampling=%u frame_size=%lu channels=%u\n", p.name, p.sampling, p.frame_size, p.channels)
+
 #define p67_pcm_act_size(pcm, s) ((s * (pcm).channels * (pcm).bits_per_sample)/8)
 
 #define p67_pcm_buff_size(pcm) (p67_pcm_act_size(pcm, (pcm).frame_size))
@@ -27,7 +30,7 @@ struct p67_pcm {
 #define P67_PCM_NAME_DEFAULT "default"
 #define P67_PCM_SAMPLING_48K 48000
 #define P67_PCM_SAMPLING_44_1K 44100
-#define P67_PCM_FRAME_SIZE_UNSPEC 0
+#define P67_PCM_UNSPEC 0
 #define P67_PCM_BPS_16 16
 
 #define P67_PCM_CHAN_MONO 1
@@ -37,10 +40,10 @@ struct p67_pcm {
 #define P67_PCM_TP_O 2
 
 #define P67_PCM_INTIIALIZER_IN \
-    {NULL, NULL, 0, P67_PCM_FRAME_SIZE_UNSPEC, P67_PCM_SAMPLING_48K, 1, P67_PCM_BPS_16, P67_PCM_TP_I}
+    {NULL, NULL, 0, P67_PCM_UNSPEC, P67_PCM_UNSPEC, P67_PCM_UNSPEC, P67_PCM_BPS_16, P67_PCM_TP_I}
 
 #define P67_PCM_INTIIALIZER_OUT \
-    {NULL, NULL, 0, P67_PCM_FRAME_SIZE_UNSPEC, P67_PCM_SAMPLING_48K, 1, P67_PCM_BPS_16, P67_PCM_TP_O}
+    {NULL, NULL, 0, P67_PCM_UNSPEC, P67_PCM_UNSPEC, P67_PCM_UNSPEC, P67_PCM_BPS_16, P67_PCM_TP_O}
 
 p67_err
 p67_pcm_write(

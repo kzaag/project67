@@ -13,6 +13,9 @@ mkdir -p $WD/bin
 
 DEBUG="-D DEBUG -g -fsanitize=address";
 
+LOPENSSL=`pkg-config --libs openssl`
+LALSA=`pkg-config --libs alsa`
+
 # build so
 
 LIB=$WD/bin/libp67.so
@@ -29,8 +32,7 @@ gcc \
     -Wstrict-prototypes \
     -Wold-style-definition \
     -Wno-nonnull-compare  \
-    `pkg-config --libs openssl` \
-    `pkg-config --libs alsa` \
+    $LOPENSSL $LALSA \
     $FILES \
     $DEBUG \
     -shared -o $LIB -fPIC;
@@ -51,9 +53,9 @@ sudo ldconfig;
 
 FP="$WD/test"
 
-gcc $FP/corenet.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67corenet -W -g;
-gcc $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g;
-gcc $FP/sound.c $FP/wav.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67sound -W -g
-gcc $FP/wrtc.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67wrtc -W -g
+gcc $FP/corenet.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67corenet -W -g $LOPENSSL $LALSA;
+gcc $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g $LOPENSSL $LALSA;
+gcc $FP/sound.c $FP/wav.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67sound -W -g $LOPENSSL $LALSA;
+gcc $FP/wrtc.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67wrtc -W -g $LOPENSSL $LALSA;
 
 bash $WD/devcert.sh $WD;
