@@ -18,6 +18,15 @@ process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
     return 0;
 }
 
+void
+pudp_callback(p67_conn_pass_t * pass, int evt, void * arg)
+{
+    printf("evt: %d\n", evt);
+    if(evt == P67_PUDP_EVT_ERROR) {
+        p67_err_print_err("evt: ", *(p67_err*)arg);
+    }
+}
+
 int
 main(int argc, char ** argv)
 {
@@ -25,6 +34,7 @@ main(int argc, char ** argv)
     p67_err err;
     p67_proto_rpass_t args;
     int len;
+    int sigterm = 0;
     
     char keypath[] = "p2pcert";
     char certpath[] = "p2pcert.cert";
@@ -64,11 +74,12 @@ main(int argc, char ** argv)
     memcpy(msg + P67_PROTO_HDR_URG_SIZE, cstr, 5);
     p67_pudp_urg(msg);
 
-    if((err = p67_proto_write_urg(&pass, msg, len, 0, NULL, NULL)) != 0)
+    if((err = p67_proto_write_urg(&pass, msg, len, 0, &sigterm, pudp_callback)) != 0)
         goto end; 
 
-    // if((err = p67_net_write_connect(&pass, msg, &len)) != 0)
-    //     goto end;
+    p67_sm_wait_for(&sigterm, 0, -1);
+
+    printf("Main: we give up\n");
 
     getchar();
 

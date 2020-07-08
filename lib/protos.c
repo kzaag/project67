@@ -19,6 +19,7 @@ typedef struct p67_pudp_inode {
     unsigned int size; /* size of the pudp_data chunk */
     unsigned int ttl;  /* time to live of the packet since lt ( in miliseconds ) */
     unsigned long long lt; /* time when socket was created */
+    int * termsig; /* notify user about termination with error code (EVT) */
     p67_conn_pass_t * pass;
     /* callback used to notify user about state changes and errors such as timeouts */
     p67_pudp_callback_t cb;
@@ -65,7 +66,7 @@ p67_proto_write_urg(
     const uint8_t * msg, 
     int msgl, 
     int ttl,
-    int ** istate,
+    int * evt_termsig,
     p67_pudp_callback_t cb)
 {
     int state;
@@ -117,11 +118,10 @@ p67_proto_write_urg(
             return p67_err_easync;
         }
 
-        if(istate != NULL)
-            *istate = &pudp_inodes[i].istate;
+        if(evt_termsig != NULL)
+            pudp_inodes[i].termsig = evt_termsig;
 
-        state = 0;
-        p67_sm_update(&pudp_wakeup, &state, 1);
+        p67_sm_set_state(&pudp_wakeup, 0, 1);
 
         return 0;
 
@@ -164,7 +164,6 @@ p67_pudp_remove(const unsigned char * msg, int msgl)
 {
     uint32_t id;
     int state;
-    p67_err err;
     size_t hash, i;
 
     if(msgl < 5)
@@ -189,8 +188,22 @@ p67_pudp_remove(const unsigned char * msg, int msgl)
 
         state = P67_PUDP_ISTATE_ACTV;
 
-        if((err = p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE)) != 0)
-            return err;
+        if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_PASS)) {
+            return p67_err_easync;
+        }
+
+        state = P67_PUDP_ISTATE_PASS;
+
+        if(pudp_inodes[i].cb != NULL)
+            pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_GOT_ACK, NULL);
+
+        if(pudp_inodes[i].termsig != NULL)
+            p67_sm_set_state(pudp_inodes[i].termsig, 0, P67_PUDP_EVT_GOT_ACK);
+
+        if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE)) {
+            return p67_err_easync;
+        }
+
         return 0;
 
 LOOPEND:
@@ -203,8 +216,6 @@ LOOPEND:
 void *
 pudp_loop(void * args)
 {
-    DLOG("Entering pudp loop\n");
-
     p67_err err;
     int i, state, wr;
     unsigned long long t;
@@ -223,32 +234,38 @@ pudp_loop(void * args)
                 continue;
             if((err = p67_cmn_time_ms(&t)) != 0)
                 goto end;
+
+            /* timeout */
             if((t - pudp_inodes[i].lt) > pudp_inodes[i].ttl) {
+
                 state = pudp_inodes[i].istate;
                 if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE))
                     continue;
                 if(pudp_inodes[i].cb != NULL)
                     pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_TIMEOUT, NULL);
+                if(pudp_inodes[i].termsig != NULL)
+                    p67_sm_set_state(pudp_inodes[i].termsig, 0, P67_PUDP_EVT_TIMEOUT);
+
             } else {
+
                 wr = pudp_inodes[i].size;
                 err = p67_net_write(&pudp_inodes[i].pass->remote, pudp_data[i], &wr);
                 if(err == 0 && pudp_inodes[i].size != (unsigned int)wr)
                     err = p67_err_eagain;
                 if(err != 0) {
-                    pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_ERROR, &err);
-                    if(err != 0)
-                        p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE);
+                    if(pudp_inodes[i].cb != NULL)
+                        pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_ERROR, &err);
                 }
+
             }
         }
     }
 
 end:
     if(err != 0)
-        p67_err_print_err("pudp loop: ", err);
+        p67_err_print_err("pUdp loop: ", err);
     p67_async_set_state(_pudp, P67_ASYNC_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);
     p67_async_set_state(_pudp, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
-    DLOG("pudp loop: exit\n");
     return NULL;
 }
 

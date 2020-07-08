@@ -31,7 +31,8 @@ extern uint32_t * p67_proto_mid_location(void) __attribute_const__;
 #define P67_PUDP_ISTATE_PASS 1
 #define P67_PUDP_ISTATE_ACTV 2
 
-typedef void (* p67_pudp_callback_t)(p67_conn_pass_t * pass, int p67_pudp_evt, void * arg);
+typedef void (* p67_pudp_callback_t)(
+        p67_conn_pass_t * pass, int p67_pudp_evt, void * arg);
 
 p67_err
 p67_proto_write_urg(
@@ -39,7 +40,7 @@ p67_proto_write_urg(
             const uint8_t * msg, 
             int msgl, 
             int ttl,
-            int ** istate,
+            int * termsig,
             p67_pudp_callback_t cb);
 
 p67_err

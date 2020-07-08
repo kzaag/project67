@@ -27,16 +27,12 @@ p67_sm_wake_all(int * pptr)
     return 0;    
 }
 
-/*
-    set state without locking async
-*/
 p67_err
-p67_async_set_state(p67_async_t * async, int old, int new)
+p67_sm_set_state(int * uaddr, int old, int new)
 {
-    int x = old;
-    if(atomic_compare_exchange_strong(&async->state, &x, new) != 1)
+    if(atomic_compare_exchange_strong(uaddr, &old, new) != 1)
         return p67_err_easync;
-    if(futex_wake_all(&async->state) == -1) 
+    if(futex_wake_all(uaddr) == -1) 
         return p67_err_eerrno;
     return 0;
 }
@@ -48,12 +44,15 @@ p67_err
 p67_sm_wait_for(int * pptr, int state, int maxms)
 {
     int err;
-    struct timeval tv;
-    tv.tv_sec = maxms / 1000;
-    tv.tv_usec = (maxms % 1000) * 1000;
+    if(maxms > 0) {
+        struct timeval tv;
+        tv.tv_sec = maxms / 1000;
+        tv.tv_usec = (maxms % 1000) * 1000;
+        err = futex(pptr, FUTEX_WAIT, state, &tv, NULL, 0);
+    } else {
+        err = futex(pptr, FUTEX_WAIT, state, NULL, NULL, 0);
+    }
 
-    err = futex(pptr, FUTEX_WAIT, state, &tv, NULL, 0);
-    
     if(err != 0) {
         if(errno == 110)
             return p67_err_etime;

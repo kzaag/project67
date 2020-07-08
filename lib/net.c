@@ -15,8 +15,8 @@
 #define P67_DEFAULT_TIMEOUT_MS 200
 
 /* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */
-#define P67_MIN_SLEEP_MS 500
-#define P67_MOD_SLEEP_MS 1000
+#define P67_MIN_SLEEP_MS 1000
+#define P67_MOD_SLEEP_MS 2000
 
 p67_mutex_t cookie_lock = P67_CMN_MUTEX_INITIALIZER;
 static volatile int cookie_initialized=0;

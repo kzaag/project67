@@ -20,7 +20,10 @@ typedef struct p67_async {
 } p67_async_t;
 
 p67_err
-p67_async_set_state(p67_async_t * async, int old, int new);
+p67_sm_set_state(int * uaddr, int old, int new);
+
+#define p67_async_set_state(async, old, nw) \
+    p67_sm_set_state(&(async)->state, old, nw)
 
 p67_err
 p67_sm_wait_for(int * pptr, int state, int maxms);
