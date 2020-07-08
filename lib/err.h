@@ -16,7 +16,9 @@ enum p67_err {
     p67_err_etime  = 128, /* Timeout */
     p67_err_eint   = 256, /* Interrupted */
     p67_err_epcm   = 512,  /* Sound hw / driver fault */
-    p67_err_epipe = 1024  /* Broken pipe */
+    p67_err_epipe = 1024,  /* Broken pipe */
+    p67_err_eagain = 2048,  /* EAGAIN */
+    p67_err_enomem = 4096  /* not enough memory */
 };
 
 typedef enum p67_err p67_err;

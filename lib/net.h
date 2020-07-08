@@ -112,9 +112,23 @@ p67_net_start_persist_connect(p67_conn_pass_t * __restrict__ pass)
     __nonnull((1));
 
 p67_err
+p67_net_must_write_conn(
+        p67_conn_t * __restrict__ conn, 
+        const void * __restrict__ msg, 
+        int msgl)
+    __nonnull((1, 2));
+
+p67_err
+p67_net_write_conn(
+                p67_conn_t * __restrict__ conn, 
+                const void * __restrict__ msg, 
+                int * __restrict__ msgl)
+    __nonnull((1, 2, 3));
+
+p67_err
 p67_net_write(
             const p67_addr_t * __restrict__ addr, 
-            const char * __restrict__ msg, 
+            const void * __restrict__ msg, 
             int * __restrict__ msgl)
     __nonnull((1, 2, 3));
 
@@ -125,7 +139,7 @@ p67_net_write(
 p67_err
 p67_net_write_connect(
             p67_conn_pass_t * pass,
-            const char * __restrict__ msg,
+            const void * __restrict__ msg,
             int * msgl)
     __nonnull((1, 2, 3));
 
@@ -177,13 +191,13 @@ p67_conn_get_addr(p67_conn_t * conn);
 p67_err
 p67_net_must_write(
             const p67_addr_t * __restrict__ addr, 
-            const char * __restrict__ msg, 
+            const void * __restrict__ msg, 
             int msgl);
 
 p67_err
 p67_net_must_write_connect(
             p67_conn_pass_t * __restrict__ pass, 
-            const char * __restrict__ msg, 
+            const void * __restrict__ msg, 
             int msgl);
 
 #endif

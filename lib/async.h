@@ -1,6 +1,8 @@
 #if !defined(ASYNC_H)
 #define ASYNC_H 1
 
+#include <stdatomic.h>
+
 #include "cmn.h"
 #include "err.h"
 
@@ -17,17 +19,22 @@ typedef struct p67_async {
     p67_thread_t thr;
 } p67_async_t;
 
-typedef struct p67_sm {
-    int state;
-} p67_sm_t;
-
 p67_err
 p67_async_set_state(p67_async_t * async, int old, int new);
 
 p67_err
-p67_async_wait_change(p67_async_t * async, int state, int maxms);
+p67_sm_wait_for(int * pptr, int state, int maxms);
+
+#define p67_async_wait_change(async, __state, __maxms) \
+    p67_sm_wait_for(&async->state, __state, __maxms)
 
 p67_err
 p67_async_terminate(p67_async_t * async, int to);
+
+#define p67_sm_update(pptr, optr, nval) \
+    atomic_compare_exchange_strong(pptr, optr, nval)
+
+p67_err
+p67_sm_wake_all(int * pptr);
 
 #endif

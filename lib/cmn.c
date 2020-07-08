@@ -72,3 +72,14 @@ p67_cmn_sleep_micro(int micro)
     return 0;
 }
 
+p67_err
+p67_cmn_time_ms(unsigned long long * t)
+{
+    if(t == NULL)
+        return p67_err_einval;
+    struct timeval tv;
+    if(gettimeofday(&tv, NULL) != 0)
+        return p67_err_eerrno;
+    *t = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    return 0;
+}

@@ -1,6 +1,5 @@
 #include <linux/futex.h>
 #include <sys/time.h>
-#include <stdatomic.h>
 #include <sys/syscall.h>
 #include <limits.h>
 #include <unistd.h>
@@ -20,6 +19,14 @@
 #define futex_wake_all(uaddr) \
     futex(uaddr, FUTEX_WAKE, INT_MAX, NULL, NULL, 0)
 
+p67_err
+p67_sm_wake_all(int * pptr)
+{
+    if(futex_wake_all(pptr) != 0)
+        return p67_err_eerrno;
+    return 0;    
+}
+
 /*
     set state without locking async
 */
@@ -38,21 +45,24 @@ p67_async_set_state(p67_async_t * async, int old, int new)
     waits for async to leave specified state for up to maxms milliseconds.
 */
 p67_err
-p67_async_wait_change(p67_async_t * async, int state, int maxms)
+p67_sm_wait_for(int * pptr, int state, int maxms)
 {
     int err;
     struct timeval tv;
     tv.tv_sec = maxms / 1000;
     tv.tv_usec = (maxms % 1000) * 1000;
 
-    err = futex(&async->state, FUTEX_WAIT, state, &tv, NULL, 0);
+    err = futex(pptr, FUTEX_WAIT, state, &tv, NULL, 0);
     
-    if(err != 0 && errno == 110)
-        return p67_err_eerrno | p67_err_etime;
+    if(err != 0) {
+        if(errno == 110)
+            return p67_err_etime;
+        else if(errno == EAGAIN || errno == EWOULDBLOCK)
+            return p67_err_eagain;
+        else
+            return p67_err_eerrno;
+    }
 
-    if(err != 0)
-        return p67_err_eerrno;
-    
     return 0;
 }
 

@@ -93,6 +93,7 @@ p67_conn_insert(
     p67_addr_t * remote,
     SSL * ssl,
     p67_conn_callback_t callback,
+    void * args,
     p67_conn_t ** ret);
 
 /*
@@ -154,13 +155,6 @@ __p67_net_accept(void * args);
 void *
 __p67_net_persist_connect(void * arg)
     __nonnull((1));
-
-p67_err
-__p67_net_write(
-                p67_conn_t * __restrict__ conn, 
-                const char * __restrict__ msg, 
-                int * __restrict__ msgl)
-    __nonnull((1, 2, 3));
 
 void *
 __p67_net_listen(void * args);
@@ -345,6 +339,7 @@ p67_conn_insert(
     p67_addr_t * remote, 
     SSL * ssl, 
     p67_conn_callback_t callback, 
+    void * args,
     p67_conn_t ** ret) 
 {
     p67_err err;
@@ -363,6 +358,7 @@ p67_conn_insert(
 
     (conn)->addr_local = laddr;
     if(callback != NULL) (conn)->callback = callback;
+    if(args != NULL) (conn)->args = args;
     if(ssl != NULL) (conn)->ssl = ssl;
 
     if(ret != NULL)
@@ -1011,7 +1007,7 @@ p67_net_connect(p67_conn_pass_t * pass)
 
     if (SSL_connect(ssl) != 1) goto end;
 
-    if(p67_conn_insert(&pass->local, &pass->remote, ssl, pass->handler, &conn) != 0) goto end;
+    if(p67_conn_insert(&pass->local, &pass->remote, ssl, pass->handler, pass->args, &conn) != 0) goto end;
 
     DLOG("Connected to %s:%s\n", pass->remote.hostname, pass->remote.service);
 
@@ -1185,9 +1181,8 @@ end:
 }
 
 p67_err
-__p67_net_write(p67_conn_t * conn, const char * msg, int * msgl)
+p67_net_write_conn(p67_conn_t * conn, const void * msg, int * msgl)
 {
-    ssize_t wrote;
     p67_err err;
 
     if(conn == NULL)
@@ -1203,11 +1198,9 @@ __p67_net_write(p67_conn_t * conn, const char * msg, int * msgl)
 
     p67_err_mask_all(err);
 
-    wrote = SSL_write(conn->ssl, msg, *msgl);
+    *msgl = SSL_write(conn->ssl, msg, *msgl);
 
-    *msgl = wrote;
-
-    switch (SSL_get_error(conn->ssl, wrote)) {
+    switch (SSL_get_error(conn->ssl, *msgl)) {
 		case SSL_ERROR_NONE:
             err = 0;
             break;
@@ -1222,16 +1215,14 @@ __p67_net_write(p67_conn_t * conn, const char * msg, int * msgl)
 }
 
 p67_err
-p67_net_must_write(const p67_addr_t * addr, const char * msg, int msgl)
+p67_net_must_write_conn(p67_conn_t * conn, const void * msg, int msgl)
 {
-    p67_conn_t * conn;
     int wl = msgl;
+    uint8_t * msgc = (uint8_t *)msg;
     p67_err err;
 
     while(1) {
-        if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
-
-        err = __p67_net_write(conn, msg, &wl);
+        err = p67_net_write_conn(conn, msgc, &wl);
 
         if(err != 0)
             return err;
@@ -1240,23 +1231,48 @@ p67_net_must_write(const p67_addr_t * addr, const char * msg, int msgl)
 
         if(wl > msgl) return p67_err_einval;
 
-        msg+=wl;
+        msgc+=wl;
         msgl-=wl;
     }
 }
 
 p67_err
-p67_net_write(const p67_addr_t * addr, const char * msg, int * msgl)
+p67_net_must_write(const p67_addr_t * addr, const void * msg, int msgl)
+{
+    p67_conn_t * conn;
+    int wl = msgl;
+    uint8_t * msgc = (uint8_t *)msg;
+    p67_err err;
+
+    while(1) {
+        if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
+
+        err = p67_net_write_conn(conn, msgc, &wl);
+
+        if(err != 0)
+            return err;
+
+        if(wl == msgl) return 0;
+
+        if(wl > msgl) return p67_err_einval;
+
+        msgc+=wl;
+        msgl-=wl;
+    }
+}
+
+p67_err
+p67_net_write(const p67_addr_t * addr, const void * msg, int * msgl)
 {
     p67_conn_t * conn;
 
     if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
 
-    return __p67_net_write(conn, msg, msgl);
+    return p67_net_write_conn(conn, msg, msgl);
 }
 
 p67_err
-p67_net_must_write_connect(p67_conn_pass_t * pass, const char * msg, int msgl)
+p67_net_must_write_connect(p67_conn_pass_t * pass, const void * msg, int msgl)
 {
     p67_conn_t * conn;
     p67_err err;
@@ -1279,14 +1295,14 @@ p67_net_must_write_connect(p67_conn_pass_t * pass, const char * msg, int msgl)
 p67_err
 p67_net_write_connect(
             p67_conn_pass_t * pass,
-            const char * msg,
+            const void * msg,
             int * msgl) 
 {
     p67_conn_t * conn;
     p67_err err;
 
     if((conn = p67_conn_lookup(&pass->remote)) != NULL) {
-        return __p67_net_write(conn, msg, msgl);
+        return p67_net_write_conn(conn, msg, msgl);
     }
 
     if((err = p67_net_nat_connect(pass, P67_CONN_CNT_PERSIST)) != 0 && err != p67_err_eaconn) {
@@ -1294,7 +1310,7 @@ p67_net_write_connect(
     }
 
     if((conn = p67_conn_lookup(&pass->remote)) != NULL) {
-        return __p67_net_write(conn, msg, msgl);
+        return p67_net_write_conn(conn, msg, msgl);
     }
 
     return p67_err_enconn;

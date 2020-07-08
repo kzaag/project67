@@ -10,6 +10,9 @@
         "vector": "c",
         "string_view": "c",
         "initializer_list": "c",
-        "streambuf": "cpp"
+        "streambuf": "cpp",
+        "*.tcc": "c",
+        "type_traits": "c",
+        "thread": "c"
     }
 }

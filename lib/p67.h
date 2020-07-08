@@ -5,6 +5,7 @@
 #include <p67/cmn.h>
 #include <p67/log.h>
 #include <p67/net.h>
+#include <p67/protos.h>
 
 #include <p67/pcm.h>
 
