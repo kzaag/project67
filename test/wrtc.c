@@ -18,8 +18,8 @@ static char __mqueue[QUEUELEN];
 
 static volatile int interval;
 static const int slow_delta = 10;
-static const int fast_delta = 20;
-static const int fast_big_delta = 200;
+static const int fast_delta = 5;
+static const int fast_big_delta = 100;
 
 
 static volatile long __wrote = 0;
@@ -246,12 +246,15 @@ receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
     return 0;
 }
 
-volatile int speedup_clock = 0;
-volatile int slowdown_clock = 0;
+volatile int scl_clock = 0;
 
-// void * 
-// stream_control_loop(void * args)
-// {
+void * 
+stream_control_loop(void * args)
+{
+    while(1) {
+        scl_clock = 1;
+        p67_cmn_sleep_ms(2000);
+    }
 //     double wv, rv;
 //     int taken;
 //     const int iv = 100;
@@ -267,7 +270,7 @@ volatile int slowdown_clock = 0;
 
 //         p67_cmn_sleep_ms(iv);
 //     }
-// }
+}
 
 p67_err
 recv_song(p67_conn_pass_t * pass)
@@ -287,8 +290,8 @@ recv_song(p67_conn_pass_t * pass)
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
-    // if((err = p67_cmn_thread_create(&scc, stream_control_loop, pass)) != 0)
-    //     goto end;
+    if((err = p67_cmn_thread_create(&scc, stream_control_loop, pass)) != 0)
+        goto end;
 
     if((err = p67_sm_wait_for(&sm, STATE_STREAM, -1)) != 0)
         goto end;
@@ -317,12 +320,15 @@ recv_song(p67_conn_pass_t * pass)
             if((err = p67_net_must_write_connect(pass, "slower!", 7)) != 0) goto end;
         }
 
+        if(taken == 0) {
+            if(scl_clock) {
+                one = 1;
+                p67_sm_update(&scl_clock, &one, 0);
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+            }
+        }
+
         // if(taken == 0) {
-            // if(speedup_clock) {
-            //     one = 1;
-            //     p67_sm_update(&speedup_clock, &one, 0);
-            //     if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-            // }
             // if(lop == -1) {
             //     if(sync_clock) {
             //         one = 1;
