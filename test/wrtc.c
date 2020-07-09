@@ -393,20 +393,10 @@ send_mic(p67_conn_pass_t * pass)
     p67_stream_init_t si;
     pass->handler = sender_callback;
 
-    if((err = p67_pcm_create_io(&in)) != 0) goto end;
-    in.frame_size = 128;
-
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
-    p67_async_terminate(&pass->hconnect, P67_TO_DEF);
-
     s = p67_pcm_buff_size(in);// + sizeof(nethdr);
-
-    si.bits_per_sample = htonl(in.bits_per_sample);
-    si.channels = htonl(in.channels);
-    si.sampling = htonl(in.sampling);
-    si.frame_size = htonl(in.frame_size);
 
     if((buf = malloc(s)) == NULL) {
         err = p67_err_eerrno;
@@ -414,6 +404,15 @@ send_mic(p67_conn_pass_t * pass)
     }
 
     interval = 0;
+
+    if((err = p67_pcm_create_io(&in)) != 0) goto end;
+    in.frame_size = 64;
+    si.bits_per_sample = htonl(in.bits_per_sample);
+    si.channels = htonl(in.channels);
+    si.sampling = htonl(in.sampling);
+    si.frame_size = htonl(in.frame_size);
+    
+    p67_pcm_printf(in);
 
     if((err = p67_net_must_write_connect(pass, &si, sizeof(si))) != 0)
         goto end;
@@ -538,8 +537,8 @@ main(int argc, char ** argv)
         goto end;
 
     if(argc > 3) {
-        err = send_song(&pass, argv[3]);
-        //err = send_mic(&pass);
+        //err = send_song(&pass, argv[3]);
+        err = send_mic(&pass);
     } else {
         err = recv_song(&pass);
     }
