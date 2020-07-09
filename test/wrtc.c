@@ -19,7 +19,7 @@ static char __mqueue[QUEUELEN];
 static volatile int interval;
 static const int slow_delta = 10;
 static const int fast_delta = 10;
-static const int fast_big_delta = 50;
+static const int fast_big_delta = 40;
 
 
 static volatile long __wrote = 0;
@@ -537,8 +537,8 @@ main(int argc, char ** argv)
         goto end;
 
     if(argc > 3) {
-        //err = send_song(&pass, argv[3]);
-        err = send_mic(&pass);
+        err = send_song(&pass, argv[3]);
+        //err = send_mic(&pass);
     } else {
         err = recv_song(&pass);
     }
