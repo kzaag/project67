@@ -17,9 +17,9 @@ typedef struct p67_pudp_inode {
     size_t index; /* index in the underlying hash table */
     unsigned int iid; /* id of this message */
     unsigned int size; /* size of the pudp_data chunk */
-    unsigned int ttl;  /* time to live of the packet since lt ( in miliseconds ) */
-    unsigned long long lt; /* time when socket was created */
-    int * termsig; /* notify user about termination with error code (EVT) */
+    unsigned int ttl;  /* inode timeout ( in miliseconds ) */
+    unsigned long long lt; /* time when inode was initialized */
+    int * termsig; /* notify user about termination with error code (EVT) */ 
     p67_conn_pass_t * pass;
     /* callback used to notify user about state changes and errors such as timeouts */
     p67_pudp_callback_t cb;
@@ -31,6 +31,7 @@ static p67_pudp_inode_t pudp_inodes[P67_PUDP_INODE_LEN];
 
 static int pudp_wakeup = 0; 
 
+/* main async loop handler */
 static p67_async_t pudp = P67_ASYNC_INITIALIZER;
 
 static __thread uint32_t __mid = 0;

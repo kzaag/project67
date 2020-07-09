@@ -44,22 +44,33 @@ p67_err
 p67_sm_wait_for(int * pptr, int state, int maxms)
 {
     int err;
+    int actstate;
+
+    struct timeval tv;
     if(maxms > 0) {
-        struct timeval tv;
         tv.tv_sec = maxms / 1000;
         tv.tv_usec = (maxms % 1000) * 1000;
-        err = futex(pptr, FUTEX_WAIT, state, &tv, NULL, 0);
-    } else {
-        err = futex(pptr, FUTEX_WAIT, state, NULL, NULL, 0);
     }
 
-    if(err != 0) {
-        if(errno == 110)
-            return p67_err_etime;
-        else if(errno == EAGAIN || errno == EWOULDBLOCK)
-            return p67_err_eagain;
-        else
-            return p67_err_eerrno;
+
+    while(1) {
+        actstate = *pptr;
+
+        if(maxms > 0) {
+            err = futex(pptr, FUTEX_WAIT, actstate, &tv, NULL, 0);
+        } else {
+            err = futex(pptr, FUTEX_WAIT, actstate, NULL, NULL, 0);
+        }
+
+        if(err != 0) {
+            if(errno == 110)
+                return p67_err_etime;
+            else
+                return p67_err_eerrno;
+        }
+
+        if(*pptr == state)
+            break;
     }
 
     return 0;

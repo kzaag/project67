@@ -1046,7 +1046,7 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
     int retries = 5;
     p67_err err;
 
-    while(retries-->0 && (pass->hconnect.state == P67_ASYNC_STATE_RUNNING)) {
+    while(retries-->0 /*&& (pass->hconnect.state == P67_ASYNC_STATE_RUNNING ) */ ) {
         if(p67_conn_lookup(&pass->remote) != NULL) {
             DLOG("\rNAT Connect:%d Connection exists.\n", p67_conn_cn_t);
             return p67_err_eaconn;
@@ -1091,8 +1091,8 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
         //DLOG("NAT Connect:%d Failed.\n", p67_conn_cn_t);
     }
 
-    p67_async_set_state(&pass->hconnect, 
-            P67_ASYNC_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);
+   /* p67_async_set_state(&pass->hconnect, 
+            P67_ASYNC_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);*/
 
     return err;
 }

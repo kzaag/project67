@@ -18,7 +18,7 @@ struct p67_pcm {
 };
 
 #define p67_pcm_printf(p) \
-    printf("%s: sampling=%u frame_size=%lu channels=%u\n", p.name, p.sampling, p.frame_size, p.channels)
+    printf("sampling=%u frame_size=%lu channels=%u\n", p.sampling, p.frame_size, p.channels)
 
 #define p67_pcm_act_size(pcm, s) ((s * (pcm).channels * (pcm).bits_per_sample)/8)
 
