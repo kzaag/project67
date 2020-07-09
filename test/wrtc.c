@@ -18,8 +18,8 @@ static char __mqueue[QUEUELEN];
 
 static volatile int interval;
 static const int slow_delta = 10;
-static const int fast_delta = 5;
-static const int fast_big_delta = 100;
+static const int fast_delta = 10;
+static const int fast_big_delta = 50;
 
 
 static volatile long __wrote = 0;
@@ -277,8 +277,9 @@ recv_song(p67_conn_pass_t * pass)
 {
     register p67_err err = 0;
     size_t read = 0, r;
-    register float taken, ltaken = 0;
-    int lop = 0;
+    register float taken;
+    long slowdowns = 0;
+    int slowdown_taken = 0;
     /* ataken = 0;*/
     /* register long i = 0; */
     char * b = NULL;
@@ -303,6 +304,8 @@ recv_song(p67_conn_pass_t * pass)
     interval = 500;
 
     while(1) {
+        
+        slowdown_taken = 0;
         err = queue_dequeue(b, chunksize);
         p67_cmn_sleep_micro(interval);
         if(err != 0) continue;
@@ -310,20 +313,39 @@ recv_song(p67_conn_pass_t * pass)
         r = pcm.frame_size;
         err = p67_pcm_write(&pcm, b, &r);
         if(err == p67_err_epipe) {
-            printf("SPEEDUP\n");
             if((err = p67_net_must_write_connect(pass, "faster!!", 8)) != 0) goto end;
         }
         read+=p67_pcm_act_size(pcm, r);
         taken = queue_space_taken();
-        if(taken > 0) {
-            printf("SLOWDOWN\n");
+        if(taken > chunksize) {
             if((err = p67_net_must_write_connect(pass, "slower!", 7)) != 0) goto end;
+                /* 
+                    once we slowed down the stream we are on the path to the buffer underflow 
+                    maybe increase speed after done with slowing down?
+                */
+            slowdowns += slow_delta;
+            slowdown_taken = 1;
         }
 
-        if(taken == 0) {
-            if(scl_clock) {
-                one = 1;
-                p67_sm_update(&scl_clock, &one, 0);
+        if(!slowdown_taken && slowdowns > 0) {
+            while(1) {
+                if(slowdowns < (fast_delta * 10))
+                    break;
+                if(!scl_clock) {
+                    break;
+                }
+                scl_clock = 0;
+                slowdowns -= (fast_delta*10);
+                
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
+                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
                 if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
             }
         }
@@ -463,7 +485,7 @@ send_song(p67_conn_pass_t * pass, const char * path)
         goto end;
     }
 
-    interval = 5000;
+    interval = 10000;
 
     if((err = p67_net_must_write_connect(pass, &si, sizeof(si))) != 0)
         goto end;
