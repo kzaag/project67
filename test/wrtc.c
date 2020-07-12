@@ -2,29 +2,30 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <opus/opus.h>
 #include <errno.h>
 
 #include "wav.h"
 
-#define STATE_BEGIN  0
-#define STATE_CHANGE 1
-#define STATE_STREAM 2
-
-static volatile int cix;
+const int OPUS_INT_SIZE=2;
+const int FRAME_SIZE=120;
+const int MAX_FRAME_SIZE=1276;
+const int CHANNELS=2;
+const int CFRAME_SIZE=160;
+const int SAMPLING=48000;
+const int BSAMPLING=44100;
+const int FRAME_LENGTH_MICRO = FRAME_SIZE * 1e6 / SAMPLING;
+/* compressed frames of total length = 1 second */
+#define QUEUE_SIZE 64000 //(1e6/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
 static volatile int head = 0;
 static volatile int tail = 0;
-#define QUEUELEN 50240
-static char __mqueue[QUEUELEN];
+static char __mqueue[QUEUE_SIZE];
+/* min delay in bytes */
+const int QUEUE_PREFFERED_LENGTH_MIN = (15*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
+/* max delay in bytes */
+const int QUEUE_PREFFERED_LENGTH_MAX = (30*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
 
-static volatile int interval;
-static const int slow_delta = 10;
-static const int fast_delta = 10;
-static const int fast_big_delta = 40;
-
-
-static volatile long __wrote = 0;
-static volatile long __read = 0;
-
+const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-150;
 
 #define TC_YELLOW "\033[33m"
 #define TC_GREEN "\033[32m"
@@ -35,29 +36,15 @@ static volatile long __read = 0;
 
 #define T_CLEAN_RET "\e[2K"
 
-struct __attribute__((packed)) p67_stream_init {
-    uint64_t frame_size;
-    uint32_t sampling;
-    uint32_t channels;
-    uint32_t bits_per_sample;
-};
-
-typedef struct p67_stream_init p67_stream_init_t;
-
-static p67_pcm_t pcm;
-
-static int sm = 0;
-
-
 p67_err
 queue_enqueue(const char * chunk, int chunkl)
 {
     int h = head;
 
     p67_err err = p67_err_einval;
-    int e = (tail+chunkl)%QUEUELEN;
+    int e = (tail+chunkl)%QUEUE_SIZE;
     
-    if(QUEUELEN < chunkl) goto end;
+    if(QUEUE_SIZE < chunkl) goto end;
 
     if(tail == h) {
         if(e == h) goto end;
@@ -67,16 +54,16 @@ queue_enqueue(const char * chunk, int chunkl)
         if(e >= h || e < tail) goto end;
     }
 
-    if(chunkl > (QUEUELEN-tail)) {
+    if(chunkl > (QUEUE_SIZE-tail)) {
         // [*|*|*| |L*|*]
         //  0 1 2 3 4  5
-        memcpy(__mqueue+tail, chunk, (QUEUELEN-tail));
-        memcpy(__mqueue,  chunk+QUEUELEN-tail, chunkl - QUEUELEN + tail);
+        memcpy(__mqueue+tail, chunk, (QUEUE_SIZE-tail));
+        memcpy(__mqueue,  chunk+QUEUE_SIZE-tail, chunkl - QUEUE_SIZE + tail);
     } else {
         memcpy(__mqueue+tail, chunk, chunkl);
     }
 
-    tail=(tail+chunkl)%QUEUELEN;
+    tail=(tail+chunkl)%QUEUE_SIZE;
 
     err = 0;
 
@@ -94,7 +81,7 @@ queue_space_taken()
     } else if(t > h) {
         return t - h;
     } else {
-        return QUEUELEN - h + t;
+        return QUEUE_SIZE - h + t;
     }
 }
 
@@ -104,26 +91,26 @@ queue_dequeue(char *chunk, int chunkl)
     p67_err err = p67_err_einval;
     int t = tail;
 
-    if(QUEUELEN < chunkl) goto end;
+    if(QUEUE_SIZE < chunkl) goto end;
 
     if(t == head) {
         goto end;
     } else if(t > head) {
         if((t - head) < chunkl) goto end;
     } else {
-        if((QUEUELEN - head+t) < chunkl) goto end;
+        if((QUEUE_SIZE - head+t) < chunkl) goto end;
     }
 
-    if(chunkl > (QUEUELEN-head)) {
+    if(chunkl > (QUEUE_SIZE-head)) {
         // [*|*|*| |H*|*]
         //  0 1 2 3 4  5
-        memcpy(chunk, __mqueue+head, (QUEUELEN-head));
-        memcpy(chunk+QUEUELEN-head, __mqueue, chunkl - QUEUELEN + head);
+        memcpy(chunk, __mqueue+head, (QUEUE_SIZE-head));
+        memcpy(chunk+QUEUE_SIZE-head, __mqueue, chunkl - QUEUE_SIZE + head);
     } else {
         memcpy(chunk, __mqueue+head, chunkl);
     }
 
-    head = (head+chunkl)%QUEUELEN;
+    head = (head+chunkl)%QUEUE_SIZE;
 
     err = 0;
 
@@ -132,380 +119,234 @@ end:
 }
 
 p67_err
-sender_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
-{
-    const p67_addr_t * remote = p67_conn_get_addr(conn);
-
-    switch(sm) {
-    case STATE_BEGIN:
-        if(msgl == 1 && msg[0] == 1) {
-            p67_sm_set_state(&sm, STATE_BEGIN, STATE_STREAM);
-            printf("init\n");
-        }
-        break;
-    case STATE_STREAM:
-        printf(TC_YELLOW "\r%s:%s: %*.*s\n" TC_DEFAULT, remote->hostname, remote->service, msgl, msgl, msg);
-        if(msgl < 7) return 0;
-        if(memcmp(msg, "slower!", 7) == 0) {
-            interval+=slow_delta;
-            return 0;
-        }
-        if(memcmp(msg, "faster!", 7) == 0) {
-            if(interval == 0)
-                return 0;
-            if(msgl > 7 && msg[7] == '!') {
-                interval-=fast_big_delta;
-            } else {
-                interval-=fast_delta;
-            }
-            return 0;
-        }
-        break;
-    default:
-        return p67_err_einval;
-    }
-
-    return 0;
-}
-
-p67_err
 receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     p67_err err;
 
-    switch(sm) {
-    case STATE_BEGIN:
-    
-        if(p67_sm_set_state(&sm, STATE_BEGIN, STATE_CHANGE) != 0) {
-            printf("1\n");
-            // err
-            return 1;
-        }
-
-        const p67_stream_init_t * init;
-        char ret = 1;
-
-        if(msgl != sizeof(*init)) {
-            printf("11\n");
-            // err
-            return 1;
-        }
-
-        init = (const p67_stream_init_t *)msg;
-
-        pcm.sampling = ntohl(init->sampling);
-        pcm.bits_per_sample = ntohl(init->bits_per_sample);
-        pcm.channels = ntohl(init->channels);
-        pcm.frame_size = ntohl(init->frame_size);
-        pcm.pcm_tp = P67_PCM_TP_O;
-        pcm.__hw = NULL;
-        pcm.name = NULL;
-        pcm.name_rdonly = 0;
-
-        p67_pcm_printf(pcm);
-
-        if((err = p67_pcm_create_io(&pcm)) != 0) {
-            printf("2\n");
-            // err
-            return 1;
-        }
-
-        err = p67_net_must_write_conn(conn, &ret, 1);
-        if(err != 0) {
-            printf("3\n");
-            // err
-            return 1;
-        }
-
-        if(p67_sm_set_state(&sm, STATE_CHANGE, STATE_STREAM) != 0) {
-            printf("4\n");
-            // err
-            return 1;
-        }
-
-        printf("init\n");
-
-        break;
-    case STATE_CHANGE:
-        printf("5\n");
-        // err
-        break;
-    case STATE_STREAM:
-        err = queue_enqueue(msg, msgl);
-        __wrote += msgl;
-        if(err != 0) {
-            printf("6\n");
-            // err
-            return 0;
-        }
-        break;
-    default:
-        return p67_err_einval;
+    if(msgl < CFRAME_SIZE)
+        return 0;
+    err = queue_enqueue(msg, msgl);
+    if(err != 0) {
+        printf("Overflow\n");
     }
-
     return 0;
 }
 
-volatile int scl_clock = 0;
+static volatile int interval = 0;
 
 void * 
 stream_control_loop(void * args)
 {
+    int qs, factor = 1;
+
     while(1) {
-        scl_clock = 1;
-        p67_cmn_sleep_ms(2000);
+        qs = queue_space_taken();
+        if(qs != 0) {
+            if(qs < QUEUE_PREFFERED_LENGTH_MIN) {
+                if(interval+factor < FRAME_LENGTH_MICRO) {
+                    interval+=factor;
+                }
+            } else if(qs > QUEUE_PREFFERED_LENGTH_MAX) {
+                interval-=factor;
+            }
+        }
+        printf("%d %d\n", qs, interval);
+
+        p67_cmn_sleep_ms(100);
     }
-//     double wv, rv;
-//     int taken;
-//     const int iv = 100;
-//     p67_conn_pass_t * pass = (p67_conn_pass_t *)args;
-
-//     while(1) {
-//         wv = __wrote / iv;
-//         rv = __read / iv;
-//         __read = 0;
-//         __wrote = 0;
-//         taken = queue_space_taken();
-//         printf("wv=%lf rv=%lf %05d\n", wv, rv, taken);
-
-//         p67_cmn_sleep_ms(iv);
-//     }
 }
 
 p67_err
-recv_song(p67_conn_pass_t * pass)
+recv_stream(p67_conn_pass_t * pass)
 {
-    register p67_err err = 0;
-    size_t read = 0, r;
-    register float taken;
-    long slowdowns = 0;
-    int slowdown_taken = 0;
-    /* ataken = 0;*/
-    /* register long i = 0; */
-    char * b = NULL;
-    pass->handler = receiver_callback;
-    size_t chunksize;
-    p67_thread_t scc;
-    int one = 1;
+    opus_int16 output_frame[FRAME_SIZE*CHANNELS];
+    unsigned char compressed_frame[MAX_FRAME_SIZE];
+    unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
+    p67_pcm_t o = P67_PCM_INTIIALIZER_OUT;
+    o.frame_size = FRAME_SIZE;
+    o.bits_per_sample = 16;
+    o.channels = CHANNELS;
+    o.sampling = SAMPLING;
+    p67_err err;
+    int opus_err, ix, buffering;
+    OpusDecoder * dec;
+    p67_thread_t scl;
 
+    pass->handler = receiver_callback;
+
+    dec = opus_decoder_create(o.sampling, o.channels, &opus_err);
+    if(opus_err != 0) goto end;
+    
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
-    if((err = p67_cmn_thread_create(&scc, stream_control_loop, pass)) != 0)
+    p67_pcm_create_io(&o);
+
+    p67_pcm_printf(o);
+
+    interval = INITIAL_INTERVAL;
+
+    if((err = p67_cmn_thread_create(&scl, stream_control_loop, NULL)) != 0)
         goto end;
-
-    if((err = p67_sm_wait_for(&sm, STATE_STREAM, -1)) != 0)
-        goto end;
-
-    chunksize = p67_pcm_buff_size(pcm);
-
-    if((b = malloc(chunksize)) == NULL) goto end;
-
-    interval = 500;
 
     while(1) {
-        
-        slowdown_taken = 0;
-        err = queue_dequeue(b, chunksize);
+        err = queue_dequeue(compressed_frame, CFRAME_SIZE);
         p67_cmn_sleep_micro(interval);
-        if(err != 0) continue;
-        __read += chunksize;
-        r = pcm.frame_size;
-        err = p67_pcm_write(&pcm, b, &r);
+        if(err != 0) {
+            // if((opus_error = opus_decode(dec, NULL, 0, bb, r, 0)) != 0)
+            //     goto end;
+            continue;
+        } else {
+            if((opus_err = opus_decode(
+                    dec, compressed_frame, CFRAME_SIZE, output_frame, FRAME_SIZE, 0)) < 0)
+                goto end;
+        }
+
+        for(ix=0;ix<FRAME_SIZE*CHANNELS;ix++) {
+            decompressed_frame[OPUS_INT_SIZE*ix]=output_frame[ix]&0xFF;
+            decompressed_frame[OPUS_INT_SIZE*ix+1]=(output_frame[ix]>>8)&0xFF;
+        }
+
+        err = p67_pcm_write(&o, decompressed_frame, &(size_t){FRAME_SIZE});
         if(err == p67_err_epipe) {
-            if((err = p67_net_must_write_connect(pass, "faster!!", 8)) != 0) goto end;
+            // buffering
+            o.sampling = BSAMPLING;
+            p67_pcm_update(&o);
+            buffering = 1;
+            printf("buffering\n");
+        } else if(buffering) {
+            o.sampling = SAMPLING;
+            p67_pcm_update(&o);
+            buffering = 0;
+            printf("recover\n");
         }
-        read+=p67_pcm_act_size(pcm, r);
-        taken = queue_space_taken();
-        if(taken > chunksize) {
-            if((err = p67_net_must_write_connect(pass, "slower!", 7)) != 0) goto end;
-                /* 
-                    once we slowed down the stream we are on the path to the buffer underflow 
-                    maybe increase speed after done with slowing down?
-                */
-            slowdowns += slow_delta;
-            slowdown_taken = 1;
-        }
-
-        if(!slowdown_taken && slowdowns > 0) {
-            while(1) {
-                if(slowdowns < (fast_delta * 10))
-                    break;
-                if(!scl_clock) {
-                    break;
-                }
-                scl_clock = 0;
-                slowdowns -= (fast_delta*10);
-                
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-                if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-            }
-        }
-
-        // if(taken == 0) {
-            // if(lop == -1) {
-            //     if(sync_clock) {
-            //         one = 1;
-            //         p67_sm_update(&sync_clock, &one, 0);
-            //         if((err = p67_net_must_write_connect(pass, "faster!", 7)) != 0) goto end;
-            //     }
-            // } else if(lop == 1) {
-            //     if(sync_clock) {
-            //         one = 1;
-            //         p67_sm_update(&sync_clock, &one, 0);
-            //         if((err = p67_net_must_write_connect(pass, "slower!", 7)) != 0) goto end;
-            //     }
-            // }
-        //}
-
-        //printf("\rread: %lu. buffered: %f", read, taken);
-
-        // ltaken = taken;
     }
 
 end:
-    free(b);
-    p67_pcm_free(&pcm);
+    p67_pcm_free(&o);
+    if(opus_err != 0) fprintf(stderr, "%s\n", opus_strerror(opus_err));
     return err;
 }
-
 
 p67_err
 send_mic(p67_conn_pass_t * pass)
 {
-    p67_pcm_t in = P67_PCM_INTIIALIZER_IN;
-    in.channels = P67_PCM_CHAN_STEREO;
-    in.sampling = P67_PCM_SAMPLING_44_1K;
-    in.bits_per_sample = P67_PCM_BPS_16;
-    in.frame_size = 64;
-    register p67_err err;
-    size_t s, r;
-    register size_t wrote = 0;
-    char * buf = NULL;
-    p67_stream_init_t si;
-    pass->handler = sender_callback;
+    opus_int16 output_frame[FRAME_SIZE*CHANNELS];
+    unsigned char compressed_frame[CFRAME_SIZE];
+    unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
+    p67_pcm_t i = P67_PCM_INTIIALIZER_IN;
+    i.frame_size = FRAME_SIZE;
+    i.bits_per_sample = 16;
+    i.channels = CHANNELS;
+    i.sampling = SAMPLING;
+    opus_int32 cb;
+    p67_err err;
+    int opus_err, ix, buffering;
+    OpusEncoder * enc;
+    int init = 1;
 
+    enc = opus_encoder_create(i.sampling, i.channels, OPUS_APPLICATION_AUDIO, &opus_err);
+    if(opus_err != 0) goto end;
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(i.sampling * 16 * i.channels));
+    
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
-    s = p67_pcm_buff_size(in);// + sizeof(nethdr);
-
-    if((buf = malloc(s)) == NULL) {
-        err = p67_err_eerrno;
-        goto end;
-    }
-
-    interval = 0;
-
-    if((err = p67_pcm_create_io(&in)) != 0) goto end;
-    in.frame_size = 64;
-    si.bits_per_sample = htonl(in.bits_per_sample);
-    si.channels = htonl(in.channels);
-    si.sampling = htonl(in.sampling);
-    si.frame_size = htonl(in.frame_size);
-    
-    p67_pcm_printf(in);
-
-    if((err = p67_net_must_write_connect(pass, &si, sizeof(si))) != 0)
-        goto end;
-
-    if((err = p67_sm_wait_for(&sm, STATE_STREAM, -1)) != 0)
-        goto end;
+    p67_pcm_create_io(&i);
+    p67_pcm_printf(i);
 
     while(1) {
-        r = in.frame_size;
-        err = p67_pcm_read(&in, buf, &r);
-        p67_cmn_sleep_micro(interval);
-        r = p67_pcm_act_size(in, r);
-        if((err = p67_net_write_connect(pass, buf, (int *)&r)) != 0) 
+        p67_pcm_read(&i, decompressed_frame, &(size_t){FRAME_SIZE});
+        for (ix=0;ix<FRAME_SIZE*CHANNELS;ix++) 
+            output_frame[ix]=decompressed_frame[OPUS_INT_SIZE*ix+1]<<8|decompressed_frame[OPUS_INT_SIZE*ix];
+        cb = opus_encode(enc, output_frame, FRAME_SIZE, compressed_frame, MAX_FRAME_SIZE);
+        
+        if((err = p67_net_must_write_connect(pass, compressed_frame, cb)) != 0) 
             goto end;
-        wrote += r;
+
+        if(init) {
+            init = 0; 
+            p67_pcm_recover(&i);
+        }
     }
 
 end:
-    free(buf);
-    if(err != 0) p67_err_print_err(NULL, err);
+    p67_pcm_free(&i);
+    if(opus_err != 0) fprintf(stderr, "%s\n", opus_strerror(opus_err));
     return err;
 }
 
-p67_err
-send_song(p67_conn_pass_t * pass, const char * path)
-{
-    p67_pcm_t out = P67_PCM_INTIIALIZER_OUT;
-    register p67_err err;
-    int fd, r;
-    size_t s;
-    register size_t wrote = 0;
-    char * buf = NULL;
-    long dof;
-    p67_stream_init_t si;
-    pass->handler = sender_callback;
 
-    // if((err = p67_net_start_connect_and_listen(pass)) != 0)
-    //     goto end;
+// p67_err
+// send_song(p67_conn_pass_t * pass, const char * path)
+// {
+//     p67_pcm_t out = P67_PCM_INTIIALIZER_OUT;
+//     register p67_err err;
+//     int fd, r;
+//     size_t s;
+//     register size_t wrote = 0;
+//     char * buf = NULL;
+//     long dof;
+//     p67_stream_init_t si;
+//     pass->handler = sender_callback;
 
-    if((err = p67_net_start_listen(pass)) != 0) 
-        goto end;
+//     // if((err = p67_net_start_connect_and_listen(pass)) != 0)
+//     //     goto end;
 
-    if((err = get_p67_pcm_from_wav_file(&out, &dof, NULL, NULL, path)) != 0)
-        goto end;
+//     if((err = p67_net_start_listen(pass)) != 0) 
+//         goto end;
 
-    out.frame_size = 128;
-    p67_pcm_printf(out);
+//     if((err = get_p67_pcm_from_wav_file(&out, &dof, NULL, NULL, path)) != 0)
+//         goto end;
+
+//     out.frame_size = 128;
+//     p67_pcm_printf(out);
     
-    s = p67_pcm_buff_size(out);// + sizeof(nethdr);
+//     s = p67_pcm_buff_size(out);// + sizeof(nethdr);
 
-    if((buf = malloc(s)) == NULL) {
-        err = p67_err_eerrno;
-        goto end;
-    }
+//     if((buf = malloc(s)) == NULL) {
+//         err = p67_err_eerrno;
+//         goto end;
+//     }
 
-    if((fd = open(path, O_RDONLY)) < 0) goto end;
+//     if((fd = open(path, O_RDONLY)) < 0) goto end;
 
-    rjmp(s>INT_MAX, err, p67_err_einval, end);
+//     rjmp(s>INT_MAX, err, p67_err_einval, end);
 
-    si.bits_per_sample = htonl(out.bits_per_sample);
-    si.channels = htonl(out.channels);
-    si.sampling = htonl(out.sampling);
-    si.frame_size = htonl(out.frame_size);
+//     si.bits_per_sample = htonl(out.bits_per_sample);
+//     si.channels = htonl(out.channels);
+//     si.sampling = htonl(out.sampling);
+//     si.frame_size = htonl(out.frame_size);
 
-    p67_pcm_free(&out);
+//     p67_pcm_free(&out);
 
-    if(lseek(fd, dof, 0) < 0) {
-        err = p67_err_eerrno;
-        goto end;
-    }
+//     if(lseek(fd, dof, 0) < 0) {
+//         err = p67_err_eerrno;
+//         goto end;
+//     }
 
-    interval = 10000;
+//     interval = 10000;
 
-    if((err = p67_net_must_write_connect(pass, &si, sizeof(si))) != 0)
-        goto end;
+//     if((err = p67_net_must_write_connect(pass, &si, sizeof(si))) != 0)
+//         goto end;
 
-    if((err = p67_sm_wait_for(&sm, STATE_STREAM, -1)) != 0)
-        goto end;
+//     if((err = p67_sm_wait_for(&sm, STATE_STREAM, -1)) != 0)
+//         goto end;
 
-    while((r = read(fd, buf, s)) > 0) {
-        if((err = p67_net_write_connect(pass, buf, &r)) != 0) 
-            goto end;
-        p67_cmn_sleep_micro(interval);
-        wrote += r;
-        rjmp(r < (int)s && lseek(fd, -(s-r), 1) < 0, err, p67_err_eerrno, end);
-    }
-    if(r < 0) err = p67_err_eerrno;
+//     while((r = read(fd, buf, s)) > 0) {
+//         if((err = p67_net_write_connect(pass, buf, &r)) != 0) 
+//             goto end;
+//         p67_cmn_sleep_micro(interval);
+//         wrote += r;
+//         rjmp(r < (int)s && lseek(fd, -(s-r), 1) < 0, err, p67_err_eerrno, end);
+//     }
+//     if(r < 0) err = p67_err_eerrno;
 
-end:
-    free(buf);
-    if(err != 0) p67_err_print_err(NULL, err);
-    return err;
-}
+// end:
+//     free(buf);
+//     if(err != 0) p67_err_print_err(NULL, err);
+//     return err;
+// }
 
 int
 main(int argc, char ** argv)
@@ -518,8 +359,8 @@ main(int argc, char ** argv)
     char keypath[] = "p2pcert";
     char certpath[] = "p2pcert.cert";
 
-    pass.local.rdonly = 1u;
-    pass.remote.rdonly = 1u;
+    pass.local.rdonly = 1;
+    pass.remote.rdonly = 1;
     pass.certpath = certpath;
     pass.keypath = keypath;
 
@@ -533,14 +374,14 @@ main(int argc, char ** argv)
     if((err = p67_addr_set_localhost4_udp(&pass.local, argv[1])) != 0)
         goto end;
 
-    if((err = p67_addr_set_host_udp(&pass.remote, IP4_LO1, argv[2])))
+    if((err = p67_addr_set_host_udp(&pass.remote, /*"192.168.0.108"*/IP4_LO1, argv[2])))
         goto end;
 
     if(argc > 3) {
-        err = send_song(&pass, argv[3]);
-        //err = send_mic(&pass);
+        //err = send_song(&pass, argv[3]);
+        err = send_mic(&pass);
     } else {
-        err = recv_song(&pass);
+        err = recv_stream(&pass);
     }
 
 end:
@@ -548,3 +389,4 @@ end:
     p67_lib_free();
     if(err == 0) return 0; else return 2;
 }
+           

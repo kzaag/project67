@@ -13,6 +13,7 @@
         "streambuf": "cpp",
         "*.tcc": "c",
         "type_traits": "c",
-        "thread": "c"
+        "thread": "c",
+        "random": "c"
     }
 }

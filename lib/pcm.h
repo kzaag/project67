@@ -67,4 +67,10 @@ void
 p67_pcm_free(p67_pcm_t * __restrict__ __pcm)
     __nonnull((1));
 
+void
+p67_pcm_recover(p67_pcm_t * pcm);
+
+p67_err
+p67_pcm_update(p67_pcm_t * pcm);
+
 #endif

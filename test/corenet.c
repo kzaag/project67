@@ -42,7 +42,7 @@ main(int argc, char ** argv)
     if((err = p67_addr_set_localhost4_udp(&pass.local, argv[1])) != 0)
         goto end;
 
-    if((err = p67_addr_set_host_udp(&pass.remote, IP4_LO1, argv[2])))
+    if((err = p67_addr_set_host_udp(&pass.remote, "192.168.0.108", argv[2])))
         goto end;
 
     if((err = p67_net_start_connect_and_listen(&pass)) != 0)

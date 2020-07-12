@@ -36,6 +36,12 @@ p67_pcm_write(p67_pcm_t * pcm, void * buff, size_t * buffl)
     return err;
 }
 
+void
+p67_pcm_recover(p67_pcm_t * pcm)
+{
+    snd_pcm_prepare((snd_pcm_t *)pcm->__hw);
+}
+
 p67_err
 p67_pcm_read(p67_pcm_t * pcm, void * buff, size_t * buffl)
 {
@@ -51,6 +57,25 @@ p67_pcm_read(p67_pcm_t * pcm, void * buff, size_t * buffl)
     }
     *buffl = ret;
     return err;
+}
+
+p67_err
+p67_pcm_update(p67_pcm_t * pcm)
+{
+    int err;
+    if((err = snd_pcm_set_params(
+                pcm->__hw, 
+                SND_PCM_FORMAT_S16_LE, 
+                SND_PCM_ACCESS_RW_INTERLEAVED, 
+                pcm->channels,
+                pcm->sampling,
+                1,
+                25000)) != 0) {
+                    printf("%s\n", snd_strerror(err));
+                    return p67_err_epcm;
+                }
+            snd_pcm_prepare(pcm->__hw);
+    return 0;
 }
 
 p67_err
@@ -112,6 +137,7 @@ p67_pcm_create_io(p67_pcm_t * __pcm)
         if((ret = snd_pcm_hw_params_set_rate_near(
                     *pcm, params, &__pcm->sampling, &tmp)) != 0) goto end;
     }
+
 
     if(__pcm->frame_size > 0) {
         if((ret = snd_pcm_hw_params_set_period_size_near(

@@ -74,7 +74,7 @@ p67_node_t * node_cache[NODE_CACHE_LEN];
 #define CIPHER "ECDHE-ECDSA-AES256-GCM-SHA384"
 #define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
 
-#define READ_BUFFER_LENGTH 128
+#define READ_BUFFER_LENGTH 256
 /*
     ssl error strings
 */
@@ -133,7 +133,7 @@ p67_net_bio_set_timeout(BIO * bio, time_t msec);
 void *
 __p67_net_enter_read_loop(void * args)
     __nonnull((1))
-    __attribute_deprecated_msg__("This method will not check whether read loop is already running");
+    __attribute_deprecated_msg__("This function will not check whether read loop is already running");
 
 p67_err
 p67_net_get_addr_from_x509_store_ctx(X509_STORE_CTX *ctx, p67_addr_t * addr);
@@ -1244,21 +1244,33 @@ p67_net_must_write(const p67_addr_t * addr, const void * msg, int msgl)
     uint8_t * msgc = (uint8_t *)msg;
     p67_err err;
 
-    while(1) {
-        if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
+    if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
 
-        err = p67_net_write_conn(conn, msgc, &wl);
+    err = p67_net_write_conn(conn, msgc, &wl);
 
-        if(err != 0)
-            return err;
+    if(err != 0)
+        return err;
 
-        if(wl == msgl) return 0;
-
-        if(wl > msgl) return p67_err_einval;
-
-        msgc+=wl;
-        msgl-=wl;
+    if(wl != msgl) {
+        return err | p67_err_enconn;
     }
+
+    return 0;
+    // while(1) { 
+    //     if((conn = p67_conn_lookup(addr)) == NULL) return p67_err_enconn;
+
+    //     err = p67_net_write_conn(conn, msgc, &wl);
+
+    //     if(err != 0)
+    //         return err;
+
+    //     if(wl == msgl) return 0;
+
+    //     if(wl > msgl) return p67_err_einval;
+
+    //     msgc+=wl;
+    //     msgl-=wl;
+    // }
 }
 
 p67_err
