@@ -53,6 +53,16 @@ p67_cmn_thread_kill(p67_thread_t t)
 }
 
 p67_err
+p67_cmn_sleep_s(int s)
+{
+    struct timespec ts;
+    ts.tv_sec = s;
+    ts.tv_nsec = 0;
+    if(nanosleep(&ts, &ts) != 0) return p67_err_einval;
+    return 0;
+}
+
+p67_err
 p67_cmn_sleep_ms(int ms)
 {
     struct timespec ts;

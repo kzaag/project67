@@ -14,6 +14,7 @@
         "*.tcc": "c",
         "type_traits": "c",
         "thread": "c",
-        "random": "c"
+        "random": "c",
+        "utility": "c"
     }
 }

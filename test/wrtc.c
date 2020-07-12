@@ -11,7 +11,7 @@ const int OPUS_INT_SIZE=2;
 const int FRAME_SIZE=120;
 const int MAX_FRAME_SIZE=1276;
 const int CHANNELS=2;
-const int CFRAME_SIZE=160;
+#define CFRAME_SIZE 160
 const int SAMPLING=48000;
 const int BSAMPLING=44100;
 const int FRAME_LENGTH_MICRO = FRAME_SIZE * 1e6 / SAMPLING;
@@ -27,6 +27,12 @@ const int QUEUE_PREFFERED_LENGTH_MAX = (30*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
 
 const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-150;
 
+struct __attribute__((packed)) p67_wrtc_hdr {
+    uint32_t seq;
+};
+
+static int receiver_seq = 0;
+
 #define TC_YELLOW "\033[33m"
 #define TC_GREEN "\033[32m"
 #define TC_DEFAULT "\033[0m"
@@ -35,6 +41,8 @@ const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-150;
 #define T_SHOW_CURSOR() printf("\e[?25h")
 
 #define T_CLEAN_RET "\e[2K"
+
+char empty[CFRAME_SIZE] = {0};
 
 p67_err
 queue_enqueue(const char * chunk, int chunkl)
@@ -69,6 +77,12 @@ queue_enqueue(const char * chunk, int chunkl)
 
 end:
     return err;
+}
+
+p67_err
+queue_enqueue_empty()
+{
+    return queue_enqueue(empty, CFRAME_SIZE);
 }
 
 int
@@ -118,14 +132,49 @@ end:
     return err;
 }
 
+static int lost = 0;
+
 p67_err
 receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
-    p67_err err;
+    // simulate packets lost
+    // if(((lost++) % 3) == 0)
+    //     return 0;
 
-    if(msgl < CFRAME_SIZE)
+    p67_err err;
+    int state, seq, df;
+
+    if((unsigned long)msgl < (CFRAME_SIZE + sizeof(struct p67_wrtc_hdr)))
+        return 0;        
+
+    struct p67_wrtc_hdr * h = (struct p67_wrtc_hdr *)msg;
+
+    seq = ntohl(h->seq);
+    df =  seq - receiver_seq;
+
+    // already got this frame
+    if(receiver_seq >= seq) {
         return 0;
-    err = queue_enqueue(msg, msgl);
+    }
+
+    receiver_seq = seq;
+
+    // lost some frames
+    while(df-->1) {
+        printf("lost 1 packet\n");
+        err = queue_enqueue_empty();
+        if(err != 0) {
+            printf("Overflow\n");
+            return 0;
+        }
+    }
+
+    //if(state >= seq || !p67_sm_update(&receiver_seq, &(int){state}, seq)) {
+        //printf("Ignored 1 packet\n");
+        //return 0;
+    //}
+
+    err = queue_enqueue(msg+sizeof(struct p67_wrtc_hdr), msgl-sizeof(struct p67_wrtc_hdr));
     if(err != 0) {
         printf("Overflow\n");
     }
@@ -133,6 +182,19 @@ receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
 }
 
 static volatile int interval = 0;
+
+static volatile unsigned long __wrote = 0;
+
+void *
+stream_kbs_print_loop(void * args)
+{
+    while(1) {
+        printf("streaming %03lu kbytes / second.\r", __wrote  / 1024);\
+        fflush(stdout);
+        __wrote = 0;
+        p67_cmn_sleep_s(1);
+    }
+}
 
 void * 
 stream_control_loop(void * args)
@@ -150,7 +212,8 @@ stream_control_loop(void * args)
                 interval-=factor;
             }
         }
-        printf("%d %d\n", qs, interval);
+        printf("buffer_size=%07d bytes. interval=%04d microsec\r", qs, interval);
+        fflush(stdout);
 
         p67_cmn_sleep_ms(100);
     }
@@ -197,9 +260,15 @@ recv_stream(p67_conn_pass_t * pass)
             //     goto end;
             continue;
         } else {
-            if((opus_err = opus_decode(
+            if(memcmp(compressed_frame, empty, CFRAME_SIZE) == 0) {
+                if((opus_err = opus_decode(
+                    dec, NULL, 0, output_frame, FRAME_SIZE, 1)) < 0)
+                goto end;
+            } else {
+                if((opus_err = opus_decode(
                     dec, compressed_frame, CFRAME_SIZE, output_frame, FRAME_SIZE, 0)) < 0)
                 goto end;
+            }
         }
 
         for(ix=0;ix<FRAME_SIZE*CHANNELS;ix++) {
@@ -231,8 +300,9 @@ end:
 p67_err
 send_mic(p67_conn_pass_t * pass)
 {
+    struct p67_wrtc_hdr hdr;
     opus_int16 output_frame[FRAME_SIZE*CHANNELS];
-    unsigned char compressed_frame[CFRAME_SIZE];
+    unsigned char compressed_frame[sizeof(struct p67_wrtc_hdr)+CFRAME_SIZE];
     unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
     p67_pcm_t i = P67_PCM_INTIIALIZER_IN;
     i.frame_size = FRAME_SIZE;
@@ -241,15 +311,22 @@ send_mic(p67_conn_pass_t * pass)
     i.sampling = SAMPLING;
     opus_int32 cb;
     p67_err err;
-    int opus_err, ix, buffering;
+    int opus_err, ix, buffering, init = 1, seq = 0;
     OpusEncoder * enc;
-    int init = 1;
+    p67_thread_t tthr;
 
     enc = opus_encoder_create(i.sampling, i.channels, OPUS_APPLICATION_AUDIO, &opus_err);
     if(opus_err != 0) goto end;
     opus_encoder_ctl(enc, OPUS_SET_BITRATE(i.sampling * 16 * i.channels));
     
+    // if(opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(10)) != OPUS_OK) {
+    //     printf("no1\n");
+    // }
+
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
+        goto end;
+
+    if((err = p67_cmn_thread_create(&tthr, stream_kbs_print_loop, NULL)) != 0)
         goto end;
 
     p67_pcm_create_io(&i);
@@ -259,10 +336,15 @@ send_mic(p67_conn_pass_t * pass)
         p67_pcm_read(&i, decompressed_frame, &(size_t){FRAME_SIZE});
         for (ix=0;ix<FRAME_SIZE*CHANNELS;ix++) 
             output_frame[ix]=decompressed_frame[OPUS_INT_SIZE*ix+1]<<8|decompressed_frame[OPUS_INT_SIZE*ix];
-        cb = opus_encode(enc, output_frame, FRAME_SIZE, compressed_frame, MAX_FRAME_SIZE);
-        
-        if((err = p67_net_must_write_connect(pass, compressed_frame, cb)) != 0) 
+        cb = opus_encode(enc, output_frame, FRAME_SIZE, compressed_frame+sizeof(struct p67_wrtc_hdr), MAX_FRAME_SIZE);
+        hdr.seq = htonl(seq++);
+        memcpy(compressed_frame, &hdr , sizeof(struct p67_wrtc_hdr));
+        if((err = p67_net_must_write_connect(pass, compressed_frame, cb+sizeof(struct p67_wrtc_hdr))) != 0) 
             goto end;
+        __wrote+=cb+sizeof(struct p67_wrtc_hdr);
+        if((err = p67_net_must_write_connect(pass, compressed_frame, cb+sizeof(struct p67_wrtc_hdr))) != 0) 
+            goto end;
+        __wrote+=cb+sizeof(struct p67_wrtc_hdr);
 
         if(init) {
             init = 0; 

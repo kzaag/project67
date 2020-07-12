@@ -40,4 +40,7 @@ p67_cmn_sleep_micro(int micro);
 p67_err
 p67_cmn_time_ms(unsigned long long * t);
 
+p67_err
+p67_cmn_sleep_s(int s);
+
 #endif
