@@ -12,8 +12,9 @@ const int FRAME_SIZE=120;
 const int MAX_FRAME_SIZE=1276;
 const int CHANNELS=2;
 #define CFRAME_SIZE 160
-const int SAMPLING=48000;
-const int BSAMPLING=44100;
+const unsigned int SAMPLING=48000;
+const unsigned int SLOW_SAMPLING=47990;
+const unsigned int FAST_SAMPLING=48010;
 const int FRAME_LENGTH_MICRO = FRAME_SIZE * 1e6 / SAMPLING;
 /* compressed frames of total length = 1 second */
 #define QUEUE_SIZE 64000 //(1e6/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
@@ -21,11 +22,11 @@ static volatile int head = 0;
 static volatile int tail = 0;
 static char __mqueue[QUEUE_SIZE];
 /* min delay in bytes */
-const int QUEUE_PREFFERED_LENGTH_MIN = (15*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
+const int QUEUE_PREFFERED_LENGTH_MIN = (30*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
 /* max delay in bytes */
-const int QUEUE_PREFFERED_LENGTH_MAX = (30*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
+const int QUEUE_PREFFERED_LENGTH_MAX = (60*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
 
-const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-150;
+const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-500;
 
 struct __attribute__((packed)) p67_wrtc_hdr {
     uint32_t seq;
@@ -199,21 +200,42 @@ stream_kbs_print_loop(void * args)
 void * 
 stream_control_loop(void * args)
 {
-    int qs, factor = 1;
+    int qs, factor = 10;
+    p67_pcm_t * out = (p67_pcm_t *)args;
 
     while(1) {
         qs = queue_space_taken();
-        if(qs != 0) {
-            if(qs < QUEUE_PREFFERED_LENGTH_MIN) {
-                if(interval+factor < FRAME_LENGTH_MICRO) {
-                    interval+=factor;
-                }
-            } else if(qs > QUEUE_PREFFERED_LENGTH_MAX) {
-                interval-=factor;
-            }
-        }
-        printf("buffer_size=%07d bytes. interval=%04d microsec\r", qs, interval);
-        fflush(stdout);
+        // if(qs != 0) {
+        //     if(qs < QUEUE_PREFFERED_LENGTH_MIN) {
+        //         if(interval+factor < FRAME_LENGTH_MICRO) {
+        //             interval+=factor;
+        //         }
+        //     } else if(qs > QUEUE_PREFFERED_LENGTH_MAX) {
+        //         interval-=factor;
+        //     }
+        // }
+        // if(qs > QUEUE_PREFFERED_LENGTH_MAX) {
+        //     if(out->sampling != FAST_SAMPLING) {
+        //         printf("speed up\n");
+        //         out->sampling = FAST_SAMPLING; 
+        //         p67_pcm_update(out);
+        //     }
+        // } else if(qs < QUEUE_PREFFERED_LENGTH_MIN) {
+        //     if(out->sampling != SLOW_SAMPLING) {
+        //         printf("slow down\n");
+        //         out->sampling = SLOW_SAMPLING; 
+        //         p67_pcm_update(out);
+        //     }
+        // } else {
+        //     if(out->sampling != SAMPLING) {
+        //         printf("recover\n");
+        //         out->sampling = SAMPLING; 
+        //         p67_pcm_update(out);
+        //     }
+        // }
+        printf(
+            "buffer_size=%07d bytes. interval=%04d microsec sampling=%-5d\n", 
+            qs, interval, out->sampling);
 
         p67_cmn_sleep_ms(100);
     }
@@ -231,10 +253,11 @@ recv_stream(p67_conn_pass_t * pass)
     o.bits_per_sample = 16;
     o.channels = CHANNELS;
     o.sampling = SAMPLING;
-    p67_err err;
+    p67_err err = 0;
     int opus_err, ix, buffering;
     OpusDecoder * dec;
     p67_thread_t scl;
+    int st;
 
     pass->handler = receiver_callback;
 
@@ -250,12 +273,38 @@ recv_stream(p67_conn_pass_t * pass)
 
     interval = INITIAL_INTERVAL;
 
-    // if((err = p67_cmn_thread_create(&scl, stream_control_loop, NULL)) != 0)
-    //     goto end;
+    if((err = p67_cmn_thread_create(&scl, stream_control_loop, &o)) != 0)
+        goto end;
+
+    while(queue_space_taken() < QUEUE_PREFFERED_LENGTH_MAX) {
+        p67_cmn_sleep_micro(50);
+    }
 
     while(1) {
+        p67_cmn_sleep_micro(interval);
+        st = queue_space_taken();
+        if(st < QUEUE_PREFFERED_LENGTH_MIN && !buffering)
+            continue;
+        // if(st > QUEUE_PREFFERED_LENGTH_MAX) {
+        //     if(o.sampling != FAST_SAMPLING) {
+        //         printf("speed up\n");
+        //         o.sampling = FAST_SAMPLING;
+        //         p67_pcm_update(&o);
+        //     }
+        // } else if(st < QUEUE_PREFFERED_LENGTH_MIN) {
+        //     if(o.sampling != SLOW_SAMPLING) {
+        //         printf("slow down\n");
+        //         o.sampling = SLOW_SAMPLING;
+        //         p67_pcm_update(&o);
+        //     }
+        // } else {
+        //     if(o.sampling != SAMPLING) {
+        //         printf("restore\n");
+        //         o.sampling = SAMPLING;
+        //         p67_pcm_update(&o);
+        //     }
+        // }
         err = queue_dequeue(compressed_frame, CFRAME_SIZE);
-        //p67_cmn_sleep_micro(interval);
         if(err != 0) {
             // if((opus_error = opus_decode(dec, NULL, 0, bb, r, 0)) != 0)
             //     goto end;
@@ -280,10 +329,10 @@ recv_stream(p67_conn_pass_t * pass)
         err = p67_pcm_write(&o, decompressed_frame, &(size_t){FRAME_SIZE});
         if(err == p67_err_epipe) {
             // buffering
-            o.sampling = BSAMPLING;
+            o.sampling = SLOW_SAMPLING;
             p67_pcm_update(&o);
             buffering = 1;
-            printf("buffering\n");
+            printf("slow down\n");
         } else if(buffering) {
             o.sampling = SAMPLING;
             p67_pcm_update(&o);
@@ -457,7 +506,7 @@ main(int argc, char ** argv)
     if((err = p67_addr_set_localhost4_udp(&pass.local, argv[1])) != 0)
         goto end;
 
-    if((err = p67_addr_set_host_udp(&pass.remote, "192.168.0.179", argv[2])))
+    if((err = p67_addr_set_host_udp(&pass.remote, IP4_LO1, argv[2])))
         goto end;
 
     if(argc > 3) {
