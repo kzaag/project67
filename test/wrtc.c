@@ -327,18 +327,24 @@ recv_stream(p67_conn_pass_t * pass)
         }
 
         err = p67_pcm_write(&o, decompressed_frame, &(size_t){FRAME_SIZE});
-        if(err == p67_err_epipe) {
-            // buffering
-            o.sampling = SLOW_SAMPLING;
-            p67_pcm_update(&o);
+        
+        if(err = p67_err_epipe) {
             buffering = 1;
-            printf("slow down\n");
-        } else if(buffering) {
-            o.sampling = SAMPLING;
-            p67_pcm_update(&o);
+        } else {
             buffering = 0;
-            printf("recover\n");
         }
+        // if(err == p67_err_epipe) {
+        //     // buffering
+        //     o.sampling = SLOW_SAMPLING;
+        //     p67_pcm_update(&o);
+        //     buffering = 1;
+        //     printf("slow down\n");
+        // } else if(buffering) {
+        //     o.sampling = SAMPLING;
+        //     p67_pcm_update(&o);
+        //     buffering = 0;
+        //     printf("recover\n");
+        // }
     }
 
 end:
