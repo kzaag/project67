@@ -4,6 +4,11 @@
 #include "pcm.h"
 #include "err.h"
 
+void
+p67_pcm_drain(p67_pcm_t * __pcm)
+{
+    snd_pcm_drain((snd_pcm_t *)__pcm->__hw);
+}
 
 void
 p67_pcm_free(p67_pcm_t * __pcm)
