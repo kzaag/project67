@@ -282,7 +282,6 @@ recv_stream(p67_conn_pass_t * pass)
 
     while(1) {
         p67_cmn_sleep_micro(interval);
-        p67_pcm_drain(&o);
         st = queue_space_taken();
         if(st < QUEUE_PREFFERED_LENGTH_MIN && !buffering)
             continue;
