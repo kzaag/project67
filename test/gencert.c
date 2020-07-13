@@ -6,7 +6,7 @@
         - [*] certificates, 
         - [*] key pairs
 */
-
+ 
 int
 main(int argc, const char ** argv)
 {
@@ -26,7 +26,7 @@ main(int argc, const char ** argv)
         dap = daddr; 
     }
 
-    printf("Generating certificates at @s, with CN set to %s\n", dcp, dap);
+    printf("Generating certificates at %s, with CN set to %s\n", dcp, dap);
 
     if((err = p67_net_new_cert(dcert, daddr)) != 0) {
         p67_err_print_err(NULL, err);

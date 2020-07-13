@@ -81,8 +81,9 @@ p67_pcm_update(p67_pcm_t * pcm)
 p67_err
 p67_pcm_create_io(p67_pcm_t * __pcm)
 {
-    snd_pcm_hw_params_t * params;
-    int tmp, fmt, ret;
+   // snd_pcm_hw_params_t * params;
+    int fmt, ret;
+    // int tmp;
     const char * name;
     if(__pcm->name != NULL) 
         name = __pcm->name; 
@@ -90,6 +91,14 @@ p67_pcm_create_io(p67_pcm_t * __pcm)
         name = P67_PCM_NAME_DEFAULT;
 
     snd_pcm_t ** pcm = (snd_pcm_t **)&__pcm->__hw;
+
+    switch(__pcm->bits_per_sample) {
+    case P67_PCM_BPS_16:
+        fmt = SND_PCM_FORMAT_S16_LE;
+        break;
+    default:
+        goto end;
+    }
 
     switch(__pcm->pcm_tp) {
     case P67_PCM_TP_I:
@@ -102,56 +111,53 @@ p67_pcm_create_io(p67_pcm_t * __pcm)
         return p67_err_einval;
     }
 
+    ret = snd_pcm_set_params(
+            *pcm, 
+            fmt, 
+            SND_PCM_ACCESS_RW_INTERLEAVED, 
+            __pcm->channels, 
+            __pcm->sampling, 
+            0, 
+            0);
     if(ret != 0) goto end;
-
-    snd_pcm_hw_params_alloca(&params);
-
-    snd_pcm_hw_params_any(*pcm, params);
-
-    if((ret = snd_pcm_hw_params_set_access(
-             *pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED)) != 0) goto end;
-
-    switch(__pcm->bits_per_sample) {
-    case P67_PCM_BPS_16:
-        fmt = SND_PCM_FORMAT_S16_LE;
-        break;
-    default:
-        goto end;
-    }
     
-    if((ret = snd_pcm_hw_params_set_format(
-        *pcm, params, fmt)) != 0) goto end;
+    // if((ret = snd_pcm_hw_params_set_access(
+    //          *pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED)) != 0) goto end;
 
-    if(__pcm->channels == P67_PCM_UNSPEC) {
-        if((ret = snd_pcm_hw_params_get_channels_max(
-                    params, &__pcm->channels)) != 0) goto end;
-    } else {
-        if((ret = snd_pcm_hw_params_set_channels(
-                    *pcm, params, __pcm->channels)) != 0) goto end;
-    }
+    // if((ret = snd_pcm_hw_params_set_format(
+    //     *pcm, params, fmt)) != 0) goto end;
 
-    if(__pcm->channels == P67_PCM_UNSPEC) {
-        if((ret = snd_pcm_hw_params_get_rate_max(
-                    params, &__pcm->sampling, &tmp)) != 0) goto end;
-    } else {
-        if((ret = snd_pcm_hw_params_set_rate_near(
-                    *pcm, params, &__pcm->sampling, &tmp)) != 0) goto end;
-    }
+    
+    // if(__pcm->channels == P67_PCM_UNSPEC) {
+    //     if((ret = snd_pcm_hw_params_get_channels_max(
+    //                 params, &__pcm->channels)) != 0) goto end;
+    // } else {
+    //     if((ret = snd_pcm_hw_params_set_channels(
+    //                 *pcm, params, __pcm->channels)) != 0) goto end;
+    // }
+
+    // if(__pcm->sampling == P67_PCM_UNSPEC) {
+    //     if((ret = snd_pcm_hw_params_get_rate_max(
+    //                 params, &__pcm->sampling, &tmp)) < 0) goto end;
+    // } else {
+    //     if((ret = snd_pcm_hw_params_set_rate_near(
+    //                 *pcm, params, &__pcm->sampling, &tmp)) < 0) goto end;
+    // }
+    //     printf("!\n");
 
 
-    if(__pcm->frame_size > 0) {
-        if((ret = snd_pcm_hw_params_set_period_size_near(
-                    *pcm, params, &__pcm->frame_size, &tmp)) != 0) goto end;
-    }
+    // if(__pcm->frame_size > 0) {
+    //     if((ret = snd_pcm_hw_params_set_period_size_near(
+    //                 *pcm, params, &__pcm->frame_size, &tmp)) != 0) goto end;
+    // }
 
-    //snd_pcm_set_params(*pcm, fmt, SND_PCM_ACCESS_RW_INTERLEAVED, __pcm->channels, , 1, 500000)
 
-    if((ret = snd_pcm_hw_params(*pcm, params)) != 0) goto end;
+    //if((ret = snd_pcm_hw_params(*pcm, params)) != 0) goto end;
 
-    if(__pcm->frame_size == 0) {
-        if((ret = snd_pcm_hw_params_get_period_size(
-                        params, &__pcm->frame_size, &tmp)) != 0) goto end;
-    }
+    // if(__pcm->frame_size == 0) {
+    //     if((ret = snd_pcm_hw_params_get_period_size(
+    //                     params, &__pcm->frame_size, &tmp)) != 0) goto end;
+    // }
 
     return 0;
 

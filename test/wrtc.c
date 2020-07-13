@@ -226,6 +226,7 @@ recv_stream(p67_conn_pass_t * pass)
     unsigned char compressed_frame[MAX_FRAME_SIZE];
     unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
     p67_pcm_t o = P67_PCM_INTIIALIZER_OUT;
+    //o.name ="hw:0,9";
     o.frame_size = FRAME_SIZE;
     o.bits_per_sample = 16;
     o.channels = CHANNELS;
@@ -243,18 +244,18 @@ recv_stream(p67_conn_pass_t * pass)
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
-    p67_pcm_create_io(&o);
+    if((err = p67_pcm_create_io(&o)) != 0) goto end;
 
     p67_pcm_printf(o);
 
     interval = INITIAL_INTERVAL;
 
-    if((err = p67_cmn_thread_create(&scl, stream_control_loop, NULL)) != 0)
-        goto end;
+    // if((err = p67_cmn_thread_create(&scl, stream_control_loop, NULL)) != 0)
+    //     goto end;
 
     while(1) {
         err = queue_dequeue(compressed_frame, CFRAME_SIZE);
-        p67_cmn_sleep_micro(interval);
+        //p67_cmn_sleep_micro(interval);
         if(err != 0) {
             // if((opus_error = opus_decode(dec, NULL, 0, bb, r, 0)) != 0)
             //     goto end;
@@ -456,7 +457,7 @@ main(int argc, char ** argv)
     if((err = p67_addr_set_localhost4_udp(&pass.local, argv[1])) != 0)
         goto end;
 
-    if((err = p67_addr_set_host_udp(&pass.remote, /*"192.168.0.108"*/IP4_LO1, argv[2])))
+    if((err = p67_addr_set_host_udp(&pass.remote, "192.168.0.179", argv[2])))
         goto end;
 
     if(argc > 3) {
