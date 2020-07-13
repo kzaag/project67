@@ -254,7 +254,7 @@ recv_stream(p67_conn_pass_t * pass)
     o.channels = CHANNELS;
     o.sampling = SAMPLING;
     p67_err err = 0;
-    int opus_err, ix, buffering;
+    int opus_err, ix, buffering = 0;
     OpusDecoder * dec;
     p67_thread_t scl;
     int st;
@@ -327,24 +327,18 @@ recv_stream(p67_conn_pass_t * pass)
         }
 
         err = p67_pcm_write(&o, decompressed_frame, &(size_t){FRAME_SIZE});
-        
-        if(err = p67_err_epipe) {
+        if(err == p67_err_epipe) {
+            // buffering
+            o.sampling = SLOW_SAMPLING;
+            p67_pcm_update(&o);
             buffering = 1;
-        } else {
+            printf("slow down\n");
+        } else if(buffering) {
+            o.sampling = SAMPLING;
+            p67_pcm_update(&o);
             buffering = 0;
+            printf("recover\n");
         }
-        // if(err == p67_err_epipe) {
-        //     // buffering
-        //     o.sampling = SLOW_SAMPLING;
-        //     p67_pcm_update(&o);
-        //     buffering = 1;
-        //     printf("slow down\n");
-        // } else if(buffering) {
-        //     o.sampling = SAMPLING;
-        //     p67_pcm_update(&o);
-        //     buffering = 0;
-        //     printf("recover\n");
-        // }
     }
 
 end:
