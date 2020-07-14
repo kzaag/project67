@@ -18,9 +18,22 @@ const unsigned int FAST_SAMPLING=48010;
 const int FRAME_LENGTH_MICRO = FRAME_SIZE * 1e6 / SAMPLING;
 /* compressed frames of total length = 1 second */
 #define QUEUE_SIZE 64000 //(1e6/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
+/* total amount of frames  */
+#define QUEUE_IX_SIZE 400
+
 static volatile int head = 0;
 static volatile int tail = 0;
-static char __mqueue[QUEUE_SIZE];
+
+struct queue_inode {
+    uint32_t seq;
+    int state;
+    /* is this empty buffer compensating for packet loss? */
+    int is_zero;
+    /* one could add here data chunk length if frames can have variable length */
+} queue_inodes[QUEUE_IX_SIZE];
+
+char queue_chunks[QUEUE_IX_SIZE][CFRAME_SIZE];
+
 /* min delay in bytes */
 const int QUEUE_PREFFERED_LENGTH_MIN = (30*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
 /* max delay in bytes */
@@ -31,8 +44,6 @@ const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-500;
 struct __attribute__((packed)) p67_wrtc_hdr {
     uint32_t seq;
 };
-
-static int receiver_seq = 0;
 
 #define TC_YELLOW "\033[33m"
 #define TC_GREEN "\033[32m"
@@ -45,45 +56,89 @@ static int receiver_seq = 0;
 
 char empty[CFRAME_SIZE] = {0};
 
-p67_err
-queue_enqueue(const char * chunk, int chunkl)
+uint32_t
+queue_last_seq()
 {
-    int h = head;
+    if(head == tail)    
+        return 0;
+    return queue_inodes[tail].seq;
+}
 
-    p67_err err = p67_err_einval;
-    int e = (tail+chunkl)%QUEUE_SIZE;
-    
-    if(QUEUE_SIZE < chunkl) goto end;
+/*
+    try insert packet which came out of order into buffer
+*/
+p67_err
+queue_backward_enque(uint32_t seq, const char * chunk, int chunkl)
+{
+    int ix = head, f = 0;
 
-    if(tail == h) {
-        if(e == h) goto end;
-    } else if(tail > h) {
-        if(e >= h && e < tail) goto end;
-    } else {
-        if(e >= h || e < tail) goto end;
+    while(ix < tail) {
+        // too late, already read frame with this seq
+        if(queue_inodes[ix].seq > seq)
+            return p67_err_enconn;
+        else if(queue_inodes[ix].seq == seq) {
+            f = 1;
+            break;
+        }
     }
 
-    if(chunkl > (QUEUE_SIZE-tail)) {
-        // [*|*|*| |L*|*]
-        //  0 1 2 3 4  5
-        memcpy(__mqueue+tail, chunk, (QUEUE_SIZE-tail));
-        memcpy(__mqueue,  chunk+QUEUE_SIZE-tail, chunkl - QUEUE_SIZE + tail);
-    } else {
-        memcpy(__mqueue+tail, chunk, chunkl);
+    for(ix = head; ix < tail; ix++) {
+        if(queue_inodes[ix].seq == seq) {
+            f = 1;
+            break;
+        }
     }
 
-    tail=(tail+chunkl)%QUEUE_SIZE;
+    // too late, already read frame with this seq
+    if(!f)
+        return p67_err_enconn;
 
-    err = 0;
+    // already got this packet
+    if(!queue_inodes[ix].is_zero)
+        return 0;
 
-end:
-    return err;
+    if(!p67_sm_update(&queue_inodes[ix].state, &(int){0}, 1))
+        return p67_err_enconn; // a wee bit too late, reading thread already booked this frame for reading
+
+    // check if sequence number is still the same. ( after issuing lock )
+    if(queue_inodes[ix].seq != seq)
+        return p67_err_easync;
+
+    memcpy(queue_chunks[ix], chunk, chunkl);
+
+    queue_inodes[ix].is_zero = 0;
+
+    if(!p67_sm_update(&queue_inodes[ix].state, &(int){1}, 0))
+        return p67_err_easync;
+
+    return 0;
 }
 
 p67_err
-queue_enqueue_empty()
+queue_enque(uint32_t seq, const char * chunk, int chunkl, int is_zero)
 {
-    return queue_enqueue(empty, CFRAME_SIZE);
+    int h = head;
+    int e = (tail+1)%QUEUE_IX_SIZE;
+    struct queue_inode hdr;
+    hdr.state = 0;
+    hdr.seq = seq;
+    hdr.is_zero = is_zero;
+
+    if(e == h)
+        return p67_err_einval;
+    
+    memcpy(&queue_chunks[tail], chunk, chunkl);
+    memcpy(&queue_inodes[tail], &hdr, sizeof(hdr));
+
+    tail = e;
+
+    return 0;
+}
+
+p67_err
+queue_enqueue_empty(uint32_t seq)
+{
+    return queue_enque(seq, empty, CFRAME_SIZE, 1);
 }
 
 int
@@ -94,90 +149,74 @@ queue_space_taken()
     if(t == h) {
         return 0;
     } else if(t > h) {
-        return t - h;
+        return (t - h)*CFRAME_SIZE;
     } else {
-        return QUEUE_SIZE - h + t;
+        return (QUEUE_IX_SIZE - h + t)*CFRAME_SIZE;
     }
 }
 
 p67_err
 queue_dequeue(char *chunk, int chunkl)
 {
-    p67_err err = p67_err_einval;
     int t = tail;
+    struct queue_inode * iptr;
 
-    if(QUEUE_SIZE < chunkl) goto end;
+    if(t == head) return p67_err_einval;
 
-    if(t == head) {
-        goto end;
-    } else if(t > head) {
-        if((t - head) < chunkl) goto end;
-    } else {
-        if((QUEUE_SIZE - head+t) < chunkl) goto end;
-    }
+    iptr = (struct queue_inode *)&queue_inodes[head];
 
-    if(chunkl > (QUEUE_SIZE-head)) {
-        // [*|*|*| |H*|*]
-        //  0 1 2 3 4  5
-        memcpy(chunk, __mqueue+head, (QUEUE_SIZE-head));
-        memcpy(chunk+QUEUE_SIZE-head, __mqueue, chunkl - QUEUE_SIZE + head);
-    } else {
-        memcpy(chunk, __mqueue+head, chunkl);
-    }
+    do {
+        if(iptr->state != 1)
+            continue;
 
-    head = (head+chunkl)%QUEUE_SIZE;
+        if(p67_sm_update(&iptr->state, &(int){0}, 1))
+            break; 
+    } while(1);
 
-    err = 0;
+    memcpy(chunk, queue_chunks[head], chunkl);
 
-end:
-    return err;
+    head = (head+1)%QUEUE_SIZE;
+
+    return 0;
 }
-
-static int lost = 0;
 
 p67_err
 receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
-    // simulate packets lost
-    // if(((lost++) % 3) == 0)
-    //     return 0;
-
     p67_err err;
-    int state, seq, df;
+    uint32_t seq, lseq, pd;
+    struct p67_wrtc_hdr * h;
 
-    if((unsigned long)msgl < (CFRAME_SIZE + sizeof(struct p67_wrtc_hdr)))
+    if((unsigned long)msgl < (CFRAME_SIZE + sizeof(*h)))
         return 0;        
 
-    struct p67_wrtc_hdr * h = (struct p67_wrtc_hdr *)msg;
-
+    h = (struct p67_wrtc_hdr *)msg;
     seq = ntohl(h->seq);
-    df =  seq - receiver_seq;
+    lseq = queue_last_seq();
 
-    // already got this frame
-    if(receiver_seq >= seq) {
+    if(lseq == seq) {
+        // already got this frame
         return 0;
-    }
-
-    receiver_seq = seq;
-
-    // lost some frames
-    while(df-->1) {
-        printf("lost 1 packet\n");
-        err = queue_enqueue_empty();
-        if(err != 0) {
-            printf("Overflow\n");
-            return 0;
+    } else if(lseq > seq) {
+        // this packet came out of order, 
+        //      but still, there may be time to insert it into the queue.
+        err = queue_backward_enque(seq, msg+sizeof(*h), msgl-sizeof(*h));
+    } else { // seq > lseq
+        // lost some packets on the way.
+        //      but they still may come out of order later
+        if(seq - lseq > 1) {
+            pd = lseq;
+            while((++pd) < seq)
+                err = queue_enque(pd, empty, CFRAME_SIZE, 1);
+            err = queue_enque(seq, msg+sizeof(*h), msgl-sizeof(*h), 0);
+        } else { // seq - lseq = 1
+            // perfect sequence
+            err = queue_enque(seq, msg+sizeof(*h), msgl-sizeof(*h), 0);
         }
     }
 
-    //if(state >= seq || !p67_sm_update(&receiver_seq, &(int){state}, seq)) {
-        //printf("Ignored 1 packet\n");
-        //return 0;
-    //}
-
-    err = queue_enqueue(msg+sizeof(struct p67_wrtc_hdr), msgl-sizeof(struct p67_wrtc_hdr));
     if(err != 0) {
-        printf("Overflow\n");
+        p67_err_print_err("in packet handler: ", err);
     }
     return 0;
 }
@@ -361,7 +400,7 @@ send_mic(p67_conn_pass_t * pass)
     i.sampling = SAMPLING;
     opus_int32 cb;
     p67_err err;
-    int opus_err, ix, buffering, init = 1, seq = 0;
+    int opus_err, ix, buffering, init = 1, seq = 1;
     OpusEncoder * enc;
     p67_thread_t tthr;
 
