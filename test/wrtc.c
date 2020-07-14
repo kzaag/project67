@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <opus/opus.h>
+#include <rnnoise.h>
 #include <errno.h>
 
 #include "wav.h"
@@ -13,8 +14,8 @@ const int MAX_FRAME_SIZE=1276;
 const int CHANNELS=2;
 #define CFRAME_SIZE 160
 const unsigned int SAMPLING=48000;
-const unsigned int SLOW_SAMPLING=47990;
-const unsigned int FAST_SAMPLING=48010;
+const unsigned int SLOW_SAMPLING=SAMPLING-10;
+const unsigned int FAST_SAMPLING=SAMPLING+10;
 const int FRAME_LENGTH_MICRO = FRAME_SIZE * 1e6 / SAMPLING;
 /* compressed frames of total length = 1 second */
 #define QUEUE_SIZE 64000 //(1e6/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
@@ -23,6 +24,14 @@ const int FRAME_LENGTH_MICRO = FRAME_SIZE * 1e6 / SAMPLING;
 
 static volatile int head = 0;
 static volatile int tail = 0;
+
+// it would take around 8 years of stereo streaming with 48k sampling to overflow this variable
+// so we should be ok with using 32bits
+// proof: 
+// lseq/second = 400 (400 frames per second)
+// uint32 limit = 4294967295
+// amount of seconds to overflow = 4294967295 / 400
+static uint32_t lseq;
 
 struct queue_inode {
     uint32_t seq;
@@ -34,12 +43,12 @@ struct queue_inode {
 
 char queue_chunks[QUEUE_IX_SIZE][CFRAME_SIZE];
 
-/* min delay in bytes */
-const int QUEUE_PREFFERED_LENGTH_MIN = (30*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
+/* delay in bytes = amount of frames * frame size = amount of frames * 2.5milisecond*/
+const int QUEUE_PREFFERED_LENGTH_MIN = 20*CFRAME_SIZE;
 /* max delay in bytes */
-const int QUEUE_PREFFERED_LENGTH_MAX = (60*1000/FRAME_LENGTH_MICRO)*CFRAME_SIZE;
+const int QUEUE_PREFFERED_LENGTH_MAX = 50*CFRAME_SIZE;
 
-const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-500;
+const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-1000;
 
 struct __attribute__((packed)) p67_wrtc_hdr {
     uint32_t seq;
@@ -61,7 +70,7 @@ queue_last_seq()
 {
     if(head == tail)    
         return 0;
-    return queue_inodes[tail].seq;
+    return queue_inodes[tail-1].seq;
 }
 
 /*
@@ -128,17 +137,11 @@ queue_enque(uint32_t seq, const char * chunk, int chunkl, int is_zero)
         return p67_err_einval;
     
     memcpy(&queue_chunks[tail], chunk, chunkl);
-    memcpy(&queue_inodes[tail], &hdr, sizeof(hdr));
+    queue_inodes[tail] = hdr;
 
     tail = e;
 
     return 0;
-}
-
-p67_err
-queue_enqueue_empty(uint32_t seq)
-{
-    return queue_enque(seq, empty, CFRAME_SIZE, 1);
 }
 
 int
@@ -166,16 +169,16 @@ queue_dequeue(char *chunk, int chunkl)
     iptr = (struct queue_inode *)&queue_inodes[head];
 
     do {
-        if(iptr->state != 1)
+        if(iptr->state != 0)
             continue;
 
         if(p67_sm_update(&iptr->state, &(int){0}, 1))
-            break; 
+            break;
     } while(1);
 
     memcpy(chunk, queue_chunks[head], chunkl);
 
-    head = (head+1)%QUEUE_SIZE;
+    head = (head+1)%QUEUE_IX_SIZE;
 
     return 0;
 }
@@ -184,7 +187,7 @@ p67_err
 receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     p67_err err;
-    uint32_t seq, lseq, pd;
+    uint32_t seq, pd;
     struct p67_wrtc_hdr * h;
 
     if((unsigned long)msgl < (CFRAME_SIZE + sizeof(*h)))
@@ -192,7 +195,8 @@ receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
 
     h = (struct p67_wrtc_hdr *)msg;
     seq = ntohl(h->seq);
-    lseq = queue_last_seq();
+
+    //printf("%d - %d\n", seq, lseq);
 
     if(lseq == seq) {
         // already got this frame
@@ -204,19 +208,22 @@ receiver_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
     } else { // seq > lseq
         // lost some packets on the way.
         //      but they still may come out of order later
-        if(seq - lseq > 1) {
+        if((seq - lseq) > 1) {
             pd = lseq;
             while((++pd) < seq)
                 err = queue_enque(pd, empty, CFRAME_SIZE, 1);
             err = queue_enque(seq, msg+sizeof(*h), msgl-sizeof(*h), 0);
+            lseq = seq;
         } else { // seq - lseq = 1
             // perfect sequence
             err = queue_enque(seq, msg+sizeof(*h), msgl-sizeof(*h), 0);
+            lseq = seq;
         }
     }
 
     if(err != 0) {
         p67_err_print_err("in packet handler: ", err);
+        return err;
     }
     return 0;
 }
@@ -241,9 +248,22 @@ stream_control_loop(void * args)
 {
     int qs, factor = 10;
     p67_pcm_t * out = (p67_pcm_t *)args;
+    //int ls = 0;
 
     while(1) {
         qs = queue_space_taken();
+        if(qs > QUEUE_PREFFERED_LENGTH_MAX) {
+            if(out->sampling != FAST_SAMPLING) {
+                printf("speed up\n");
+                out->sampling = FAST_SAMPLING; 
+                p67_pcm_update(out);
+            }
+        } else if(qs > QUEUE_PREFFERED_LENGTH_MIN) {
+            if(out->sampling != SAMPLING) {
+                out->sampling = SAMPLING;
+                p67_pcm_update(out);
+            }
+        }
         // if(qs != 0) {
         //     if(qs < QUEUE_PREFFERED_LENGTH_MIN) {
         //         if(interval+factor < FRAME_LENGTH_MICRO) {
@@ -272,9 +292,14 @@ stream_control_loop(void * args)
         //         p67_pcm_update(out);
         //     }
         // }
+        
         printf(
-            "buffer_size=%07d bytes. interval=%04d microsec sampling=%-5d\n", 
-            qs, interval, out->sampling);
+           "buffer_size=%07d bytes. interval=%04d microsec sampling=%-5d\n", 
+           qs, interval, out->sampling);
+
+
+        // printf("%u\n", lseq - ls);
+        // ls = lseq;
 
         p67_cmn_sleep_ms(100);
     }
@@ -368,13 +393,17 @@ recv_stream(p67_conn_pass_t * pass)
         err = p67_pcm_write(&o, decompressed_frame, &(size_t){FRAME_SIZE});
         if(err == p67_err_epipe) {
             // buffering
-            o.sampling = SLOW_SAMPLING;
-            p67_pcm_update(&o);
+            if(o.sampling != SLOW_SAMPLING) {
+                o.sampling = SLOW_SAMPLING;
+                p67_pcm_update(&o);
+            }
             buffering = 1;
             printf("slow down\n");
         } else if(buffering) {
-            o.sampling = SAMPLING;
-            p67_pcm_update(&o);
+            if(o.sampling != SAMPLING) {
+                o.sampling = SAMPLING;
+                p67_pcm_update(&o);
+            }
             buffering = 0;
             printf("recover\n");
         }
@@ -393,6 +422,7 @@ send_mic(p67_conn_pass_t * pass)
     opus_int16 output_frame[FRAME_SIZE*CHANNELS];
     unsigned char compressed_frame[sizeof(struct p67_wrtc_hdr)+CFRAME_SIZE];
     unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
+    float denoisebuff[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
     p67_pcm_t i = P67_PCM_INTIIALIZER_IN;
     i.frame_size = FRAME_SIZE;
     i.bits_per_sample = 16;
@@ -403,6 +433,7 @@ send_mic(p67_conn_pass_t * pass)
     int opus_err, ix, buffering, init = 1, seq = 1;
     OpusEncoder * enc;
     p67_thread_t tthr;
+    //DenoiseState * st = rnnoise_create(NULL);
 
     enc = opus_encoder_create(i.sampling, i.channels, OPUS_APPLICATION_AUDIO, &opus_err);
     if(opus_err != 0) goto end;
@@ -423,8 +454,11 @@ send_mic(p67_conn_pass_t * pass)
 
     while(1) {
         p67_pcm_read(&i, decompressed_frame, &(size_t){FRAME_SIZE});
+        // for(ix = 0; ix < FRAME_SIZE*OPUS_INT_SIZE*CHANNELS; ix++)
+        //     denoisebuff[ix] = decompressed_frame[ix];
+        // rnnoise_process_frame(st, denoisebuff, denoisebuff);
         for (ix=0;ix<FRAME_SIZE*CHANNELS;ix++) 
-            output_frame[ix]=decompressed_frame[OPUS_INT_SIZE*ix+1]<<8|decompressed_frame[OPUS_INT_SIZE*ix];
+           output_frame[ix]=decompressed_frame[OPUS_INT_SIZE*ix+1]<<8|decompressed_frame[OPUS_INT_SIZE*ix];
         cb = opus_encode(enc, output_frame, FRAME_SIZE, compressed_frame+sizeof(struct p67_wrtc_hdr), MAX_FRAME_SIZE);
         hdr.seq = htonl(seq++);
         memcpy(compressed_frame, &hdr , sizeof(struct p67_wrtc_hdr));

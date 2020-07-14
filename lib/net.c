@@ -43,24 +43,7 @@ struct p67_conn {
     p67_async_t hread;
 };
 
-typedef __uint16_t p67_state_t;
-
-#define P67_NODE_STATE_QUEUE 1
-#define P67_NODE_STATE_ALL 1
-
 #define DAYS_TO_SEC(day) ((long)(60*60*24*day))
-
-/*
-    Structure representing known ( not nessesarily connected ) peers.
-    newly arrived requests are kept in the queue state until user accepts them.
-*/
-struct p67_node {
-    p67_node_t * next;
-    p67_addr_t trusted_addr;
-    /* heap allocated null terminated string */
-    char * trusted_pub_key;
-    p67_state_t state;
-};
 
 #define CONN_CACHE_LEN 337
 #define NODE_CACHE_LEN 337
@@ -372,6 +355,7 @@ p67_node_insert(
     const p67_addr_t * addr,
     const char * trusted_key,
     int strdup_key,
+    int node_state,
     p67_node_t ** ret) 
 {
     p67_err err;
@@ -391,6 +375,7 @@ p67_node_insert(
     }
 
     if(trusted_key != NULL) node->trusted_pub_key = tkeycpy;
+    node->state = node_state;
 
     if(ret != NULL)
         *ret = node;
@@ -758,7 +743,7 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
     */
     if((node = p67_node_lookup(&addr)) != NULL 
             && (node->state & P67_NODE_STATE_QUEUE) != 0) {
-        X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_REJECTED);
+        X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_REVOKED);
         return 0;
     }
 
@@ -773,12 +758,14 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
     success = 0;
 
     /* 
-        if remote is first timer then allow them to connect ( will be queued by protocol later ) 
-        but we can warn user about new peer
+        if remote is first timer then allow them to connect ( but queue them )
+        we will warn user about new peer
     */
     if(node == NULL) {
         DLOG("Unknown host connecting from %s:%s with public key:\n%s", 
             addr.hostname, addr.service, pubk);
+        if(p67_node_insert(&addr, pubk, 1, P67_NODE_STATE_QUEUE, NULL) != 0)
+            goto end;
         success = 1;
         goto end;
     }

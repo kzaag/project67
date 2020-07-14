@@ -39,6 +39,14 @@ sudo apt install libasound2-dev=1.1.8-1 -y;
 #   make
 #   sudo make install
 
+# rnnoise
+#git clone https://github.com/xiph/rnnoise.git
+# ./autogen.sh
+# ./configure
+# make
+# sudo make install
+# and you can use header
+
 
 # after that one may run
 #   bash build.sh

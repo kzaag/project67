@@ -59,6 +59,6 @@ gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g $LOPENSSL 
 #gcc $FP/sound.c $FP/wav.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67sound -W -g $LOPENSSL $LALSA;
 #gcc $FP/pudp.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67pudp -W -g $LOPENSSL $LALSA;
 gcc-8 $FP/opus.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67opus -W -g $LOPENSSL $LALSA $OPUS;
-gcc-8 $FP/wrtc.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67wrtc -W -g $LOPENSSL $LALSA $OPUS;
+gcc-8 $FP/wrtc.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67wrtc -W -g $LOPENSSL $LALSA $OPUS `pkg-config --libs rnnoise`;
 
 bash $WD/devcert.sh $WD;

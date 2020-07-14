@@ -29,6 +29,24 @@ typedef struct p67_conn_pass {
     p67_async_t hlisten;
 } p67_conn_pass_t;
 
+typedef __uint16_t p67_state_t;
+
+/*
+    Structure representing known ( not nessesarily connected ) peers.
+    newly arrived requests are kept in the queue state until user accepts them.
+*/
+struct p67_node {
+    p67_node_t * next;
+    p67_addr_t trusted_addr;
+    /* heap allocated null terminated string */
+    char * trusted_pub_key;
+    p67_state_t state;
+};
+
+#define P67_NODE_STATE_QUEUE 1
+#define P67_NODE_STATE_ALL 1
+
+
 /* cache types for nodes */
 #define P67_CT_NODE 1
 #define P67_CT_CONN 2
@@ -67,6 +85,7 @@ p67_node_insert(
     const p67_addr_t * addr,
     const char * trusted_key,
     int strdup_key,
+    int node_state,
     p67_node_t ** ret);
 
 typedef void (* dispose_callback_t)(void * p, int);
