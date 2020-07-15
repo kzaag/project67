@@ -3,8 +3,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <opus/opus.h>
-#include <rnnoise.h>
+// #include <rnnoise.h>
 #include <errno.h>
+#include <pulse/simple.h>
 
 #include "wav.h"
 
@@ -44,11 +45,16 @@ struct queue_inode {
 char queue_chunks[QUEUE_IX_SIZE][CFRAME_SIZE];
 
 /* delay in bytes = amount of frames * frame size = amount of frames * 2.5milisecond*/
-const int QUEUE_PREFFERED_LENGTH_MIN = 20*CFRAME_SIZE;
+const int QUEUE_PREFFERED_LENGTH_MIN = 10*CFRAME_SIZE;
 /* max delay in bytes */
-const int QUEUE_PREFFERED_LENGTH_MAX = 50*CFRAME_SIZE;
+const int QUEUE_PREFFERED_LENGTH_MAX = 20*CFRAME_SIZE;
 
-const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-1000;
+/*
+    emirically i noticed that it is ok if this value is too small ( worst case scenario its CPU hog.)
+    but it is not ok if this is too big because it may cause underruns
+    it this value is bigger than FRAME_LENGTH_MICRO then it will definitely cause significant underruns 
+*/
+const int INITIAL_INTERVAL=FRAME_LENGTH_MICRO-1500;
 
 struct __attribute__((packed)) p67_wrtc_hdr {
     uint32_t seq;
@@ -236,9 +242,9 @@ void *
 stream_kbs_print_loop(void * args)
 {
     while(1) {
-        printf("streaming %03lu kbytes / second.\r", __wrote  / 1024);\
-        fflush(stdout);
-        __wrote = 0;
+        // printf("streaming %03lu kbytes / second.\r", __wrote  / 1024);\
+        // fflush(stdout);
+        // __wrote = 0;
         p67_cmn_sleep_s(1);
     }
 }
@@ -247,23 +253,23 @@ void *
 stream_control_loop(void * args)
 {
     int qs, factor = 10;
-    p67_pcm_t * out = (p67_pcm_t *)args;
+    //67_pcm_t * out = (p67_pcm_t *)args;
     //int ls = 0;
 
     while(1) {
         qs = queue_space_taken();
-        if(qs > QUEUE_PREFFERED_LENGTH_MAX) {
-            if(out->sampling != FAST_SAMPLING) {
-                printf("speed up\n");
-                out->sampling = FAST_SAMPLING; 
-                p67_pcm_update(out);
-            }
-        } else if(qs > QUEUE_PREFFERED_LENGTH_MIN) {
-            if(out->sampling != SAMPLING) {
-                out->sampling = SAMPLING;
-                p67_pcm_update(out);
-            }
-        }
+        // if(qs > QUEUE_PREFFERED_LENGTH_MAX) {
+        //     if(out->sampling != FAST_SAMPLING) {
+        //         printf("speed up\n");
+        //         out->sampling = FAST_SAMPLING; 
+        //         p67_pcm_update(out);
+        //     }
+        // } else if(qs > QUEUE_PREFFERED_LENGTH_MIN) {
+        //     if(out->sampling != SAMPLING) {
+        //         out->sampling = SAMPLING;
+        //         p67_pcm_update(out);
+        //     }
+        // }
         // if(qs != 0) {
         //     if(qs < QUEUE_PREFFERED_LENGTH_MIN) {
         //         if(interval+factor < FRAME_LENGTH_MICRO) {
@@ -294,8 +300,8 @@ stream_control_loop(void * args)
         // }
         
         printf(
-           "buffer_size=%07d bytes. interval=%04d microsec sampling=%-5d\n", 
-           qs, interval, out->sampling);
+           "buffer_size=%07d bytes. interval=%04d microsec\n", 
+           qs, interval);
 
 
         // printf("%u\n", lseq - ls);
@@ -311,12 +317,17 @@ recv_stream(p67_conn_pass_t * pass)
     opus_int16 output_frame[FRAME_SIZE*CHANNELS];
     unsigned char compressed_frame[MAX_FRAME_SIZE];
     unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
-    p67_pcm_t o = P67_PCM_INTIIALIZER_OUT;
+    pa_simple * s;
+    pa_sample_spec ss;
+    ss.format = PA_SAMPLE_S16LE;
+    ss.channels = CHANNELS;
+    ss.rate = SAMPLING;
+    //p67_pcm_t o = P67_PCM_INTIIALIZER_OUT;
     //o.name ="hw:0,9";
-    o.frame_size = FRAME_SIZE;
-    o.bits_per_sample = 16;
-    o.channels = CHANNELS;
-    o.sampling = SAMPLING;
+    //o.frame_size = FRAME_SIZE;
+    //o.bits_per_sample = 16;
+    //o.channels = CHANNELS;
+    //o.sampling = SAMPLING;
     p67_err err = 0;
     int opus_err, ix, buffering = 0;
     OpusDecoder * dec;
@@ -325,19 +336,21 @@ recv_stream(p67_conn_pass_t * pass)
 
     pass->handler = receiver_callback;
 
-    dec = opus_decoder_create(o.sampling, o.channels, &opus_err);
+    dec = opus_decoder_create(SAMPLING, CHANNELS, &opus_err);
     if(opus_err != 0) goto end;
     
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
-    if((err = p67_pcm_create_io(&o)) != 0) goto end;
+    //if((err = p67_pcm_create_io(&o)) != 0) goto end;
+    //p67_pcm_printf(o);
 
-    p67_pcm_printf(o);
+
+    s = pa_simple_new(NULL, "p67", PA_STREAM_PLAYBACK, NULL, "Music", &ss, NULL, NULL, NULL);
 
     interval = INITIAL_INTERVAL;
 
-    if((err = p67_cmn_thread_create(&scl, stream_control_loop, &o)) != 0)
+    if((err = p67_cmn_thread_create(&scl, stream_control_loop, NULL)) != 0)
         goto end;
 
     while(queue_space_taken() < QUEUE_PREFFERED_LENGTH_MAX) {
@@ -347,8 +360,9 @@ recv_stream(p67_conn_pass_t * pass)
     while(1) {
         p67_cmn_sleep_micro(interval);
         st = queue_space_taken();
-        if(st < QUEUE_PREFFERED_LENGTH_MIN && !buffering)
+        if(st < QUEUE_PREFFERED_LENGTH_MIN && !buffering) {
             continue;
+        }
         // if(st > QUEUE_PREFFERED_LENGTH_MAX) {
         //     if(o.sampling != FAST_SAMPLING) {
         //         printf("speed up\n");
@@ -373,16 +387,16 @@ recv_stream(p67_conn_pass_t * pass)
             // if((opus_error = opus_decode(dec, NULL, 0, bb, r, 0)) != 0)
             //     goto end;
             continue;
+        }
+
+        if(memcmp(compressed_frame, empty, CFRAME_SIZE) == 0) {
+            if((opus_err = opus_decode(
+                dec, NULL, 0, output_frame, FRAME_SIZE, 1)) < 0)
+            goto end;
         } else {
-            if(memcmp(compressed_frame, empty, CFRAME_SIZE) == 0) {
-                if((opus_err = opus_decode(
-                    dec, NULL, 0, output_frame, FRAME_SIZE, 1)) < 0)
-                goto end;
-            } else {
-                if((opus_err = opus_decode(
-                    dec, compressed_frame, CFRAME_SIZE, output_frame, FRAME_SIZE, 0)) < 0)
-                goto end;
-            }
+            if((opus_err = opus_decode(
+                dec, compressed_frame, CFRAME_SIZE, output_frame, FRAME_SIZE, 0)) < 0)
+            goto end;
         }
 
         for(ix=0;ix<FRAME_SIZE*CHANNELS;ix++) {
@@ -390,27 +404,31 @@ recv_stream(p67_conn_pass_t * pass)
             decompressed_frame[OPUS_INT_SIZE*ix+1]=(output_frame[ix]>>8)&0xFF;
         }
 
-        err = p67_pcm_write(&o, decompressed_frame, &(size_t){FRAME_SIZE});
-        if(err == p67_err_epipe) {
-            // buffering
-            if(o.sampling != SLOW_SAMPLING) {
-                o.sampling = SLOW_SAMPLING;
-                p67_pcm_update(&o);
-            }
-            buffering = 1;
-            printf("slow down\n");
-        } else if(buffering) {
-            if(o.sampling != SAMPLING) {
-                o.sampling = SAMPLING;
-                p67_pcm_update(&o);
-            }
-            buffering = 0;
-            printf("recover\n");
+        if(pa_simple_write(s, decompressed_frame, 480, NULL) < 0) {
+            printf("er\n");
         }
+
+        // err = p67_pcm_write(&o, decompressed_frame, &(size_t){FRAME_SIZE});
+        // if(err == p67_err_epipe) {
+        //     // buffering
+        //     if(o.sampling != SLOW_SAMPLING) {
+        //         o.sampling = SLOW_SAMPLING;
+        //         p67_pcm_update(&o);
+        //     }
+        //     buffering = 1;
+        //     printf("slow down\n");
+        // } else if(buffering) {
+        //     if(o.sampling != SAMPLING) {
+        //         o.sampling = SAMPLING;
+        //         p67_pcm_update(&o);
+        //     }
+        //     buffering = 0;
+        //     printf("recover\n");
+        // }
     }
 
 end:
-    p67_pcm_free(&o);
+    //p67_pcm_free(&o);
     if(opus_err != 0) fprintf(stderr, "%s\n", opus_strerror(opus_err));
     return err;
 }
@@ -423,11 +441,19 @@ send_mic(p67_conn_pass_t * pass)
     unsigned char compressed_frame[sizeof(struct p67_wrtc_hdr)+CFRAME_SIZE];
     unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
     float denoisebuff[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
-    p67_pcm_t i = P67_PCM_INTIIALIZER_IN;
-    i.frame_size = FRAME_SIZE;
-    i.bits_per_sample = 16;
-    i.channels = CHANNELS;
-    i.sampling = SAMPLING;
+    // p67_pcm_t i = P67_PCM_INTIIALIZER_IN;
+    // i.frame_size = FRAME_SIZE;
+    // i.bits_per_sample = 16;
+    // i.channels = CHANNELS;
+    // i.sampling = SAMPLING;
+    pa_simple * s;
+    pa_sample_spec ss;
+    ss.format = PA_SAMPLE_S16LE;
+    ss.channels = CHANNELS;
+    ss.rate = SAMPLING;
+    pa_buffer_attr attr;
+    attr.fragsize = FRAME_SIZE*OPUS_INT_SIZE*CHANNELS;
+
     opus_int32 cb;
     p67_err err;
     int opus_err, ix, buffering, init = 1, seq = 1;
@@ -435,9 +461,9 @@ send_mic(p67_conn_pass_t * pass)
     p67_thread_t tthr;
     //DenoiseState * st = rnnoise_create(NULL);
 
-    enc = opus_encoder_create(i.sampling, i.channels, OPUS_APPLICATION_AUDIO, &opus_err);
+    enc = opus_encoder_create(SAMPLING, CHANNELS, OPUS_APPLICATION_AUDIO, &opus_err);
     if(opus_err != 0) goto end;
-    opus_encoder_ctl(enc, OPUS_SET_BITRATE(i.sampling * 16 * i.channels));
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(SAMPLING * 16 * CHANNELS));
     
     // if(opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(10)) != OPUS_OK) {
     //     printf("no1\n");
@@ -449,11 +475,18 @@ send_mic(p67_conn_pass_t * pass)
     if((err = p67_cmn_thread_create(&tthr, stream_kbs_print_loop, NULL)) != 0)
         goto end;
 
-    p67_pcm_create_io(&i);
-    p67_pcm_printf(i);
+    //p67_pcm_create_io(&i);
+    //p67_pcm_printf(i);
 
+    p67_net_nat_connect(pass, P67_CONN_CNT_PERSIST);
+    s = pa_simple_new(NULL, "p671", PA_STREAM_RECORD, NULL, "1", &ss, NULL, &attr, NULL);
+    
     while(1) {
-        p67_pcm_read(&i, decompressed_frame, &(size_t){FRAME_SIZE});
+        if(pa_simple_read(s, decompressed_frame, 480, NULL) <0){
+            printf("err\n");
+            continue;
+        }
+        //p67_pcm_read(&i, decompressed_frame, &(size_t){FRAME_SIZE});
         // for(ix = 0; ix < FRAME_SIZE*OPUS_INT_SIZE*CHANNELS; ix++)
         //     denoisebuff[ix] = decompressed_frame[ix];
         // rnnoise_process_frame(st, denoisebuff, denoisebuff);
@@ -467,16 +500,18 @@ send_mic(p67_conn_pass_t * pass)
         __wrote+=cb+sizeof(struct p67_wrtc_hdr);
         if((err = p67_net_must_write_connect(pass, compressed_frame, cb+sizeof(struct p67_wrtc_hdr))) != 0) 
             goto end;
+        pa_simple_flush(s, NULL);
         __wrote+=cb+sizeof(struct p67_wrtc_hdr);
 
         if(init) {
             init = 0; 
-            p67_pcm_recover(&i);
+            //p67_pcm_recover(&i);
         }
     }
 
 end:
-    p67_pcm_free(&i);
+    pa_simple_free(s);
+    //p67_pcm_free(&i);
     if(opus_err != 0) fprintf(stderr, "%s\n", opus_strerror(opus_err));
     return err;
 }

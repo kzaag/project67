@@ -46,6 +46,10 @@ struct p67_node {
 #define P67_NODE_STATE_QUEUE 1
 #define P67_NODE_STATE_ALL 1
 
+#define P67_CONN_CNT_DEF     0 /* equal to 1 unless specified otherwise by the function */
+#define P67_CONN_CNT_PASS    1
+#define P67_CONN_CNT_ACT     2
+#define P67_CONN_CNT_PERSIST 3
 
 /* cache types for nodes */
 #define P67_CT_NODE 1

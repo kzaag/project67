@@ -1020,11 +1020,6 @@ end:
     return err;
 }
 
-#define P67_CONN_CNT_DEF     0 /* equal to 1 unless specified otherwise by the function */
-#define P67_CONN_CNT_PASS    1
-#define P67_CONN_CNT_ACT     2
-#define P67_CONN_CNT_PERSIST 3
-
 p67_err
 p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
 {
