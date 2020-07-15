@@ -440,7 +440,7 @@ send_mic(p67_conn_pass_t * pass)
     opus_int16 output_frame[FRAME_SIZE*CHANNELS];
     unsigned char compressed_frame[sizeof(struct p67_wrtc_hdr)+CFRAME_SIZE];
     unsigned char decompressed_frame[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
-    float denoisebuff[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
+    //float denoisebuff[FRAME_SIZE*OPUS_INT_SIZE*CHANNELS];
     // p67_pcm_t i = P67_PCM_INTIIALIZER_IN;
     // i.frame_size = FRAME_SIZE;
     // i.bits_per_sample = 16;
@@ -472,13 +472,12 @@ send_mic(p67_conn_pass_t * pass)
     if((err = p67_net_start_connect_and_listen(pass)) != 0)
         goto end;
 
-    if((err = p67_cmn_thread_create(&tthr, stream_kbs_print_loop, NULL)) != 0)
-        goto end;
+    // if((err = p67_cmn_thread_create(&tthr, stream_kbs_print_loop, NULL)) != 0)
+    //     goto end;
 
     //p67_pcm_create_io(&i);
     //p67_pcm_printf(i);
 
-    p67_net_nat_connect(pass, P67_CONN_CNT_PERSIST);
     s = pa_simple_new(NULL, "p671", PA_STREAM_RECORD, NULL, "1", &ss, NULL, &attr, NULL);
     
     while(1) {
