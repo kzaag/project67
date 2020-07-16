@@ -2,6 +2,7 @@
 #include <openssl/err.h>
 #include <string.h>
 #include <stdio.h>
+#include "audio.h"
 
 #include "err.h"
 
@@ -59,8 +60,12 @@ p67_err_print_err(const char * hdr, p67_err err)
         fprintf(stderr, "%sOperation has been interrupted\n", hdr);
     }
     
-    if(err & p67_err_epcm) {
-        fprintf(stderr, "%sSound hardware/driver error\n", hdr);
+    if(err & p67_err_eaudio) {
+        if(p67_audio_err != 0) {
+            fprintf(stderr, "%s%s\n", hdr, p67_audio_strerror());
+        } else {
+            fprintf(stderr, "%sUnkown audio error\n", hdr);
+        }
     }
 
     if(err & p67_err_epipe) {
@@ -73,5 +78,13 @@ p67_err_print_err(const char * hdr, p67_err err)
 
     if(err & p67_err_enomem) {
         fprintf(stderr, "%sBuffer too small\n", hdr);
+    }
+
+    if(err & p67_err_eacodecs) {
+        if(p67_audio_codecs_err != 0) {
+            fprintf(stderr, "%s%s\n", hdr, opus_strerror(p67_audio_codecs_err));
+        } else {
+            fprintf(stderr, "%sUnkown audio codecs error\n", hdr);
+        }
     }
 }

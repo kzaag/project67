@@ -1040,9 +1040,19 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
         if(p67_conn_cn_t == P67_CONN_CNT_PASS || p67_conn_cn_t == P67_CONN_CNT_DEF)
             break;
 
+        if(p67_conn_lookup(&pass->remote) != NULL) {
+            DLOG("\rNAT Connect:%d Connection exists.\n", p67_conn_cn_t);
+            return p67_err_eaconn;
+        }
+
         if(p67_conn_cn_t == P67_CONN_CNT_ACT) {
             err = p67_net_connect(pass);
             break;
+        }
+
+        if(p67_conn_lookup(&pass->remote) != NULL) {
+            DLOG("\rNAT Connect:%d Connection exists.\n", p67_conn_cn_t);
+            return p67_err_eaconn;
         }
 
         if(p67_conn_cn_t == P67_CONN_CNT_PERSIST) {

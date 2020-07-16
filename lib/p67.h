@@ -6,8 +6,7 @@
 #include <p67/log.h>
 #include <p67/net.h>
 #include <p67/protos.h>
-
-#include <p67/pcm.h>
+#include <p67/audio.h>
 
 void
 p67_lib_init(void);

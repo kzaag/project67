@@ -1,5 +1,5 @@
 /*
-    not-stun server implementation
+    not-stun server implementation.
 */
 
 #include "err.h"

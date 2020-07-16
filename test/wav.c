@@ -1,4 +1,4 @@
-#include <p67/pcm.h>
+#include <p67/audio.h>
 #include <p67/err.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -12,7 +12,7 @@
 */
 p67_err
 get_p67_pcm_from_wav_file(
-    p67_pcm_t * out, 
+    p67_audio_t * out, 
     off_t * data_offset,
     char ** fc, size_t * cl, 
     const char * wavpath)
@@ -99,10 +99,11 @@ get_p67_pcm_from_wav_file(
     close(mfd);
 
     out->channels = fmt.channels;
-    out->sampling = fmt.samples_per_sec;
-    out->bits_per_sample = fmt.bitsPerSample;
+    out->rate = fmt.samples_per_sec;
+    out->bytes_per_sample = fmt.bitsPerSample / 8;
+    out->audio_dir = P67_AUDIO_DIR_O;
 
-    if((err = p67_pcm_create_io(out)) != 0) goto end;
+    if((err = p67_audio_create_io(out)) != 0) goto end;
 
 end:
     if(err != 0) {
