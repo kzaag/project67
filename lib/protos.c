@@ -32,7 +32,7 @@ static p67_pudp_inode_t pudp_inodes[P67_PUDP_INODE_LEN];
 static int pudp_wakeup = 0; 
 
 /* main async loop handler */
-static p67_async_t pudp = P67_ASYNC_INITIALIZER;
+static p67_thread_sm_t pudp = P67_THREAD_SM_INITIALIZER;
 
 static __thread uint32_t __mid = 0;
 
@@ -70,7 +70,6 @@ p67_proto_write_urg(
     int * evt_termsig,
     p67_pudp_callback_t cb)
 {
-    int state;
     p67_err err;
     uint32_t id;
     size_t hash, i;
@@ -78,7 +77,7 @@ p67_proto_write_urg(
     if(!(msg[0] & P67_PROTO_HDR_URG))
         return p67_err_einval;
 
-    if(pudp.state == P67_ASYNC_STATE_STOP)
+    if(pudp.state == P67_THREAD_SM_STATE_STOP)
         if((err = p67_pudp_start_loop()) != 0 && err != p67_err_eaconn)
             return err;
 
@@ -93,14 +92,17 @@ p67_proto_write_urg(
         if(pudp_inodes[i].istate != P67_PUDP_ISTATE_FREE)
             goto LOOPEND;
 
-        state = P67_PUDP_ISTATE_FREE;
-        if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_PASS))
-            goto LOOPEND; 
-        /* this could be redundant assignment */
-        state = P67_PUDP_ISTATE_PASS;
+        if(!p67_mutex_set_state(
+                &pudp_inodes[i].istate, 
+                P67_PUDP_ISTATE_FREE, 
+                P67_PUDP_ISTATE_PASS))
+            goto LOOPEND;
 
         if((err = p67_cmn_time_ms(&pudp_inodes[i].lt)) != 0) {
-                p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_PASS);
+                p67_mutex_set_state(
+                    &pudp_inodes[i].istate, 
+                    P67_PUDP_ISTATE_PASS, 
+                    P67_PUDP_ISTATE_FREE);
                 return err;
         }
         pudp_inodes[i].pass = pass;
@@ -114,15 +116,15 @@ p67_proto_write_urg(
             pudp_inodes[i].ttl = ttl;
         memcpy(pudp_data[i], msg, msgl);
 
-        if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_ACTV)) {
-            /* this shouldnt happen */
+        if(!p67_mutex_set_state(&pudp_inodes[i].istate, P67_PUDP_ISTATE_PASS, P67_PUDP_ISTATE_ACTV)) {
+            /* this really shouldnt happen */
             return p67_err_easync;
         }
 
         if(evt_termsig != NULL)
             pudp_inodes[i].termsig = evt_termsig;
 
-        p67_sm_set_state(&pudp_wakeup, 0, 1);
+        p67_mutex_set_state(&pudp_wakeup, 0, 1);
 
         return 0;
 
@@ -145,16 +147,20 @@ p67_pudp_start_loop(void)
 {
     p67_err err;
 
-    if(pudp.state != P67_ASYNC_STATE_STOP)
+    if(pudp.state != P67_THREAD_SM_STATE_STOP)
         return p67_err_eaconn;
     
-    if((err = p67_async_set_state(
-                &pudp, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0)
+    if((err = p67_mutex_set_state(
+            &pudp.state, 
+            P67_THREAD_SM_STATE_STOP, 
+            P67_THREAD_SM_STATE_RUNNING)) != 0)
         return err;
 
     if((err = p67_cmn_thread_create(&pudp.thr, pudp_loop, &pudp)) != 0) {
-        p67_async_set_state(
-            &pudp, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
+        p67_mutex_set_state(
+            &pudp.state, 
+            P67_THREAD_SM_STATE_RUNNING, 
+            P67_THREAD_SM_STATE_STOP);
     }
 
     return err;
@@ -189,7 +195,7 @@ p67_pudp_remove(const unsigned char * msg, int msgl)
 
         state = P67_PUDP_ISTATE_ACTV;
 
-        if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_PASS)) {
+        if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_PASS)) {
             return p67_err_easync;
         }
 
@@ -199,9 +205,9 @@ p67_pudp_remove(const unsigned char * msg, int msgl)
             pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_GOT_ACK, NULL);
 
         if(pudp_inodes[i].termsig != NULL)
-            p67_sm_set_state(pudp_inodes[i].termsig, 0, P67_PUDP_EVT_GOT_ACK);
+            p67_atomic_set_state(pudp_inodes[i].termsig, PARG(0), P67_PUDP_EVT_GOT_ACK);
 
-        if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE)) {
+        if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE)) {
             return p67_err_easync;
         }
 
@@ -220,10 +226,10 @@ pudp_loop(void * args)
     p67_err err;
     int i, state, wr;
     unsigned long long t;
-    p67_async_t * _pudp = (p67_async_t *)args;
+    p67_thread_sm_t * _pudp = (p67_thread_sm_t *)args;
 
     while(1) {
-        err = p67_sm_wait_for(
+        err = p67_mutex_wait_for_change(
             &pudp_wakeup, 0, P67_PUDP_INTERV);
         if(err == p67_err_eerrno)
             goto end;
@@ -240,12 +246,12 @@ pudp_loop(void * args)
             if((t - pudp_inodes[i].lt) > pudp_inodes[i].ttl) {
 
                 state = pudp_inodes[i].istate;
-                if(!p67_sm_update(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE))
+                if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE))
                     continue;
                 if(pudp_inodes[i].cb != NULL)
                     pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_TIMEOUT, NULL);
                 if(pudp_inodes[i].termsig != NULL)
-                    p67_sm_set_state(pudp_inodes[i].termsig, 0, P67_PUDP_EVT_TIMEOUT);
+                    p67_atomic_set_state(pudp_inodes[i].termsig, PARG(0), P67_PUDP_EVT_TIMEOUT);
 
             } else {
 
@@ -265,8 +271,8 @@ pudp_loop(void * args)
 end:
     if(err != 0)
         p67_err_print_err("pUdp loop: ", err);
-    p67_async_set_state(_pudp, P67_ASYNC_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);
-    p67_async_set_state(_pudp, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
+    p67_mutex_set_state(&_pudp->state, P67_THREAD_SM_STATE_SIG_STOP, P67_THREAD_SM_STATE_STOP);
+    p67_mutex_set_state(&_pudp->state, P67_THREAD_SM_STATE_RUNNING, P67_THREAD_SM_STATE_STOP);
     return NULL;
 }
 

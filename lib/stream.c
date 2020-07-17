@@ -1,11 +1,10 @@
 #include <stdlib.h>
 #include <string.h>
-
+#include <strings.h>
 
 #include "err.h"
-#include "net.h"
 #include "audio.h"
-
+#include "stream.h"
 
 typedef struct q_inode {
     uint32_t seq;
@@ -13,7 +12,7 @@ typedef struct q_inode {
     int      is_zero;
 } q_inode_t;
 
-typedef struct p67_audio_stream {
+struct p67_audio_stream {
     volatile int  q_head;
     volatile int  q_tail;
     uint32_t      q_lseq;
@@ -26,9 +25,7 @@ typedef struct p67_audio_stream {
     p67_audio_t output;
     p67_audio_codecs_t encoder;
     p67_audio_codecs_t decoder;
-
-    p67_conn_pass_t * pass;
-} p67_audio_stream_t;
+};
 
 struct __attribute__((packed)) p67_stream_hdr {
     uint32_t seq;
@@ -49,16 +46,9 @@ int
 queue_space_taken(p67_audio_stream_t * s);
 
 p67_err
-queue_deque(p67_audio_stream_t * s, char *chunk, int chunkl);
-
-p67_err
-p67_audio_stream_create(p67_audio_stream_t * s);
-
-p67_err
-p67_audio_stream_start(p67_audio_stream_t * s, p67_conn_pass_t * pass);
+queue_deque(p67_audio_stream_t * s, unsigned char *chunk, int chunkl);
 
 /***** end private prototypes *****/
-
 
 /*
     try insert packet which came out of order into buffer
@@ -93,7 +83,7 @@ queue_backward_enque(p67_audio_stream_t * s, uint32_t seq, const char * chunk, i
     if(!s->q_inodes[ix].is_zero)
         return 0;
 
-    if(!p67_sm_update(&s->q_inodes[ix].state, &(int){0}, 1))
+    if(!p67_spinlock_lock_once(&s->q_inodes[ix].state))
         return p67_err_enconn; // a wee bit too late, reading thread already booked this frame for reading
 
     // check if sequence number is still the same. ( after issuing lock )
@@ -104,8 +94,7 @@ queue_backward_enque(p67_audio_stream_t * s, uint32_t seq, const char * chunk, i
 
     s->q_inodes[ix].is_zero = 0;
 
-    if(!p67_sm_update(&s->q_inodes[ix].state, &(int){1}, 0))
-        return p67_err_easync;
+    p67_spinlock_unlock(&s->q_inodes[ix].state);
 
     return 0;
 }
@@ -149,7 +138,7 @@ queue_space_taken(p67_audio_stream_t * s)
 }
 
 p67_err
-queue_deque(p67_audio_stream_t * s, char *chunk, int chunkl)
+queue_deque(p67_audio_stream_t * s, unsigned char *chunk, int chunkl)
 {
     int t = s->q_tail;
     q_inode_t * iptr;
@@ -160,13 +149,7 @@ queue_deque(p67_audio_stream_t * s, char *chunk, int chunkl)
 
     int is_zero = s->q_inodes[s->q_head].is_zero;
 
-    do {
-        if(iptr->state != 0)
-            continue;
-
-        if(p67_sm_update(&iptr->state, &(int){0}, 1))
-            break;
-    } while(1);
+    p67_spinlock_lock(&iptr->state);
     
     memcpy(chunk, s->q_chunks + (s->q_head*s->q_chunk_size), chunkl);
 
@@ -178,64 +161,195 @@ queue_deque(p67_audio_stream_t * s, char *chunk, int chunkl)
     return 0;
 }
 
-p67_err
-p67_audio_stream_create(p67_audio_stream_t * s)
+void
+p67_audio_stream_free(p67_audio_stream_t * s) 
 {
-    p67_err err;
+    if(s == NULL) return;
+    p67_audio_codecs_destroy(&s->encoder);
+    p67_audio_codecs_destroy(&s->decoder);
+    free(s->q_inodes);
+    free(s);
+}
 
+p67_err
+p67_audio_stream_create(p67_audio_stream_t ** s)
+{
+    p67_err err = 0;
+
+    if(s == NULL)
+        return p67_err_einval;
+
+    if((*s = calloc(sizeof(p67_audio_stream_t), 1)) == NULL) {
+        err = p67_err_eerrno;
+        goto end;
+    }
+            
     p67_audio_t in = P67_AUDIO_INITIALIZER_I;
     p67_audio_t out = P67_AUDIO_INITIALIZER_O;
     p67_audio_codecs_t encoder = P67_AUDIO_CODECS_INITIALIZER_AUDIO(in);
     p67_audio_codecs_t decoder = P67_AUDIO_CODECS_INITIALIZER_AUDIO(out);
 
-    s->q_tail = 0;
-    s->q_head = 0;
-    s->q_lseq = 0;
+    (*s)->q_tail = 0;
+    (*s)->q_head = 0;
+    (*s)->q_lseq = 0;
 
     /* max amount of frames allowed to be kept in jitter buffer */
-    s->q_size = 400;
+    (*s)->q_size = 400;
     /* compressed frame size. */
-    s->q_chunk_size = 160;
+    (*s)->q_chunk_size = 160;
 
     if((err = p67_audio_codecs_create(&encoder)) != 0)
-        return err;
+        goto end;
 
     if((err = p67_audio_codecs_create(&decoder)) != 0)
-        return err;
+        goto end;
 
-    if((s->q_inodes = malloc(s->q_size)) == NULL) {
-        p67_audio_codecs_destroy(&encoder);
-        p67_audio_codecs_destroy(&decoder);
-        return p67_err_eerrno;
+    if(((*s)->q_inodes = malloc((*s)->q_size)) == NULL) {
+        err = p67_err_eerrno;
+        goto end;
     }
 
-    if((s->q_chunks = malloc(s->q_chunk_size*s->q_size)) == NULL) {
-        free(s->q_inodes);
-        p67_audio_codecs_destroy(&encoder);
-        p67_audio_codecs_destroy(&decoder);
-        return p67_err_eerrno;
+    if(((*s)->q_chunks = malloc((*s)->q_chunk_size*(*s)->q_size)) == NULL) {
+        err = p67_err_eerrno;
+        goto end;
     }
 
-    s->encoder = encoder;
-    s->decoder = decoder;
-    s->input = in;
-    s->output = out;
+    (*s)->encoder = encoder;
+    (*s)->decoder = decoder;
+    (*s)->input = in;
+    (*s)->output = out;
 
-    return 0;
+    err = 0;
+
+end:
+    if(err != 0) {
+        p67_audio_codecs_destroy(&encoder);
+        p67_audio_codecs_destroy(&decoder);
+        free((*s)->q_inodes);
+        free(*s);
+        *s = NULL;
+    }
+
+    return err;
 }
 
 p67_err
-p67_audio_stream_run(p67_audio_stream_t * s, p67_conn_pass_t * pass)
+stream_read_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
+{
+    (void)conn;
+    p67_err err;
+    uint32_t seq, pd;
+    p67_audio_stream_t * s = (p67_audio_stream_t *)args;
+    struct p67_stream_hdr * h;
+
+    h = (struct p67_stream_hdr *)msg;
+    seq = ntohl(h->seq);
+
+    //printf("%d - %d\n", seq, lseq);
+
+    if(s->q_lseq == seq) {
+        // already got this frame
+        return 0;
+    } else if(s->q_lseq > seq) {
+        // this packet came out of order, 
+        //      but still, there may be time to insert it into the queue.
+        err = queue_backward_enque(s, seq, msg+sizeof(*h), msgl-sizeof(*h));
+    } else { // seq > lseq
+        // lost some packets on the way.
+        //      but they still may come out of order later
+        if((seq - s->q_lseq) > 1) {
+            pd = s->q_lseq;
+            char empty[s->q_chunk_size];
+            bzero(empty, s->q_chunk_size);
+            while((++pd) < seq)
+                err = queue_enque(s, pd, empty, s->q_chunk_size, 1);
+            err = queue_enque(s, seq, msg+sizeof(*h), msgl-sizeof(*h), 0);
+            s->q_lseq = seq;
+        } else { // seq - lseq = 1
+            // perfect sequence
+            err = queue_enque(s, seq, msg+sizeof(*h), msgl-sizeof(*h), 0);
+            s->q_lseq = seq;
+        }
+    }
+
+    if(err != 0) {
+        p67_err_print_err("in packet handler: ", err);
+        return err;
+    }
+    return 0;
+}
+
+/*
+    accept incoming stream and play it back
+*/
+p67_err
+p67_audio_stream_read(p67_audio_stream_t * s)
+{
+    p67_err err = 0;
+    unsigned char compressed_frame[P67_AUDIO_MAX_CFRAME_SZ];
+    int dsz = P67_AUDIO_BUFFER_SIZE(s->output);
+    unsigned char decompressed_frame[dsz];
+    int st;
+
+    if(s->output.__hw != NULL) {
+        // TODO: if hardware is already allocated, flush or drain buffer and reenter loop
+        return p67_err_einval;
+    } else {
+        if((err = p67_audio_create_io(&s->output)) != 0)
+            goto end;
+    }
+
+    int interval = ((s->output.frame_size * 1e6) / s->output.rate) / 2;
+    int q_min_len = 20 * s->q_chunk_size;
+
+    while(1) {
+        st = queue_space_taken(s);
+        if(st < q_min_len) {
+            p67_cmn_sleep_micro(interval);
+            continue;
+        }
+
+        err = queue_deque(s, compressed_frame, s->q_chunk_size);
+        if(err != p67_err_eagain && err != 0) {
+            p67_cmn_sleep_micro(interval);
+            continue;
+        }
+
+        if((err = p67_audio_codecs_decode(
+                &s->decoder, 
+                err == p67_err_eagain ? NULL : compressed_frame, 
+                s->q_chunk_size,  
+                decompressed_frame)) != 0) goto end;
+
+        if((err = p67_audio_write(
+                &s->output, decompressed_frame, dsz)) != 0) goto end;
+    }
+
+end:
+    return err;
+}
+
+/*
+    stream audio to the remote
+*/
+p67_err
+p67_audio_stream_write(p67_audio_stream_t * s, p67_conn_pass_t * pass)
 {
     struct p67_stream_hdr hdr;
     p67_err err = 0;
     unsigned char compressed_frame[P67_STREAM_HDRSZ+P67_AUDIO_MAX_CFRAME_SZ];
     unsigned char decompressed_frame[P67_AUDIO_BUFFER_SIZE(s->input)];
     int cb;
-    register int seq;
+    // it would take around 8 years of stereo streaming with 48k sampling to overflow this variable
+    // so we should be ok with using 32bits
+    // proof: 
+    // lseq/second = 400 (400 frames per second)
+    // uint32 limit = 4294967295
+    // amount of seconds to overflow = 4294967295 / 400
+    register uint32_t seq;
 
     if(s->input.__hw != NULL) {
-        // TODO: resume
+        // if hardware is already allocated, flush or drain buffer and reenter loop
         return p67_err_einval;
     } else {
         if((err = p67_audio_create_io(&s->input)) != 0)
@@ -265,7 +379,5 @@ p67_audio_stream_run(p67_audio_stream_t * s, p67_conn_pass_t * pass)
     }
 
 end:
-    p67_audio_free_hw(s->input);
-    p67_audio_codecs_destroy(&s->encoder);
     return err;
 }

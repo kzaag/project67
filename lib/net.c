@@ -40,7 +40,7 @@ struct p67_conn {
     SSL * ssl;
     p67_conn_callback_t callback;
     void * args;
-    p67_async_t hread;
+    p67_thread_sm_t hread;
 };
 
 #define DAYS_TO_SEC(day) ((long)(60*60*24*day))
@@ -158,8 +158,7 @@ p67_conn_free(void * ptr, int also_free_ptr)
 
     if(ptr == NULL) return;
 
-    if(conn->hread.state == P67_ASYNC_STATE_RUNNING)
-        p67_async_terminate(&conn->hread, P67_TO_DEF);
+    p67_thread_sm_terminate(&conn->hread, P67_THREAD_SM_TIMEOUT_DEF);
 
     if(conn->ssl != NULL) {
         SSL_shutdown(conn->ssl);
@@ -503,13 +502,13 @@ p67_net_start_read_loop_conn(p67_conn_t * conn)
 {
     p67_err err;
 
-    if(conn->hread.state != P67_ASYNC_STATE_STOP)
+    if(conn->hread.state != P67_THREAD_SM_STATE_STOP)
         return p67_err_eaconn;
 
-    if((err = p67_async_set_state(
-                    &conn->hread, 
-                    P67_ASYNC_STATE_STOP, 
-                    P67_ASYNC_STATE_RUNNING)) != 0)
+    if((err = p67_mutex_set_state(
+                    &conn->hread.state, 
+                    P67_THREAD_SM_STATE_STOP, 
+                    P67_THREAD_SM_STATE_RUNNING)) != 0)
         return err;
 
 #pragma GCC diagnostic push
@@ -517,10 +516,10 @@ p67_net_start_read_loop_conn(p67_conn_t * conn)
     if((err = p67_cmn_thread_create(
                 &conn->hread.thr, __p67_net_enter_read_loop, conn)) != 0) {
 #pragma GCC diagnostic pop
-        err |= p67_async_set_state(
-                    &conn->hread,
-                    P67_ASYNC_STATE_RUNNING,
-                    P67_ASYNC_STATE_STOP);
+        err |= p67_mutex_set_state(
+                    &conn->hread.state,
+                    P67_THREAD_SM_STATE_RUNNING,
+                    P67_THREAD_SM_STATE_STOP);
         return err;
     }
 
@@ -562,7 +561,7 @@ __p67_net_enter_read_loop(void * args)
     while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN && num_timeouts < max_timeouts)) {
         sslr = 1;
         while(sslr) {
-            if(conn->hread.state != P67_ASYNC_STATE_RUNNING) {
+            if(conn->hread.state != P67_THREAD_SM_STATE_RUNNING) {
                 err = 0;
                 goto end;
             }
@@ -603,14 +602,14 @@ __p67_net_enter_read_loop(void * args)
 
     end:
     DLOG("Leaving read loop\n");
-    p67_async_set_state(
-            &conn->hread, 
-            P67_ASYNC_STATE_RUNNING, 
-            P67_ASYNC_STATE_STOP); /* leave on error */
-    p67_async_set_state(
-            &conn->hread, 
-            P67_ASYNC_STATE_SIG_STOP, 
-            P67_ASYNC_STATE_STOP); /* leave on interrupt */
+    p67_mutex_set_state(
+            &conn->hread.state, 
+            P67_THREAD_SM_STATE_RUNNING, 
+            P67_THREAD_SM_STATE_STOP); /* leave on error */
+    p67_mutex_set_state(
+            &conn->hread.state, 
+            P67_THREAD_SM_STATE_SIG_STOP, 
+            P67_THREAD_SM_STATE_STOP); /* leave on interrupt */
     if(err != 0) p67_conn_remove(&conn->addr_remote);
     return NULL;
 }
@@ -1028,7 +1027,7 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
     int retries = 5;
     p67_err err;
 
-    while(retries-->0 /*&& (pass->hconnect.state == P67_ASYNC_STATE_RUNNING ) */ ) {
+    while(retries-->0 /*&& (pass->hconnect.state == P67_ASYNC_THREAD_STATE_RUNNING ) */ ) {
         if(p67_conn_lookup(&pass->remote) != NULL) {
             DLOG("\rNAT Connect:%d Connection exists.\n", p67_conn_cn_t);
             return p67_err_eaconn;
@@ -1084,7 +1083,7 @@ p67_net_nat_connect(p67_conn_pass_t * pass, int p67_conn_cn_t)
     }
 
    /* p67_async_set_state(&pass->hconnect, 
-            P67_ASYNC_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);*/
+            P67_ASYNC_THREAD_STATE_SIG_STOP, P67_ASYNC_STATE_STOP);*/
 
     return err;
 }
@@ -1099,7 +1098,7 @@ __p67_net_persist_connect(void * arg)
     DLOG("Background connect start\n");
 
     while(1) {
-        if(pass->hconnect.state != P67_ASYNC_STATE_RUNNING) {
+        if(pass->hconnect.state != P67_THREAD_SM_STATE_RUNNING) {
             err |= p67_err_eint;
             break;
         }
@@ -1116,7 +1115,7 @@ __p67_net_persist_connect(void * arg)
             }
         }
 
-        if(pass->hconnect.state != P67_ASYNC_STATE_RUNNING) {
+        if(pass->hconnect.state != P67_THREAD_SM_STATE_RUNNING) {
             err |= p67_err_eint;
             break;
         }
@@ -1134,10 +1133,7 @@ __p67_net_persist_connect(void * arg)
 
     DLOG("Background connect: End\n");
     if(err != 0) p67_err_print_err("Background connect: ", err);
-    p67_async_set_state(
-            &pass->hconnect, 
-            P67_ASYNC_STATE_SIG_STOP, 
-            P67_ASYNC_STATE_STOP);
+    p67_atomic_set_state_any(&pass->hconnect.state, P67_THREAD_SM_STATE_STOP);
     return NULL;
 }
 
@@ -1150,25 +1146,30 @@ p67_net_start_persist_connect(p67_conn_pass_t * pass)
         this check is not needed but is placed here for convenience.
         better to return p67_err_eaconn than p67_err_easync
     */
-    if(pass->hconnect.state != P67_ASYNC_STATE_STOP) 
+    if(pass->hconnect.state != P67_THREAD_SM_STATE_STOP) 
         return p67_err_eaconn;
 
-    if((err = p67_async_set_state(&pass->hconnect, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0) 
+    if((err = p67_mutex_set_state(
+            &pass->hconnect.state, 
+            P67_THREAD_SM_STATE_STOP, 
+            P67_THREAD_SM_STATE_RUNNING)) != 0) 
         return err;
 
     /* 
         since we dont simply pthread_kill or pthread_cancel there is no danger from putting 
-        P67_ASYNC_STATE_RUNNING before we start thread.
+        P67_ASYNC_THREAD_STATE_RUNNING before we start thread.
     */
 
-    if((err = p67_cmn_thread_create(&pass->hconnect.thr, __p67_net_persist_connect, pass)) != 0)
-        goto end;
+    if((err = p67_cmn_thread_create(
+            &pass->hconnect.thr, 
+            __p67_net_persist_connect, 
+            pass)) != 0) {
+        err |= p67_mutex_set_state(
+                &pass->hconnect.state,
+                P67_THREAD_SM_STATE_RUNNING,
+                P67_THREAD_SM_STATE_STOP);
+    }
 
-end:
-    
-    if(err != 0)
-        err |= p67_async_set_state(&pass->hconnect, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
-        
     return err;
 }
 
@@ -1350,14 +1351,20 @@ p67_net_start_listen(p67_conn_pass_t * pass)
     p67_err err;
 
     /* for explanation see body of p67_net_start_persist_connect */
-    if(pass->hlisten.state != P67_ASYNC_STATE_STOP) return p67_err_eaconn;
+    if(pass->hlisten.state != P67_THREAD_SM_STATE_STOP) 
+        return p67_err_eaconn;
 
-    if((err = p67_async_set_state(
-                &pass->hlisten, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0)
+    if((err = p67_mutex_set_state(
+            &pass->hlisten.state, 
+            P67_THREAD_SM_STATE_STOP, 
+            P67_THREAD_SM_STATE_RUNNING)) != 0)
         return err;
 
     if((err = p67_cmn_thread_create(&pass->hlisten.thr, __p67_net_listen, pass)) != 0) {
-        err |= p67_async_set_state(&pass->hlisten, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_STOP);
+        err |= p67_mutex_set_state(
+            &pass->hlisten.state, 
+            P67_THREAD_SM_STATE_RUNNING, 
+            P67_THREAD_SM_STATE_STOP);
         return err;
     }
 
@@ -1394,7 +1401,7 @@ p67_net_listen(p67_conn_pass_t * pass)
     // if(pass->hlisten.state != P67_ASYNC_STATE_STOP)
     //     return p67_err_eaconn;
     // if((err = p67_async_set_state(
-    //                 &pass->hlisten, P67_ASYNC_STATE_STOP, P67_ASYNC_STATE_RUNNING)) != 0)
+    //                 &pass->hlisten, P67_ASYNC_STATE_STOP, P67_ASYNC_THREAD_STATE_RUNNING)) != 0)
     //     return err;
 
     p67_err_mask_all(err);
@@ -1451,13 +1458,13 @@ p67_net_listen(p67_conn_pass_t * pass)
         if(!(SSL_set_options(ssl, SSL_OP_COOKIE_EXCHANGE) & SSL_OP_COOKIE_EXCHANGE))
             goto end;
         
-        if(pass->hlisten.state != P67_ASYNC_STATE_RUNNING) {
+        if(pass->hlisten.state != P67_THREAD_SM_STATE_RUNNING) {
             err = p67_err_eint;
             goto end;
         }
 
         while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote) <= 0) {
-            if(pass->hlisten.state != P67_ASYNC_STATE_RUNNING) {
+            if(pass->hlisten.state != P67_THREAD_SM_STATE_RUNNING) {
                 err = p67_err_eint;
                 goto end;
             }
@@ -1484,11 +1491,10 @@ end:
     if(ctx != NULL) SSL_CTX_free(ctx);
     p67_sfd_close(sfd);
     if(ssl != NULL) SSL_free(ssl);
-    err |= p67_async_set_state(
-                &pass->hlisten, 
-                P67_ASYNC_STATE_SIG_STOP, 
-                P67_ASYNC_STATE_STOP);
-
+    p67_mutex_set_state(
+        &pass->hlisten.state, 
+        P67_THREAD_SM_STATE_SIG_STOP, 
+        P67_THREAD_SM_STATE_STOP);
     return err;
 }
 
@@ -1733,7 +1739,8 @@ p67_net_start_connect_and_listen(p67_conn_pass_t * pass)
     err = p67_net_start_persist_connect(pass);
 
     if(err != 0)
-        err |= p67_async_terminate(&pass->hconnect, P67_TO_DEF);
+        err |= p67_thread_sm_terminate(
+                &pass->hconnect, P67_THREAD_SM_TIMEOUT_DEF);
     
     return err;
 }
@@ -1743,8 +1750,52 @@ p67_net_async_terminate(p67_conn_pass_t * pass)
 {
     p67_err err = 0;
 
-    err |= p67_async_terminate(&pass->hconnect, P67_TO_DEF);
-    err |= p67_async_terminate(&pass->hlisten, P67_TO_DEF);
+    err |= p67_thread_sm_terminate(
+            &pass->hconnect, P67_THREAD_SM_TIMEOUT_DEF);
+    err |= p67_thread_sm_terminate(
+            &pass->hlisten, P67_THREAD_SM_TIMEOUT_DEF);
 
     return err;
+}
+
+
+p67_err
+p67_net_mux_cb_arg_init(struct p67_mux_cb_arg * v, size_t cblen)
+{
+    if(v == NULL || cblen < 1) return p67_err_einval;
+
+    if((v->cb_arr = calloc(sizeof(p67_conn_callback_t *), cblen)) == NULL)
+        return p67_err_eerrno;
+    v->lock = 0;
+    v->cb_arr_l = cblen;
+
+    return 0;
+}
+
+void
+p67_net_mux_cb_arg_free(struct p67_mux_cb_arg * v)
+{
+    if(v == NULL) return;
+    free(v->cb_arr);
+}
+
+p67_err
+p67_net_mux_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
+{
+    struct p67_mux_cb_arg * cba = (struct p67_mux_cb_arg *)args;
+    size_t i;
+    p67_err err;
+
+    p67_spinlock_lock(&cba->lock);
+
+    for(i = 0; i < cba->cb_arr_l; i++) {
+        if(cba->cb_arr == NULL)
+            continue;
+        if((err = cba->cb_arr[i](conn, msg, msgl, args)) != 0)
+            return err;
+    }
+
+    p67_spinlock_unlock(&cba->lock);
+
+    return 0;
 }

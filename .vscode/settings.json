@@ -15,6 +15,7 @@
         "type_traits": "c",
         "thread": "c",
         "random": "c",
-        "utility": "c"
+        "utility": "c",
+        "mutex": "c"
     }
 }

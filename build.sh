@@ -61,6 +61,6 @@ gcc-8 $FP/corenet.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67corenet -W -g $LOPENSSL 
 gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g $LOPENSSL $LALSA;
 #gcc $FP/sound.c $FP/wav.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67sound -W -g $LOPENSSL $LALSA;
 #gcc $FP/pudp.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67pudp -W -g $LOPENSSL $LALSA;
-gcc-8 $FP/wrtc.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67wrtc -W -g $LOPENSSL $LALSA $OPUS $PULSEAUDIO;
+gcc-8 $FP/stream.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67stream -W -g $LOPENSSL $LALSA $OPUS $PULSEAUDIO;
 
 bash $WD/devcert.sh $WD;

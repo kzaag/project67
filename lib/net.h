@@ -25,8 +25,8 @@ typedef struct p67_conn_pass {
     void * args;
     char * keypath;
     char * certpath;
-    p67_async_t hconnect;
-    p67_async_t hlisten;
+    p67_thread_sm_t hconnect;
+    p67_thread_sm_t hlisten;
 } p67_conn_pass_t;
 
 typedef __uint16_t p67_state_t;
@@ -222,5 +222,23 @@ p67_net_must_write_connect(
             p67_conn_pass_t * __restrict__ pass, 
             const void * __restrict__ msg, 
             int msgl);
+
+typedef struct p67_mux_cb_arg {
+    p67_conn_callback_t * cb_arr;
+    size_t cb_arr_l;
+    p67_async_t lock;
+} p67_mux_cb_arg_t;
+
+p67_err
+p67_net_mux_cb_arg_init(
+        p67_mux_cb_arg_t * v, size_t cblen);
+
+void
+p67_net_mux_cb_arg_free(
+        p67_mux_cb_arg_t * v);
+
+p67_err
+p67_net_mux_callback(
+        p67_conn_t * conn, const char * msg, int msgl, void * args);
 
 #endif

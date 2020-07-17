@@ -20,28 +20,44 @@
     futex(uaddr, FUTEX_WAKE, INT_MAX, NULL, NULL, 0)
 
 p67_err
-p67_sm_wake_all(int * pptr)
+p67_mutex_wait_and_set(p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
 {
-    if(futex_wake_all(pptr) != 0)
-        return p67_err_eerrno;
-    return 0;    
+    p67_async_t state;
+    p67_err err;
+    do {
+        state = *uaddr;
+
+        if(state != pval) {
+            if((err = p67_mutex_wait_for_change(uaddr, state, -1)) != 0)
+                return err;
+        }
+
+        state = *uaddr;
+
+        if(state != pval)
+            continue;
+
+        err = p67_mutex_set_state(uaddr, pval, nval);
+
+        if(err != 0 && err != p67_err_easync)
+            return err;
+        
+        return 0;
+    } while(1);
 }
 
-p67_err
-p67_sm_set_state(int * uaddr, int old, int new)
+int
+p67_mutex_set_state(p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
 {
-    if(atomic_compare_exchange_strong(uaddr, &old, new) != 1)
+    if(!p67_atomic_set_state(uaddr, &pval, nval))
         return p67_err_easync;
-    if(futex_wake_all(uaddr) == -1) 
+    if(futex_wake_all(uaddr) != 0)
         return p67_err_eerrno;
     return 0;
 }
 
-/*
-    waits for async to leave specified state for up to maxms milliseconds.
-*/
 p67_err
-p67_sm_wait_for(int * pptr, int state, int maxms)
+p67_mutex_wait_for_change(int * pptr, int state, int maxms)
 {
     int err;
     int actstate;
@@ -51,7 +67,6 @@ p67_sm_wait_for(int * pptr, int state, int maxms)
         tv.tv_sec = maxms / 1000;
         tv.tv_usec = (maxms % 1000) * 1000;
     }
-
 
     while(1) {
         actstate = *pptr;
@@ -77,35 +92,40 @@ p67_sm_wait_for(int * pptr, int state, int maxms)
 }
 
 p67_err
-p67_async_terminate(p67_async_t * async, int to)
+p67_thread_sm_terminate(p67_thread_sm_t * sm, int timeout)
 {
     p67_err err;
-    int state;
+    p67_async_t state;
 
-    if(async->state != P67_ASYNC_STATE_RUNNING)
+    if(sm->state != P67_THREAD_SM_STATE_RUNNING)
         return p67_err_einval;
 
-    if((err = p67_async_set_state(async, P67_ASYNC_STATE_RUNNING, P67_ASYNC_STATE_SIG_STOP)) != 0)
+    if((err = p67_mutex_set_state(
+                &sm->state, 
+                P67_THREAD_SM_STATE_RUNNING, 
+                P67_THREAD_SM_STATE_SIG_STOP)) != 0)
         return err;
 
-    err = p67_async_wait_change(async, P67_ASYNC_STATE_SIG_STOP, to);
+    err = p67_mutex_wait_for_change(
+                &sm->state, 
+                P67_THREAD_SM_STATE_SIG_STOP, 
+                timeout);
     
-    state = async->state;
+    state = sm->state;
 
-    if(state == P67_ASYNC_STATE_STOP)
+    switch(sm->state) {
+    case P67_THREAD_SM_STATE_STOP:
         return 0;
-
-    if(state == P67_ASYNC_STATE_RUNNING)
+    case P67_THREAD_SM_STATE_RUNNING:
+        /* this _really_ shouldnt happen */
         return p67_err_easync;
+    }
 
-    /* if timeout then just kill the thread*/
+    /* if timeout then just kill the thread */
     if((err & p67_err_etime)) {
-        if(atomic_compare_exchange_strong(
-                    &async->state, 
-                    &state, 
-                    P67_ASYNC_STATE_STOP) != 1)
+        if(p67_mutex_set_state(&sm->state, state, P67_THREAD_SM_STATE_STOP) != 0)
             return p67_err_easync;
-        p67_cmn_thread_kill(async->thr);
+        p67_cmn_thread_kill(sm->thr);
         return 0;
     }
     

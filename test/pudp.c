@@ -77,7 +77,7 @@ main(int argc, char ** argv)
     if((err = p67_proto_write_urg(&pass, msg, len, 0, &sigterm, pudp_callback)) != 0)
         goto end; 
 
-    p67_sm_wait_for(&sigterm, 0, -1);
+    p67_sm_long_wait_for(&sigterm, 0, -1);
 
     printf("Main: we give up\n");
 

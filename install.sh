@@ -1,8 +1,9 @@
-#!/bin/bash
-
-set -e;
-
-# steps to prep your dev environment.
+  
+     #!/bin/bash
+ 
+    set -e;
+        
+  # s    teps to prep your dev environment.
 
 # supported and verified platforms
 #    debian GNU/Linux10 (buster)
