@@ -3,16 +3,14 @@
 #include <alloca.h>
 
 /*
-    core networking integration testing 
-        - [ ] crypto, 
-        - [*] p2p communication
-        - [ ] pudp
+    core networking integration testing
 */
 
 p67_err
 process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
-    printf("%*.*s\n", msgl, msgl, msg);
+    const p67_addr_t * addr = p67_conn_get_addr(conn);
+    printf("%s:%s says: %*.*s\n", addr->hostname, addr->service, msgl, msgl, msg);
     return 0;
 }
 
@@ -23,13 +21,14 @@ main(int argc, char ** argv)
     p67_err err;
     int len = 5;
     
-    char keypath[] = "p2pcert";
-    char certpath[] = "p2pcert.cert";
+    const char * keypath = "p2pcert";
+    const char * certpath = "p2pcert.cert";
+    const char * remote_ip = "192.168.0.108";
 
-    pass.local.rdonly = 1u;
-    pass.remote.rdonly = 1u;
-    pass.certpath = certpath;
-    pass.keypath = keypath;
+    pass.local.rdonly = 1;
+    pass.remote.rdonly = 1;
+    pass.certpath = (char *)certpath;
+    pass.keypath = (char *)keypath;
     pass.handler = process_message;
 
     if(argc < 3) {
@@ -42,7 +41,7 @@ main(int argc, char ** argv)
     if((err = p67_addr_set_localhost4_udp(&pass.local, argv[1])) != 0)
         goto end;
 
-    if((err = p67_addr_set_host_udp(&pass.remote, "192.168.0.108", argv[2])))
+    if((err = p67_addr_set_host_udp(&pass.remote, remote_ip, argv[2])))
         goto end;
 
     if((err = p67_net_start_connect_and_listen(&pass)) != 0)
