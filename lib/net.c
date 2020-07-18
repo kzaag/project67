@@ -1791,7 +1791,12 @@ p67_net_mux_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
     for(i = 0; i < cba->cb_arr_l; i++) {
         if(cba->cb_arr == NULL)
             continue;
-        if((err = cba->cb_arr[i](conn, msg, msgl, args)) != 0)
+        err = cba->cb_arr[i](conn, msg, msgl, args);
+        if(err == 0)
+            break;
+        else if(err == p67_err_eagain)
+            continue;
+        else
             return err;
     }
 

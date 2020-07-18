@@ -35,25 +35,10 @@ int main(int argc, char ** argv)
     pass.handler = stream_read_callback;
     pass.args = stream;
 
-    if((err = p67_net_start_listen(&pass)) != 0) goto end;
-
-    while(1) {
-        if((err = p67_net_nat_connect(&pass, P67_CONN_CNT_PERSIST)) != 0) {
-            if(err == p67_err_eaconn) {
-                break;
-            }
-            if(max_connect_retries-->0) {
-                continue;
-            } else {
-                err = p67_err_enconn;
-                goto end;
-            }
-        }
-        break;
-    }
-    
+    if((err = p67_net_start_connect_and_listen(&pass)) != 0) goto end;
 
     if(argc > 3) {
+        getchar();
         // send stream
         err = p67_audio_stream_write(stream, &pass);
     } else {

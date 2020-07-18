@@ -196,7 +196,7 @@ p67_audio_codecs_decode(
                 csize, 
                 tb, 
                 cptr->frame_size, 
-                1)) < 0) {
+                compressed_frame == NULL ? 1 : 0)) < 0) {
         p67_audio_codecs_err = err;
         return p67_err_eacodecs;
     }
