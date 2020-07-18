@@ -1133,7 +1133,14 @@ __p67_net_persist_connect(void * arg)
 
     DLOG("Background connect: End\n");
     if(err != 0) p67_err_print_err("Background connect: ", err);
-    p67_atomic_set_state_any(&pass->hconnect.state, P67_THREAD_SM_STATE_STOP);
+    p67_mutex_set_state(
+        &pass->hconnect.state, 
+        P67_THREAD_SM_STATE_RUNNING, 
+        P67_THREAD_SM_STATE_STOP);
+    p67_mutex_set_state(
+        &pass->hconnect.state, 
+        P67_THREAD_SM_STATE_SIG_STOP, 
+        P67_THREAD_SM_STATE_STOP);
     return NULL;
 }
 

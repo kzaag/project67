@@ -23,7 +23,7 @@ main(int argc, char ** argv)
     
     const char * keypath = "p2pcert";
     const char * certpath = "p2pcert.cert";
-    const char * remote_ip = "192.168.0.108";
+    const char * remote_ip = IP4_LO1;
 
     pass.local.rdonly = 1;
     pass.remote.rdonly = 1;

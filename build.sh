@@ -57,7 +57,8 @@ sudo ldconfig;
 
 FP="$WD/test"
 
-gcc-8 $FP/corenet.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67corenet -W -g $LOPENSSL $LALSA;
+gcc-8 $FP/async.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67async -W -g;
+gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67net -W -g $LOPENSSL $LALSA;
 gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g $LOPENSSL $LALSA;
 #gcc $FP/sound.c $FP/wav.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67sound -W -g $LOPENSSL $LALSA;
 #gcc $FP/pudp.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67pudp -W -g $LOPENSSL $LALSA;

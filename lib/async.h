@@ -68,11 +68,11 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms);
         fprintf(stderr, "XLOCK state changed unexpectedly. Aborting.\n"); \
         exit(2); }
 
-#define p67_mutex_lock(lptr, timeout) \
+#define p67_mutex_lock(lptr) \
     p67_mutex_wait_and_set(lptr, P67_XLOCK_STATE_UNLOCKED, P67_XLOCK_STATE_LOCKED)
 
-#define p67_mutex_unlock(lptr, timeout) \
-    if(!p67_mutex_set_state((lptr), P67_XLOCK_STATE_LOCKED, P67_XLOCK_STATE_UNLOCKED)) {\
+#define p67_mutex_unlock(lptr) \
+    if(p67_mutex_set_state((lptr), P67_XLOCK_STATE_LOCKED, P67_XLOCK_STATE_UNLOCKED) != 0) {\
         fprintf(stderr, "XLOCK state changed unexpectedly. Aborting.\n"); \
         exit(2); }
 

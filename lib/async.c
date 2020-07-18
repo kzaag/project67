@@ -28,21 +28,22 @@ p67_mutex_wait_and_set(p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
         state = *uaddr;
 
         if(state != pval) {
-            if((err = p67_mutex_wait_for_change(uaddr, state, -1)) != 0)
+            if((err = p67_mutex_wait_for_change(uaddr, state, -1)) != 0) {
                 return err;
+            }
         }
-
-        state = *uaddr;
-
-        if(state != pval)
-            continue;
 
         err = p67_mutex_set_state(uaddr, pval, nval);
 
-        if(err != 0 && err != p67_err_easync)
+        switch(err) {
+        case 0:
+            return 0;
+        case p67_err_easync:
+            continue;
+        default:
             return err;
-        
-        return 0;
+        }
+
     } while(1);
 }
 
@@ -51,8 +52,9 @@ p67_mutex_set_state(p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
 {
     if(!p67_atomic_set_state(uaddr, &pval, nval))
         return p67_err_easync;
-    if(futex_wake_all(uaddr) != 0)
+    if(futex_wake_all(uaddr) < 0) {
         return p67_err_eerrno;
+    }
     return 0;
 }
 
@@ -60,7 +62,6 @@ p67_err
 p67_mutex_wait_for_change(int * pptr, int state, int maxms)
 {
     int err;
-    int actstate;
 
     struct timeval tv;
     if(maxms > 0) {
@@ -69,22 +70,23 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms)
     }
 
     while(1) {
-        actstate = *pptr;
 
         if(maxms > 0) {
-            err = futex(pptr, FUTEX_WAIT, actstate, &tv, NULL, 0);
+            err = futex(pptr, FUTEX_WAIT, state, &tv, NULL, 0);
         } else {
-            err = futex(pptr, FUTEX_WAIT, actstate, NULL, NULL, 0);
+            err = futex(pptr, FUTEX_WAIT, state, NULL, NULL, 0);
         }
 
         if(err != 0) {
-            if(errno == 110)
+            if(errno == EAGAIN) {
+                continue;
+            } else if(errno == 110)
                 return p67_err_etime;
             else
                 return p67_err_eerrno;
         }
 
-        if(*pptr == state)
+        if(*pptr != state)
             break;
     }
 
