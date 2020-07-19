@@ -574,7 +574,7 @@ __p67_net_enter_read_loop(void * args)
             case SSL_ERROR_NONE:
                 if(conn->callback == NULL) break;
                 callret = (*conn->callback)(conn, rbuff, len, conn->args);
-                if(callret != 0) {
+                if(callret != 0 && callret != p67_err_eagain) {
                     err = callret;
                     goto end;
                 }
@@ -1798,7 +1798,7 @@ p67_net_mux_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
     for(i = 0; i < cba->cb_arr_l; i++) {
         if(cba->cb_arr == NULL)
             continue;
-        err = cba->cb_arr[i](conn, msg, msgl, args);
+        err = cba->cb_arr[i](conn, msg, msgl, cba->cb_arr_arg[i]);
         if(err == 0)
             break;
         else if(err == p67_err_eagain)

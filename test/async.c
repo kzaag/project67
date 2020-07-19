@@ -16,7 +16,7 @@ sync_printf(void * args)
         p67_err_print_err("during lock: ", p67_err_eerrno);
         exit(2);
     }
-
+ 
     int id = *(int *)args;
 
     p67_cmn_sleep_ms(intervalms);

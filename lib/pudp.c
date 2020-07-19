@@ -1,9 +1,8 @@
 #include "net.h"
-#include "protos.h"
+#include "pudp.h"
 #include "log.h"
 
 #include <string.h>
-
 
 #define P67_PUDP_INODE_LEN 101
 #define P67_PUDP_CHUNK_LEN 512
@@ -50,11 +49,38 @@ proto_handle_msg(p67_conn_t * conn, const char * msg, int msgl, void * args);
 /****END PRIVATE PROTOTYPES****/
 
 uint32_t *
-p67_proto_mid_location(void)
+p67_pudp_mid_location(void)
 {
     __mid++;
     return &__mid;
 }
+
+#define P67_PUDP_EVT_GOT_ACK 1
+#define P67_PUDP_EVT_TIMEOUT 2
+#define P67_PUDP_EVT_ERROR   3
+
+char *
+p67_pudp_evt_str(char * buff, int buffl, int evt)
+{
+    if(buff == NULL)
+        return NULL;
+    switch(evt) {
+    case P67_PUDP_EVT_GOT_ACK:
+        snprintf(buff, buffl, "Received ACK");
+        break;
+    case P67_PUDP_EVT_TIMEOUT:
+        snprintf(buff, buffl, "Timeout");
+        break;
+    case P67_PUDP_EVT_ERROR:
+        snprintf(buff, buffl, "Error occurred");
+        break;
+    default:
+        snprintf(buff, buffl, "Unknown EVT code: %d\n", evt);
+        break;
+    }
+    return buff;
+}
+
 
 void * p67_pudp_loop(void * args);
 
@@ -62,7 +88,7 @@ void * p67_pudp_loop(void * args);
     { (idval) = ((msg)[1] >> 24) + ((msg)[2] >> 16) + ((msg)[3] >> 8) + (msg)[4]; }
 
 p67_err
-p67_proto_write_urg(
+p67_pudp_write_urg(
     p67_conn_pass_t * pass, 
     const uint8_t * msg, 
     int msgl, 
@@ -74,7 +100,7 @@ p67_proto_write_urg(
     uint32_t id;
     size_t hash, i;
 
-    if(!(msg[0] & P67_PROTO_HDR_URG))
+    if(!(msg[0] & P67_PUDP_HDR_URG))
         return p67_err_einval;
 
     if(pudp.state == P67_THREAD_SM_STATE_STOP)
@@ -92,10 +118,10 @@ p67_proto_write_urg(
         if(pudp_inodes[i].istate != P67_PUDP_ISTATE_FREE)
             goto LOOPEND;
 
-        if(!p67_mutex_set_state(
+        if((err = p67_mutex_set_state(
                 &pudp_inodes[i].istate, 
                 P67_PUDP_ISTATE_FREE, 
-                P67_PUDP_ISTATE_PASS))
+                P67_PUDP_ISTATE_PASS)) != 0)
             goto LOOPEND;
 
         if((err = p67_cmn_time_ms(&pudp_inodes[i].lt)) != 0) {
@@ -116,7 +142,10 @@ p67_proto_write_urg(
             pudp_inodes[i].ttl = ttl;
         memcpy(pudp_data[i], msg, msgl);
 
-        if(!p67_mutex_set_state(&pudp_inodes[i].istate, P67_PUDP_ISTATE_PASS, P67_PUDP_ISTATE_ACTV)) {
+        if((err = p67_mutex_set_state(
+                    &pudp_inodes[i].istate, 
+                    P67_PUDP_ISTATE_PASS, 
+                    P67_PUDP_ISTATE_ACTV)) != 0) {
             /* this really shouldnt happen */
             return p67_err_easync;
         }
@@ -176,7 +205,7 @@ p67_pudp_remove(const unsigned char * msg, int msgl)
     if(msgl < 5)
         return p67_err_einval;
 
-    if(!(msg[0] & P67_PROTO_HDR_ACK))
+    if(!(msg[0] & P67_PUDP_HDR_ACK))
         return p67_err_einval;
 
     pudp_msg_to_id(msg, id);
@@ -205,7 +234,7 @@ p67_pudp_remove(const unsigned char * msg, int msgl)
             pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_GOT_ACK, NULL);
 
         if(pudp_inodes[i].termsig != NULL)
-            p67_atomic_set_state(pudp_inodes[i].termsig, PARG(0), P67_PUDP_EVT_GOT_ACK);
+            p67_mutex_set_state(pudp_inodes[i].termsig, 0, P67_PUDP_EVT_GOT_ACK);
 
         if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PUDP_ISTATE_FREE)) {
             return p67_err_easync;
@@ -251,7 +280,10 @@ pudp_loop(void * args)
                 if(pudp_inodes[i].cb != NULL)
                     pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PUDP_EVT_TIMEOUT, NULL);
                 if(pudp_inodes[i].termsig != NULL)
-                    p67_atomic_set_state(pudp_inodes[i].termsig, PARG(0), P67_PUDP_EVT_TIMEOUT);
+                    p67_mutex_set_state(
+                        pudp_inodes[i].termsig, 
+                        P67_PUDP_EVT_NONE, 
+                        P67_PUDP_EVT_TIMEOUT);
 
             } else {
 
@@ -279,47 +311,43 @@ end:
 char *
 p67_pudp_urg(char * msg)
 {
-    uint32_t mid = ntohl(p67_protos_mid);
-    msg[0] = P67_PROTO_HDR_URG;
+    uint32_t mid = ntohl(p67_pudp_mid);
+    msg[0] = P67_PUDP_HDR_URG;
     memcpy(msg + 1, (char *)&mid, 4);
     return msg;
 }
 
 p67_err
-p67_proto_handle_msg(p67_conn_t * conn, const char * msg, int msgl, void * args)
+p67_pudp_handle_msg(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     p67_err err = 0;
     int wh = 0;
-    struct p67_proto_rpass * upass = (struct p67_proto_rpass *)args;
-
+    (void)args;
 
     /* ACKs remove messages from pending cache */
-    if(msg[0] & P67_PROTO_HDR_ACK) {
+    if(msg[0] & P67_PUDP_HDR_ACK) {
         err = p67_pudp_remove((const unsigned char *)msg, msgl);
         if(msgl == 5) wh = 1;
     }
 
     /* URGent messages are ACKed and forwarded to user */
-    if(msg[0] & P67_PROTO_HDR_URG) {
+    if(msg[0] & P67_PUDP_HDR_URG) {
         char ack[5];
         int wrote;
-        ack[0] = P67_PROTO_HDR_ACK;
+        ack[0] = P67_PUDP_HDR_ACK;
         memcpy(ack + 1, msg + 1, 4);
         wrote = sizeof(ack);
         err = p67_net_write_conn(conn, ack, &wrote);
     }
 
     if(err != 0){
-        p67_err_print_err("Proto handle: ", err);
+        p67_err_print_err("PUDP handle: ", err);
         return 0;
     }
 
     if(wh == 1)
         return 0;
 
-    if(upass != NULL && upass->ucb != NULL) {
-        return upass->ucb(conn, msg, msgl, upass->uarg);
-    }
-
-    return 0; 
+    // signal that message still needs to be processed.
+    return p67_err_eagain;
 }

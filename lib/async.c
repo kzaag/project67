@@ -47,7 +47,7 @@ p67_mutex_wait_and_set(p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
     } while(1);
 }
 
-int
+p67_err
 p67_mutex_set_state(p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
 {
     if(!p67_atomic_set_state(uaddr, &pval, nval))

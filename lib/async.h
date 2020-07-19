@@ -37,7 +37,7 @@ typedef int p67_async_t;
     { while(!p67_atomic_set_state((uaddr), (optr), (nval))); }
 
 /* 1 on success 0 on failure */
-int
+p67_err
 p67_mutex_set_state(
             p67_async_t * uaddr, p67_async_t pval, p67_async_t nval);
 

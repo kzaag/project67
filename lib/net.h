@@ -225,8 +225,9 @@ p67_net_must_write_connect(
 
 typedef struct p67_mux_cb_arg {
     p67_conn_callback_t * cb_arr;
-    size_t cb_arr_l;
-    p67_async_t lock;
+    void                ** cb_arr_arg;
+    size_t              cb_arr_l;
+    p67_async_t         lock;
 } p67_mux_cb_arg_t;
 
 p67_err
