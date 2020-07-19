@@ -19,6 +19,18 @@
 #define futex_wake_all(uaddr) \
     futex(uaddr, FUTEX_WAKE, INT_MAX, NULL, NULL, 0)
 
+void
+p67_atomic_wait_exit_and_set(
+        p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
+{
+    p67_async_t x;
+    while(1) {
+        x = *uaddr;
+        if(x == pval) continue;
+        if(p67_atomic_set_state(uaddr, &x, nval)) break;
+    }
+}
+
 p67_err
 p67_mutex_wait_and_set(p67_async_t * uaddr, p67_async_t pval, p67_async_t nval)
 {

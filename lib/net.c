@@ -12,11 +12,15 @@
 #include "log.h"
 #include "net.h"
 
+#define P67_NET_SLOCK_STATE_FREE   0
+#define P67_NET_SLOCK_STATE_LOCKED 1
+#define P67_NET_SLOCK_STATE_TERM   2
+
 #define P67_DEFAULT_TIMEOUT_MS 200
 
 /* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */
-#define P67_MIN_SLEEP_MS 1000
-#define P67_MOD_SLEEP_MS 2000
+#define P67_MIN_SLEEP_MS 500
+#define P67_MOD_SLEEP_MS 1000
 
 p67_mutex_t cookie_lock = P67_CMN_MUTEX_INITIALIZER;
 static volatile int cookie_initialized=0;
@@ -37,6 +41,7 @@ struct p67_conn {
     p67_conn_t * next;
     p67_addr_t addr_remote;
     p67_addr_t addr_local;
+    p67_async_t ssl_lock;
     SSL * ssl;
     p67_conn_callback_t callback;
     void * args;
@@ -50,6 +55,7 @@ struct p67_conn {
 
 p67_conn_t * conn_cache[CONN_CACHE_LEN];
 p67_node_t * node_cache[NODE_CACHE_LEN];
+p67_async_t cache_lock = P67_ASYNC_INTIIALIZER;
 
 #define P67_FH_FNV1_OFFSET (p67_hash_t)0xcbf29ce484222425
 #define P67_FH_FNV1_PRIME (p67_hash_t)0x100000001b3
@@ -155,8 +161,26 @@ p67_conn_free(void * ptr, int also_free_ptr)
 {
     int sfd;
     p67_conn_t * conn = (p67_conn_t *)ptr;
+    p67_async_t state;
 
     if(ptr == NULL) return;
+
+    while(1) {
+        state = conn->ssl_lock;
+        if(state == P67_NET_SLOCK_STATE_LOCKED) {
+            continue;
+        } else if(state == P67_NET_SLOCK_STATE_TERM) {
+            return; // already freeing so just exit
+        } else if(state == P67_NET_SLOCK_STATE_FREE) {
+            if(p67_atomic_set_state(
+                    &conn->ssl_lock, &state, P67_NET_SLOCK_STATE_TERM))
+            // give some time to everyone interested to terminate ops
+            p67_cmn_sleep_ms(500);
+            break;
+        } else {
+            return;
+        }
+    }
 
     p67_thread_sm_terminate(&conn->hread, P67_THREAD_SM_TIMEOUT_DEF);
 
@@ -245,16 +269,19 @@ p67_hash_lookup(int p67_ct, const p67_addr_t * key)
 
     if(key == NULL) return NULL;
 
-    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0)
-        return NULL;
+    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return NULL;
+    
+    p67_spinlock_lock(&cache_lock);
 
     for(ret = cc[hash]; ret != NULL; ret = ret->next) {
         if(ret->key.socklen != key->socklen)
             continue;
         if(memcmp(&key->sock, &ret->key.sock, key->socklen) == 0) break;
     }
-    if(ret != NULL) return ret;
-    return NULL;
+
+    p67_spinlock_unlock(&cache_lock);
+
+    return ret;
 }
 
 p67_err
@@ -266,15 +293,19 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret, p67_lii
     p67_liitem_t * r, ** np = NULL;
     p67_liitem_t ** cc;
 
-    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return p67_err_einval;
+    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0)
+        return p67_err_einval;
 
     r = cc[hash];
+    p67_spinlock_lock(&cache_lock);
 
     do {
         if(r == NULL) break;
         if(r->key.socklen == key->socklen 
-                && memcmp(&key->sock, &r->key.sock, r->key.socklen) == 0) 
-            return p67_err_eaconn;
+                && memcmp(&key->sock, &r->key.sock, r->key.socklen) == 0) {
+                    p67_spinlock_unlock(&cache_lock);
+                    return p67_err_eaconn;
+                }
         if(r->next == NULL) break;
     } while ((r=r->next) != NULL);
     
@@ -287,6 +318,7 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret, p67_lii
     if(prealloc != NULL) {
         *np = prealloc;
         if(ret != NULL) *ret = *np;
+        p67_spinlock_unlock(&cache_lock);
         return 0;
     }
 
@@ -306,12 +338,13 @@ p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret, p67_lii
     if(ret != NULL)
         *ret = *np;
 
+    p67_spinlock_unlock(&cache_lock);
     return 0;
 
 err:
     free(*np);
     *np = NULL;
-
+    p67_spinlock_unlock(&cache_lock);
     return p67_err_eerrno;
 }
 
@@ -399,13 +432,18 @@ p67_hash_remove(
 
     if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return p67_err_einval;
 
+    p67_spinlock_lock(&cache_lock);
+
     for(ptr = cc[hash]; ptr != NULL; ptr = (ptr)->next) {
         if(addr->socklen == ptr->key.socklen 
             && memcmp(&addr->sock, &ptr->key.sock, ptr->key.socklen) == 0) break;
         prev = ptr;
     }
 
-    if(ptr == NULL) return p67_err_enconn;
+    if(ptr == NULL) {
+        p67_spinlock_unlock(&cache_lock);
+        return p67_err_enconn;
+    }
 
     if(prev == NULL) {
         cc[hash] = NULL;
@@ -415,11 +453,13 @@ p67_hash_remove(
 
     if(callback != NULL) {
         callback(ptr, 1);
+        p67_spinlock_unlock(&cache_lock);
         return 0;
     }
 
     if(out != NULL) *out = ptr;
 
+    p67_spinlock_unlock(&cache_lock);
     return 0;
 }
 
@@ -867,10 +907,10 @@ __p67_net_accept(void * args)
     p67_sfd_t sfd;
     int ret;
 
-    if(p67_conn_is_already_connected(&pass->addr_remote)) {
-        err = p67_err_eaconn;
-        goto end;
-    }
+    // if(p67_conn_is_already_connected(&pass->addr_remote)) {
+    //     err = p67_err_eaconn;
+    //     goto end;
+    // }
  
     if((err = p67_sfd_create_from_addr(&sfd, &pass->addr_local, P67_SFD_TP_DGRAM_UDP)) != 0)
         goto end;
@@ -904,7 +944,12 @@ __p67_net_accept(void * args)
     
     if(ret < 0) goto end;
 
-    if((err = p67_conn_insert_existing(pass)) != 0) goto end;
+    p67_atomic_must_set_state(
+        &pass->ssl_lock, 
+        P67_NET_SLOCK_STATE_LOCKED, 
+        P67_NET_SLOCK_STATE_FREE);
+
+    //if((err = p67_conn_insert_existing(pass)) != 0) goto end;
 
     // DLOG("DBG SOCKET: testing socket\n");
 
@@ -1131,7 +1176,6 @@ __p67_net_persist_connect(void * arg)
         }
     }
 
-    DLOG("Background connect: End\n");
     if(err != 0) p67_err_print_err("Background connect: ", err);
     p67_mutex_set_state(
         &pass->hconnect.state, 
@@ -1188,10 +1232,31 @@ p67_net_write_conn(p67_conn_t * conn, const void * msg, int * msgl)
     if(conn == NULL)
         return p67_err_enconn;
 
+    p67_async_t state;
+
+    while(1) {
+        state = conn->ssl_lock;
+        if(state == P67_NET_SLOCK_STATE_TERM) {
+            return p67_err_enconn;
+        } else if(state == P67_NET_SLOCK_STATE_FREE) {
+            if(p67_atomic_set_state(
+                    &conn->ssl_lock, &state, P67_NET_SLOCK_STATE_LOCKED))
+                break;
+        } else if(state == P67_NET_SLOCK_STATE_LOCKED) {
+            continue;
+        } else {
+            return p67_err_einval;
+        }
+    }
+
     if(conn->ssl == NULL || SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) {
         /*
             could try to reestablish communication. right now just return error
         */
+        p67_atomic_must_set_state(
+                &conn->ssl_lock, 
+                P67_NET_SLOCK_STATE_LOCKED, 
+                P67_NET_SLOCK_STATE_FREE);
         p67_conn_remove(&conn->addr_remote);
         return p67_err_enconn;
     }
@@ -1210,6 +1275,11 @@ p67_net_write_conn(p67_conn_t * conn, const void * msg, int * msgl)
 		default:
 			break;
 	}
+    
+    p67_atomic_must_set_state(
+        &conn->ssl_lock, 
+        P67_NET_SLOCK_STATE_LOCKED, 
+        P67_NET_SLOCK_STATE_FREE);
     
     return err;
 }
@@ -1386,8 +1456,6 @@ __p67_net_listen(void * args)
 
     err = p67_net_listen(pass);
 
-    DLOG("Background listen: End\n");
-
     if(err != 0) p67_err_print_err("Background listen: ", err);
 
     return NULL;
@@ -1486,6 +1554,8 @@ p67_net_listen(p67_conn_pass_t * pass)
             conn->callback = pass->handler;
             conn->args = pass->args;
             conn->ssl = ssl;
+            conn->ssl_lock = P67_NET_SLOCK_STATE_LOCKED;
+            if((err = p67_conn_insert_existing(conn)) != 0) break;
             if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, conn)) != 0) break;
             //err = 0;
         } while(0);
@@ -1808,6 +1878,48 @@ p67_net_mux_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
     }
 
     p67_spinlock_unlock(&cba->lock);
+
+    return 0;
+}
+
+/*
+    tries to connect to the peer and returns 0 when finished.
+*/
+p67_err
+p67_net_seq_connect_listen(p67_conn_pass_t * pass)
+{
+    p67_err err;
+    unsigned int interval;
+
+    while(1) {
+        if((err = p67_net_start_listen(pass)) != 0)
+            return err;
+
+        if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval)))
+            return p67_err_essl;
+        interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
+        if((err = p67_cmn_sleep_ms(interval)) != 0)
+            return err;
+
+        if((err = p67_thread_sm_terminate(&pass->hlisten, -1)) != 0)
+            return err;
+        if(p67_conn_lookup(&pass->remote) != NULL)
+            return 0;
+        
+        if((err = p67_net_start_persist_connect(pass)) != 0)
+            return err;
+            
+        if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval)))
+            return p67_err_essl;
+        interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
+        if((err = p67_cmn_sleep_ms(interval)) != 0)
+            return err;
+
+        if((err = p67_thread_sm_terminate(&pass->hconnect, -1)) != 0)
+            return err;
+        if(p67_conn_lookup(&pass->remote) != NULL)
+            return 0;
+    }
 
     return 0;
 }

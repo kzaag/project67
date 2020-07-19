@@ -1,6 +1,7 @@
 #include "audio.h"
 #include <pulse/error.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 static __thread p67_audio_err_t __audio_err = 0;
 static __thread p67_audio_err_t __codecs_err = 0;
@@ -26,6 +27,8 @@ p67_audio_create_io(p67_audio_t * hw)
     enum pa_sample_format fmt;
     pa_direction_t dir;
     p67_audio_err = 0;
+    char name[5];
+    char sname[6];
 
     switch(hw->audio_fmt) {
     case P67_AUDIO_FMT_S16LE:
@@ -39,9 +42,13 @@ p67_audio_create_io(p67_audio_t * hw)
     switch(hw->audio_dir) {
     case P67_AUDIO_DIR_I:
         dir = PA_DIRECTION_INPUT;
+        sprintf(name, "p671");
+        sprintf(sname, "sp671");
         break;
     case P67_AUDIO_DIR_O:
         dir = PA_DIRECTION_OUTPUT;
+        sprintf(name, "p672");
+        sprintf(sname, "sp672");
         break;
     default:
         return p67_err_einval;
@@ -63,10 +70,10 @@ p67_audio_create_io(p67_audio_t * hw)
 
     hw->__hw = pa_simple_new(
         NULL,               /* pulseaudio server */ 
-        "p67",        
+        name,        
         dir,                /* I/O */ 
         hw->name,           /* device name */
-        "p67", 
+        sname, 
         &ss,                /* ctx */
         NULL,  
         &attr, //dir == PA_DIRECTION_INPUT ? &attr : NULL, /* buffer attributes */ 

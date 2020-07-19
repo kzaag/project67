@@ -36,6 +36,15 @@ typedef int p67_async_t;
 #define p67_atomic_wait_and_set(uaddr, optr, nval) \
     { while(!p67_atomic_set_state((uaddr), (optr), (nval))); }
 
+#define p67_atomic_must_set_state(lptr, a, b) \
+    if(!p67_atomic_set_state(lptr, PARG(a), b)) { \
+        fprintf(stderr, "XLOCK state changed unexpectedly. Aborting.\n"); \
+        exit(2); }
+
+void
+p67_atomic_wait_exit_and_set(
+            p67_async_t * uaddr, p67_async_t pval, p67_async_t nval);
+
 /* 1 on success 0 on failure */
 p67_err
 p67_mutex_set_state(

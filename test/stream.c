@@ -35,7 +35,20 @@ int main(int argc, char ** argv)
     pass.handler = stream_read_callback;
     pass.args = stream;
 
-    if((err = p67_net_start_connect_and_listen(&pass)) != 0) goto end;
+    if((err = p67_net_start_connect_and_listen(&pass)) != 0)
+        goto end;
+
+    //if((err = p67_net_seq_connect_listen(&pass)) != 0)
+    //    goto end;
+
+    // if((err = p67_net_write_connect(&pass, "1", PARG(1))))
+    //     goto end;
+    
+    // printf("connected\n");
+
+    // if((err = p67_net_async_terminate(&pass)) != 0)
+    //     goto end;
+
 
     if(argc > 3) {
         getchar();
@@ -48,7 +61,8 @@ int main(int argc, char ** argv)
 
 end:
     if(err != 0) p67_err_print_err("Terminating main thread with error: ", err);
-    p67_net_async_terminate(&pass);
+    //p67_net_async_terminate(&pass);
+    p67_audio_stream_free(stream);
     p67_lib_free();
     if(err == 0) return 0; else return 2;
 }

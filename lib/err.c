@@ -25,7 +25,7 @@ p67_err_print_err(const char * hdr, p67_err err)
             fprintf(stderr, "%s%s\n", hdr, errbuf);
             sslp = 1;
         }
-        if(sslp == 0) fprintf(stderr, "%sUnknown OpenSSL error occurred.\n", hdr); 
+        if(sslp == 0) fprintf(stderr, "%sUnknown OpenSSL error.\n", hdr); 
     }
 
     if((err & p67_err_eerrno) && errno != 0) {

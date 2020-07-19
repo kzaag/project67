@@ -44,8 +44,11 @@ main(int argc, char ** argv)
     if((err = p67_addr_set_host_udp(&pass.remote, remote_ip, argv[2])))
         goto end;
 
-    if((err = p67_net_start_connect_and_listen(&pass)) != 0)
+    if((err = p67_net_seq_connect_listen(&pass)) != 0)
         goto end;
+
+    // if((err = p67_net_start_connect_and_listen(&pass)) != 0)
+    //     goto end;
 
     getchar();
 

@@ -178,6 +178,7 @@ p67_audio_stream_free(p67_audio_stream_t * s)
     p67_audio_codecs_destroy(&s->encoder);
     p67_audio_codecs_destroy(&s->decoder);
     free(s->q_inodes);
+    free(s->q_chunks);
     free(s);
 }
 
@@ -236,6 +237,7 @@ end:
         p67_audio_codecs_destroy(&encoder);
         p67_audio_codecs_destroy(&decoder);
         free((*s)->q_inodes);
+        free((*s)->q_chunks);
         free(*s);
         *s = NULL;
     }
@@ -251,7 +253,6 @@ stream_read_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
     uint32_t seq, pd;
     p67_audio_stream_t * s = (p67_audio_stream_t *)args;
     struct p67_stream_hdr * h;
-
 
     h = (struct p67_stream_hdr *)msg;
     seq = ntohl(h->seq);
@@ -302,6 +303,18 @@ p67_audio_stream_read(p67_audio_stream_t * s)
     unsigned char decompressed_frame[dsz];
     int st;
 
+    int interval = ((s->output.frame_size * 1e6) / s->output.rate) / 2;
+    int q_min_len = 20 * s->q_chunk_size;
+    int size;
+
+    while(1) {
+        st = queue_space_taken(s);
+        if(st >= q_min_len) {
+            break;
+        }
+        p67_cmn_sleep_micro(interval);
+    }
+    
     if(s->output.__hw != NULL) {
         // TODO: if hardware is already allocated, flush or drain buffer and reenter loop
         return p67_err_einval;
@@ -309,10 +322,6 @@ p67_audio_stream_read(p67_audio_stream_t * s)
         if((err = p67_audio_create_io(&s->output)) != 0)
             goto end;
     }
-
-    int interval = ((s->output.frame_size * 1e6) / s->output.rate) / 2;
-    int q_min_len = 20 * s->q_chunk_size;
-    int size;
 
     while(1) {
         st = queue_space_taken(s);

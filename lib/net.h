@@ -242,4 +242,7 @@ p67_err
 p67_net_mux_callback(
         p67_conn_t * conn, const char * msg, int msgl, void * args);
 
+p67_err
+p67_net_seq_connect_listen(p67_conn_pass_t * pass);
+
 #endif
