@@ -66,10 +66,10 @@ main()
         return 2;
     }
 
-    printf("Time of completion must be bigger than %d milisecs\n", 
+    printf("Time of completion must be bigger than %lu milisecs\n", 
                 tc*intervalms);
 
-    printf("Execution time: %d miliseconds\n", end-start);
+    printf("Execution time: %llu miliseconds\n", end-start);
 
     if((end-start) < tc*intervalms) {
         printf("Test failed\n");
