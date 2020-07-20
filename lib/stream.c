@@ -38,16 +38,28 @@ struct __attribute__((packed)) p67_stream_hdr {
 /***** begin private prototypes *****/
 
 p67_err
-queue_backward_enque(p67_audio_stream_t * s, uint32_t seq, const char * chunk, int chunkl);
+queue_backward_enque(
+        p67_audio_stream_t * s, 
+        uint32_t seq, 
+        const char * chunk, 
+        int chunkl);
 
 p67_err
-queue_enque(p67_audio_stream_t * s, uint32_t seq, const char * chunk, size_t chunkl, int is_zero);
+queue_enque(
+        p67_audio_stream_t * s, 
+        uint32_t seq, 
+        const char * chunk, 
+        size_t chunkl, 
+        int is_zero);
 
 int
 queue_space_taken(p67_audio_stream_t * s);
 
 p67_err
-queue_deque(p67_audio_stream_t * s, unsigned char *chunk, int * chunkl);
+queue_deque(
+        p67_audio_stream_t * s, 
+        unsigned char *chunk, 
+        int * chunkl);
 
 /***** end private prototypes *****/
 
@@ -55,7 +67,11 @@ queue_deque(p67_audio_stream_t * s, unsigned char *chunk, int * chunkl);
     try insert packet which came out of order into buffer
 */
 p67_err
-queue_backward_enque(p67_audio_stream_t * s, uint32_t seq, const char * chunk, int chunkl)
+queue_backward_enque(
+        p67_audio_stream_t * s, 
+        uint32_t seq, 
+        const char * chunk, 
+        int chunkl)
 {
     int ix = s->q_head, f = 0;
 
@@ -105,7 +121,12 @@ queue_backward_enque(p67_audio_stream_t * s, uint32_t seq, const char * chunk, i
 }
 
 p67_err
-queue_enque(p67_audio_stream_t * s, uint32_t seq, const char * chunk, size_t chunkl, int is_zero)
+queue_enque(
+        p67_audio_stream_t * s, 
+        uint32_t seq, 
+        const char * chunk, 
+        size_t chunkl, 
+        int is_zero)
 {
     int h = s->q_head;
     int e = (s->q_tail+1)%s->q_size;
@@ -307,14 +328,6 @@ p67_audio_stream_read(p67_audio_stream_t * s)
     int q_min_len = 20 * s->q_chunk_size;
     int size;
 
-    while(1) {
-        st = queue_space_taken(s);
-        if(st >= q_min_len) {
-            break;
-        }
-        p67_cmn_sleep_micro(interval);
-    }
-    
     if(s->output.__hw != NULL) {
         // TODO: if hardware is already allocated, flush or drain buffer and reenter loop
         return p67_err_einval;
@@ -323,6 +336,18 @@ p67_audio_stream_read(p67_audio_stream_t * s)
             goto end;
     }
 
+    /*
+        wait up until stream arrives.
+        temp solution
+    */
+    while(1) {
+        st = queue_space_taken(s);
+        if(st >= q_min_len) {
+            break;
+        }
+        p67_cmn_sleep_micro(interval);
+    }
+    
     while(1) {
         st = queue_space_taken(s);
         if(st < q_min_len) {

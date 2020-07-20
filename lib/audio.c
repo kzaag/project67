@@ -57,15 +57,18 @@ p67_audio_create_io(p67_audio_t * hw)
     ss.format = fmt;
     ss.channels = hw->channels;
     ss.rate = hw->rate;
+
     attr.fragsize = hw->frame_size * hw->channels * fmt_bytes;
-    // attr.maxlength = (uint32_t) -1;
-    // attr.tlength = (uint32_t) -1;
-    // attr.minreq = (uint32_t) -1;
     if(dir == PA_DIRECTION_INPUT) {
         attr.maxlength = 5 * attr.fragsize;
+        attr.minreq = (uint32_t)-1;
+        attr.prebuf = (uint32_t)-1;
+        attr.tlength = (uint32_t)-1;
     } else {
         attr.prebuf = 10 * attr.fragsize;
         attr.tlength = 5 * attr.fragsize;
+        attr.minreq = (uint32_t)-1;
+        attr.maxlength = (uint32_t)-1;
     }
 
     hw->__hw = pa_simple_new(
