@@ -1,0 +1,35 @@
+{
+    "name": "users",
+    "columns": [
+        {
+            "name": "u_id",
+            "type": "bytea"
+        },
+        {
+            "name": "u_name",
+            "type": "text"
+        },
+        {
+            "name": "u_pwd_hash",
+            "type": "text"
+        }
+    ],
+    "primary": {
+        "name": "users_pk",
+        "columns": [
+            {
+                "name": "u_id"
+            }
+        ]
+    },
+    "unique": [
+        {
+            "name": "users_unique",
+            "columns": [
+                {
+                    "name": "u_name"
+                }
+            ]
+        }
+    ]
+}

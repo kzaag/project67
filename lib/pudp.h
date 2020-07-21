@@ -2,6 +2,7 @@
 #define P67_PUDP_H 1
 
 #include "net.h"
+#include "protos.h"
 #include <stdint.h>
 
 /*
@@ -19,8 +20,8 @@ extern uint32_t * p67_pudp_mid_location(void) __attribute_const__;
 /*
     message protocols and types
 */
-#define P67_PUDP_HDR_URG 1
-#define P67_PUDP_HDR_ACK 2
+#define P67_PUDP_HDR_URG P67_PROTO_PUDP_URG
+#define P67_PUDP_HDR_ACK P67_PROTO_PUDP_ACK
 
 #define P67_PUDP_EVT_NONE    0
 #define P67_PUDP_EVT_GOT_ACK 1

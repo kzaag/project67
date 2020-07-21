@@ -49,5 +49,13 @@ sudo apt install libasound2-dev=1.1.8-1 -y;
 # and you can use header
 
 
+#########
+# libpq #
+#########
+
+# for rserver
+
+sudo apt install libpq-dev postgresql-server-dev-al
+
 # after that one may run
 #   bash build.sh

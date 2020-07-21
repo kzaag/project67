@@ -3,7 +3,12 @@
 #define P67_PROTOS_H 1
 
 #define P67_PROTO_UNDEFINED 0
-#define P67_PROTO_PUDP_URG P67_PUDP_HDR_URG
-#define P67_PROTO_PUDP_ACK P67_PUDP_HDR_ACK
+#define P67_PROTO_PUDP_URG 1
+#define P67_PROTO_PUDP_ACK 2
+#define P67_PROTO_STREAM_DATA 3
+
+struct __attribute__((packed)) p67_proto_hdr {
+    unsigned char h_val;
+};
 
 #endif

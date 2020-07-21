@@ -34,7 +34,7 @@ gcc-8 \
     -Wstrict-prototypes \
     -Wold-style-definition \
     -Wno-nonnull-compare  \
-    $LOPENSSL $LALSA \
+    $LOPENSSL \
     $FILES \
     $DEBUG \
     $PULSEAUDIO \
@@ -57,12 +57,33 @@ sudo ldconfig;
 
 FP="$WD/test"
 
-gcc-8 $FP/async.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67async -W -g $LOPENSSL;
-gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67net -W -g $LOPENSSL;
-gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert -W -g $LOPENSSL;
-gcc-8 $FP/pudp.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67pudp -W -g $LOPENSSL
+gcc-8 $FP/async.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67async $LOPENSSL;
+gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67net $LOPENSSL;
+gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert $LOPENSSL;
+gcc-8 $FP/pudp.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67pudp $LOPENSSL;
+gcc-8 $FP/stream.c $DEBUG $FP/wav.c \
+    -std=c99 -lp67 -o $WD/bin/p67stream $LOPENSSL $OPUS $PULSEAUDIO;
 
-#gcc $FP/sound.c $FP/wav.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67sound -W -g $LOPENSSL $LALSA;
-gcc-8 $FP/stream.c $DEBUG $FP/wav.c -std=c99 -lp67 -o $WD/bin/p67stream -W -g $LOPENSSL $OPUS $PULSEAUDIO;
+FP="$WD/rserver"
+FILES=`find $FP -name "*.c" ! -name "__*"`;
+LPQ=`pkg-config --libs libpq`;
+
+gcc-8 \
+    $FILES \
+    -std=c99 \
+    -pthread \
+    -Wall \
+    -Wextra \
+    -Wpedantic \
+    -pedantic \
+    -Wmissing-prototypes \
+    -Wstrict-prototypes \
+    -Wold-style-definition \
+    -Wno-nonnull-compare  \
+    $DEBUG \
+    $LOPENSSL \
+    $LPQ \
+    -lp67 \
+    -o $WD/bin/p67rserver;
 
 bash $WD/devcert.sh $WD;

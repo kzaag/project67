@@ -5,6 +5,7 @@
 #include "err.h"
 #include "audio.h"
 #include "stream.h"
+#include "protos.h"
 
 typedef struct q_inode {
     uint32_t seq;
@@ -28,11 +29,12 @@ struct p67_audio_stream {
     p67_audio_codecs_t decoder;
 };
 
-struct __attribute__((packed)) p67_stream_hdr {
+struct __attribute__((packed)) p67_stream_data_hdr {
+    struct p67_proto_hdr hdr;
     uint32_t seq;
 };
 
-#define P67_STREAM_HDRSZ sizeof(struct p67_stream_hdr)
+#define P67_STREAM_HDRSZ sizeof(struct p67_stream_data_hdr)
 
 
 /***** begin private prototypes *****/
@@ -273,9 +275,16 @@ stream_read_callback(p67_conn_t * conn, const char * msg, int msgl, void * args)
     p67_err err;
     uint32_t seq, pd;
     p67_audio_stream_t * s = (p67_audio_stream_t *)args;
-    struct p67_stream_hdr * h;
+    struct p67_stream_data_hdr * h;
 
-    h = (struct p67_stream_hdr *)msg;
+    if(msgl < 1)
+        return 0;
+
+    h = (struct p67_stream_data_hdr *)msg;
+
+    if(h->hdr.h_val != P67_PROTO_STREAM_DATA)
+        return 0;
+
     seq = ntohl(h->seq);
 
     //printf("%d - %d\n", seq, lseq);
@@ -383,7 +392,8 @@ end:
 p67_err
 p67_audio_stream_write(p67_audio_stream_t * s, p67_conn_pass_t * pass)
 {
-    struct p67_stream_hdr hdr;
+    struct p67_stream_data_hdr hdr;
+    hdr.hdr.h_val = P67_PROTO_STREAM_DATA;
     p67_err err = 0;
     unsigned char compressed_frame[P67_STREAM_HDRSZ+P67_AUDIO_MAX_CFRAME_SZ];
     unsigned char decompressed_frame[P67_AUDIO_BUFFER_SIZE(s->input)];
