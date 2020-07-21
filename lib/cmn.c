@@ -83,7 +83,7 @@ p67_cmn_sleep_micro(int micro)
 }
 
 p67_err
-p67_cmn_time_ms(unsigned long long * t)
+p67_cmn_time_ms(p67_epoch_t * t)
 {
     if(t == NULL)
         return p67_err_einval;

@@ -11,7 +11,7 @@
         },
         {
             "name": "u_pwd_hash",
-            "type": "text"
+            "type": "bytea"
         }
     ],
     "primary": {

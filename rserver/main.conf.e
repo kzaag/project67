@@ -3,6 +3,6 @@ database=____
 password=____
 user=_____
 
-tables=tables/
+tables=ddl/
 
 driver=postgres

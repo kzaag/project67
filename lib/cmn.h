@@ -12,6 +12,8 @@ typedef pthread_mutex_t p67_mutex_t;
 
 typedef pthread_t p67_thread_t;
 
+typedef unsigned long long p67_epoch_t;
+
 typedef void * (* p67_thread_callback)(void *);
 
 #define P67_CMN_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER
