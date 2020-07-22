@@ -23,8 +23,12 @@ struct p67rs_db_ctx {
 void
 p67rs_db_err_set(PGconn * conn);
 
+p67_err
+p67rs_db_hash_pass(const char * password, unsigned char * hash);
+
 p67rs_err
 p67rs_parse_cs(const char * path, char ** cs, int * len);
+
 
 void
 p67rs_db_err_set(PGconn * conn)
@@ -36,6 +40,23 @@ char *
 p67rs_db_err_get(void)
 {
     return errstr;
+}
+
+p67_err
+p67rs_db_hash_pass(const char * password, unsigned char * hash)
+{
+    static const unsigned char p67rs_db_salt[] = {
+        #include "salt.h"
+    };
+
+    if(!PKCS5_PBKDF2_HMAC(
+                password, strlen(password), 
+                p67rs_db_salt, sizeof(p67rs_db_salt),
+                1000,
+                EVP_sha3_256(), 
+                sizeof(hash), hash))
+        return p67_err_essl;
+    return 0;
 }
 
 /*
@@ -156,33 +177,27 @@ end:
     return 0;
 }
 
-p67_err
-p67rs_db_create_user(
-    p67rs_db_ctx_t * ctx, const char * username, const char * password)
+p67rs_err
+p67rs_db_user_create(
+    p67rs_db_ctx_t * ctx, p67rs_db_user_t * user)
 {
-    unsigned char id[120];
-    unsigned char hash[256];
+    unsigned char id[P67RS_DB_ID_SIZE];
+    unsigned char hash[P67RS_DB_PASS_HASH_SIZE];
     PGresult * res;
-    const unsigned char salt[] = {
-        #include "salt.h"
-    };
+    p67rs_err err;
 
-    if(!RAND_bytes(id, sizeof(id)-1))
+    if(user->pass_cstr == NULL || user->u_name == NULL)
+        return p67_err_einval;
+
+    if(!RAND_bytes(id, sizeof(id)))
         return p67_err_essl | p67_err_eerrno;
 
-    if(!PKCS5_PBKDF2_HMAC(
-                password, strlen(password), 
-                salt, sizeof(salt),
-                1000,
-                EVP_sha3_256(),
-                sizeof(hash), hash))
-        return p67_err_essl;
+    if((err  = p67rs_db_hash_pass(user->pass_cstr, hash)) != 0)
+        return err;
     
-    id[sizeof(id)-1] = 0;
-
     const char * parameters[] = {
         (char *)id,
-        username,
+        user->u_name,
         (char *)hash
     };
 
@@ -199,9 +214,9 @@ p67rs_db_create_user(
     };
 
     const int lengths[] = {
-        sizeof(id),
-        strlen(username),
-        sizeof(hash)
+        P67RS_DB_ID_SIZE,
+        strlen(user->u_name),
+        P67RS_DB_PASS_HASH_SIZE
     };
 
     res = PQexecParams(
@@ -220,20 +235,191 @@ p67rs_db_create_user(
         return p67rs_err_pq;
     }
 
+    memcpy(user->u_pwd_hash, hash, P67RS_DB_PASS_HASH_SIZE);
+    memcpy(user->u_id, id, P67RS_DB_ID_SIZE);
+
     PQclear(res);
+
     return 0;
 }
 
-// p67_err
-// p67rs_db_delete_user(
-//     const char * name, const char * password)
-// {
+p67rs_err
+p67rs_db_user_read(
+    p67rs_db_ctx_t * ctx, 
+    p67rs_db_user_hint_t * hint, 
+    p67rs_db_user_t ** users, 
+    int * usersl)
+{
+    PGresult * res;
+    int rsize, ix;
+    p67rs_err err;
 
-// }
+    const char * parameters[] = {
+        hint == NULL ? NULL : (char *)hint->u_id,
+        hint == NULL ? NULL : (char *)hint->u_name
+    };
 
-// p67_err
-// p67rs_db_get_user_by_name(
-//     const char * name, const char * password)
-// {
+    Oid types[] = {
+        BYTEAOID,
+        TEXTOID
+    };
 
-// }
+    const int fmts[] = {
+        P67RS_DB_PQFMT_BINARY,
+        P67RS_DB_PQFMT_TEXT
+    };
+
+    const int lengths[] = {
+        hint == NULL || hint->u_id == NULL ? 0 : P67RS_DB_ID_SIZE,
+        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name)
+    };
+
+    const int query_len = 128;
+    char query[query_len+1];
+    int query_ix = 0;
+
+    query_ix += snprintf(query, query_len, "select u_id, u_name, u_pwd_hash from users where ");
+    if(hint != NULL && hint->u_id != NULL)
+        query_ix += snprintf(query+query_ix, query_len - query_ix, " u_id = $1 and ");
+    if(hint != NULL && hint->u_name != NULL)
+        query_ix += snprintf(query+query_ix, query_len - query_ix, " u_name = $2 and ");
+    query_ix += snprintf(query+query_ix, query_len - query_ix, " 1=1 ");
+
+    query[query_ix] = 0;
+
+    res = PQexecParams(
+        ctx->conn,
+        query,
+        2,
+        types,
+        parameters,
+        lengths,
+        fmts,
+        P67RS_DB_PQFMT_BINARY);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+        p67rs_db_err_set(ctx->conn);
+        PQclear(res);
+        return p67rs_err_pq;
+    }
+
+    /* 
+        using cached mode since number of rows is low and im low on time.
+        in case of scaling this function up or simply refractoring one may want to use
+            either:
+            1. signle row mode
+            2. cursor to fetch N rows at the time
+    */
+
+    rsize = PQntuples(res);
+
+    err = 0;
+
+    if(usersl != NULL) {
+        *usersl = rsize;
+    } else {
+        goto end;
+    }
+
+    if(users == NULL) {
+        goto end;
+    }
+
+    if(*usersl == 0) {
+        goto end;
+    }
+
+    if(((*users) = malloc(sizeof(**users) * *usersl)) == NULL) {
+        err = p67_err_eerrno;
+        goto end;
+    }
+
+    int ord_id = PQfnumber(res, "u_id");
+    int ord_name = PQfnumber(res, "u_name");
+    int ord_hash = PQfnumber(res, "u_pwd_hash");
+    int name_len;
+    char * name;
+
+    for(ix = 0; ix < rsize; ix++) {
+        users[ix]->pass_cstr = NULL;
+        memcpy(users[ix]->u_id, PQgetvalue(res, ix, ord_id), P67RS_DB_ID_SIZE);
+        memcpy(users[ix]->u_pwd_hash, PQgetvalue(res, ix, ord_hash), P67RS_DB_PASS_HASH_SIZE);
+
+        name = PQgetvalue(res, ix, ord_name);
+        name_len = strlen(name);
+        if((users[ix]->u_name = malloc(name_len + 1)) == NULL) {
+            err = p67_err_eerrno;
+            goto end;
+        }
+        memcpy(users[ix]->u_name, name, name_len);
+        users[ix]->u_name[name_len] = 0;
+    }
+
+    err = 0;
+
+end:
+    PQclear(res);
+    return err;
+}
+
+p67rs_err
+p67rs_db_user_delete(
+    p67rs_db_ctx_t * ctx, const p67rs_db_user_hint_t * hint)
+{
+    PGresult * res;
+
+    if(hint->u_id == NULL && hint->u_name == NULL)
+        return p67_err_einval;
+
+    const char * parameters[] = {
+        hint == NULL ? NULL : (char *)hint->u_id,
+        hint == NULL ? NULL : (char *)hint->u_name
+    };
+
+    Oid types[] = {
+        BYTEAOID,
+        TEXTOID
+    };
+
+    const int fmts[] = {
+        P67RS_DB_PQFMT_BINARY,
+        P67RS_DB_PQFMT_TEXT
+    };
+
+    const int lengths[] = {
+        hint == NULL || hint->u_id == NULL ? 0 : P67RS_DB_ID_SIZE,
+        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name)
+    };
+
+    const int query_len = 128;
+    char query[query_len+1];
+    int query_ix = 0;
+
+    query_ix += snprintf(query, query_len, "delete from users where ");
+    if(hint != NULL && hint->u_id != NULL)
+        query_ix += snprintf(query+query_ix, query_len - query_ix, " u_id = $1 and ");
+    if(hint != NULL && hint->u_name != NULL)
+        query_ix += snprintf(query+query_ix, query_len - query_ix, " u_name = $2 and ");
+    query_ix += snprintf(query+query_ix, query_len - query_ix, " 1=1 ");
+
+    query[query_ix] = 0;
+
+    res = PQexecParams(
+        ctx->conn,
+        query,
+        2,
+        types,
+        parameters,
+        lengths,
+        fmts,
+        P67RS_DB_PQFMT_BINARY);
+
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        p67rs_db_err_set(ctx->conn);
+        PQclear(res);
+        return p67rs_err_pq;
+    }
+
+    PQclear(res);
+    return 0;
+}
