@@ -14,4 +14,12 @@ p67rs_err_print_err(const char * hdr, p67rs_err err)
     if(err & p67rs_err_pq) {
         fprintf(stderr, "%s%s\n", hdr, p67rs_db_err_get());
     }
+
+    if(err & p67rs_err_bwt_sig) {
+        fprintf(stderr, "%sBWT signature validation failed\n", hdr);
+    }
+
+    if(err & p67rs_err_bwt_exp) {
+        fprintf(stderr, "%sBWT expired\n", hdr);
+    }
 }

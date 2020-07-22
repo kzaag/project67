@@ -25,7 +25,7 @@ LIB=$WD/bin/libp67.so
 gcc-8 \
     -std=c99 \
     -pthread \
-    -D _GNU_SOURCE \
+    -D _DEFAULT_SOURCE \
     -Wall \
     -Wextra \
     -Wpedantic \
