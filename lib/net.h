@@ -16,6 +16,9 @@ typedef struct p67_liitem p67_liitem_t;
 
 typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, const char *, int, void *); 
 
+typedef void * (* p67_conn_gen_args_cb)(void);
+typedef void (* p67_conn_free_args_cb)(void *);
+
 #define P67_CONN_PASS_INITIALIZER {0}
 
 typedef struct p67_conn_pass {
@@ -23,6 +26,8 @@ typedef struct p67_conn_pass {
     p67_addr_t remote;
     p67_conn_callback_t handler;
     void * args;
+    p67_conn_gen_args_cb gen_args;
+    p67_conn_free_args_cb free_args;
     char * keypath;
     char * certpath;
     p67_thread_sm_t hconnect;

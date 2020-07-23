@@ -45,6 +45,7 @@ struct p67_conn {
     SSL * ssl;
     p67_conn_callback_t callback;
     void * args;
+    p67_conn_free_args_cb free_args;
     p67_thread_sm_t hread;
 };
 
@@ -83,6 +84,7 @@ p67_conn_insert(
     SSL * ssl,
     p67_conn_callback_t callback,
     void * args,
+    p67_conn_free_args_cb free_args,
     p67_conn_t ** ret);
 
 /*
@@ -165,6 +167,9 @@ p67_conn_free(void * ptr, int also_free_ptr)
 
     if(ptr == NULL) return;
 
+    if(conn->free_args != NULL)
+        conn->free_args(conn->args);
+
     while(1) {
         state = conn->ssl_lock;
         if(state == P67_NET_SLOCK_STATE_LOCKED) {
@@ -174,7 +179,7 @@ p67_conn_free(void * ptr, int also_free_ptr)
         } else if(state == P67_NET_SLOCK_STATE_FREE) {
             if(p67_atomic_set_state(
                     &conn->ssl_lock, &state, P67_NET_SLOCK_STATE_TERM))
-            // give some time to everyone interested to terminate ops
+            // give some time for everyone interested to terminate ops
             p67_cmn_sleep_ms(500);
             break;
         } else {
@@ -353,8 +358,9 @@ p67_conn_insert(
     p67_addr_t * local, 
     p67_addr_t * remote, 
     SSL * ssl, 
-    p67_conn_callback_t callback, 
+    p67_conn_callback_t callback,
     void * args,
+    p67_conn_free_args_cb free_args,
     p67_conn_t ** ret) 
 {
     p67_err err;
@@ -375,6 +381,7 @@ p67_conn_insert(
     if(callback != NULL) (conn)->callback = callback;
     if(args != NULL) (conn)->args = args;
     if(ssl != NULL) (conn)->ssl = ssl;
+    if(free_args != NULL) (conn)->free_args = free_args;
 
     if(ret != NULL)
         *ret = conn;
@@ -991,6 +998,7 @@ p67_net_connect(p67_conn_pass_t * pass)
     BIO * bio = NULL;
     SSL_CTX * ctx = NULL;
     p67_conn_t * conn;
+    void * args;
     
     noclose = 0;
 
@@ -1038,7 +1046,19 @@ p67_net_connect(p67_conn_pass_t * pass)
 
     if (SSL_connect(ssl) != 1) goto end;
 
-    if(p67_conn_insert(&pass->local, &pass->remote, ssl, pass->handler, pass->args, &conn) != 0) goto end;
+    if(pass->gen_args != NULL)
+        args = pass->gen_args();
+    else
+        args = pass->args;
+
+    if(p67_conn_insert(
+            &pass->local, 
+            &pass->remote, 
+            ssl, 
+            pass->handler, 
+            args, 
+            pass->free_args, 
+            &conn) != 0) goto end;
 
     DLOG("Connected to %s:%s\n", pass->remote.hostname, pass->remote.service);
 
@@ -1552,7 +1572,10 @@ p67_net_listen(p67_conn_pass_t * pass)
                 break;
             DLOG("Accepting %s:%s...\n", conn->addr_remote.hostname, conn->addr_remote.service);
             conn->callback = pass->handler;
-            conn->args = pass->args;
+            if(pass->gen_args != NULL)
+                conn->args = pass->gen_args();
+            else
+                conn->args = pass->args;
             conn->ssl = ssl;
             conn->ssl_lock = P67_NET_SLOCK_STATE_LOCKED;
             if((err = p67_conn_insert_existing(conn)) != 0) break;
