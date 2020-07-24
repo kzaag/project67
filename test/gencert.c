@@ -13,7 +13,7 @@ main(int argc, const char ** argv)
     p67_err err;
 
     const char * dcert = "p2pcert";
-    const char * daddr = "p2paddr";
+    const char * daddr = "127.0.0.1";
 
     const char * dcp, * dap;
 

@@ -27,6 +27,10 @@ static volatile int cookie_initialized=0;
 #define COOKIE_SECRET_LENGTH 32
 unsigned char cookie_secret[COOKIE_SECRET_LENGTH];
 
+struct p67_net_config __config = {
+    .c_auth = P67_NET_C_AUTH_LIMIT_TRUST_UNKNOWN
+};
+
 /* linked item - generic structure used in hash table operations */
 struct p67_liitem {
     p67_liitem_t * next;
@@ -152,6 +156,11 @@ __p67_net_listen(void * args);
 
 /*---END PRIVATE PROTOTYPES---*/
 
+struct p67_net_config * p67_net_config_location(void)
+{
+    return &__config;
+}
+
 const p67_addr_t *
 p67_conn_get_addr(p67_conn_t * conn)
 {
@@ -180,7 +189,7 @@ p67_conn_free(void * ptr, int also_free_ptr)
             if(p67_atomic_set_state(
                     &conn->ssl_lock, &state, P67_NET_SLOCK_STATE_TERM))
             // give some time for everyone interested to terminate ops
-            p67_cmn_sleep_ms(500);
+            p67_cmn_sleep_ms(20);
             break;
         } else {
             return;
@@ -192,7 +201,7 @@ p67_conn_free(void * ptr, int also_free_ptr)
     if(conn->ssl != NULL) {
         SSL_shutdown(conn->ssl);
         if((sfd = SSL_get_fd(conn->ssl)) > 0) p67_sfd_close(sfd);
-        SSL_free(conn->ssl);
+        //SSL_free(conn->ssl);
         conn->ssl = NULL;
     }
 
@@ -808,11 +817,28 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
         we will warn user about new peer
     */
     if(node == NULL) {
-        DLOG("Unknown host connecting from %s:%s with public key:\n%s", 
-            addr.hostname, addr.service, pubk);
-        if(p67_node_insert(&addr, pubk, 1, P67_NODE_STATE_QUEUE, NULL) != 0)
-            goto end;
-        success = 1;
+        switch(__config.c_auth) {
+        case P67_NET_C_AUTH_LIMIT_TRUST_UNKNOWN:
+            DLOG("Unknown host connecting from %s:%s with public key:\n%s", 
+                addr.hostname, addr.service, pubk);
+            if(p67_node_insert(&addr, pubk, 1, P67_NODE_STATE_QUEUE, NULL) != 0)
+                goto end;
+            success = 1;
+            break;
+        case P67_NET_C_AUTH_TRUST_UNKOWN:
+            if(p67_node_insert(&addr, pubk, 1, 0, NULL) != 0) 
+                goto end;
+            success = 1;
+            break;
+        case P67_NET_C_AUTH_DONT_TRUST_UNKOWN:
+            DLOG("Rejected Unknown Host ( %s:%s ) with public key:\n%s", 
+                addr.hostname, addr.service, pubk);
+            if(p67_node_insert(&addr, pubk, 1, P67_NODE_STATE_QUEUE, NULL) != 0) 
+                goto end;
+            break;
+        default:
+            break;
+        }
         goto end;
     }
 
@@ -876,10 +902,10 @@ end:
     if(pubk != NULL) free(pubk);
     p67_addr_free(&addr);
     if(castr != NULL) ASN1_STRING_free(castr);
-    if(ne != NULL) X509_NAME_ENTRY_free(ne);
-    if(x509_name != NULL) X509_NAME_free(x509_name);
-    if(pkey != NULL) EVP_PKEY_free(pkey);
-    if(x509 != NULL) X509_free(x509);
+    //if(ne != NULL) X509_NAME_ENTRY_free(ne);
+    //if(x509_name != NULL) X509_NAME_free(x509_name);
+    //if(pkey != NULL) EVP_PKEY_free(pkey);
+    //if(x509 != NULL) X509_free(x509);
 	return success;
 }
 
@@ -985,6 +1011,13 @@ __p67_net_accept(void * args)
 
 end:
     p67_err_print_err("Accept: ", err);
+    p67_atomic_must_set_state(
+        &pass->ssl_lock, 
+        P67_NET_SLOCK_STATE_LOCKED, 
+        P67_NET_SLOCK_STATE_FREE);
+    SSL_shutdown(pass->ssl);
+    pass->ssl = NULL;
+    p67_conn_remove(&pass->addr_remote);
     if(sfd > 0) p67_sfd_close(sfd);
     return NULL;
 }
@@ -1537,6 +1570,8 @@ p67_net_listen(p67_conn_pass_t * pass)
     
     if((err = p67_sfd_bind(sfd, &pass->local)) != 0) goto end;
 
+    //if((err = p67_sfd_set_noblocking(sfd)) != 0) goto end;
+
     DLOG("Listening @ %s:%s\n", pass->local.hostname, pass->local.service);
 
     while(1) {
@@ -1579,7 +1614,11 @@ p67_net_listen(p67_conn_pass_t * pass)
             conn->ssl = ssl;
             conn->ssl_lock = P67_NET_SLOCK_STATE_LOCKED;
             if((err = p67_conn_insert_existing(conn)) != 0) break;
-            if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, conn)) != 0) break;
+            if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, conn)) != 0) {
+                p67_conn_remove(&conn->addr_remote);
+                err = 0;
+                break;
+            }
             //err = 0;
         } while(0);
 

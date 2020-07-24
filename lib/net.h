@@ -60,6 +60,18 @@ struct p67_node {
 #define P67_CT_NODE 1
 #define P67_CT_CONN 2
 
+#define P67_NET_C_AUTH_DONT_TRUST_UNKOWN   1
+#define P67_NET_C_AUTH_TRUST_UNKOWN 2
+#define P67_NET_C_AUTH_LIMIT_TRUST_UNKNOWN 3
+
+struct p67_net_config {
+    int c_auth;
+};
+
+struct p67_net_config * p67_net_config_location(void);
+
+#define p67_net_config_val (*p67_net_config_location())
+
 void
 p67_node_free(void * ptr, int also_free_ptr);
 

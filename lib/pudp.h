@@ -2,16 +2,18 @@
 #define P67_PUDP_H 1
 
 #include "net.h"
-#include "protos.h"
+#include "proto.h"
 #include <stdint.h>
 
 /*
 
 */
-struct p67_pudp_pudp_hdr {
+typedef struct __attribute__((packed)) p67_pudp_hdr {
     uint8_t type;
     uint32_t mid;
-};
+} p67_pudp_hdr_t;
+
+#define P67_PUDP_HDR_SZ sizeof(p67_pudp_hdr_t)
 
 extern uint32_t * p67_pudp_mid_location(void) __attribute_const__;
 
@@ -22,6 +24,9 @@ extern uint32_t * p67_pudp_mid_location(void) __attribute_const__;
 */
 #define P67_PUDP_HDR_URG P67_PROTO_PUDP_URG
 #define P67_PUDP_HDR_ACK P67_PROTO_PUDP_ACK
+
+#define p67_pudp_is_proto(msg, msgl) \
+    (((msgl) >= 5 && ((msg)[0] == P67_PROTO_PUDP_ACK || (msg)[0] == P67_PROTO_PUDP_URG)))
 
 #define P67_PUDP_EVT_NONE    0
 #define P67_PUDP_EVT_GOT_ACK 1
@@ -53,6 +58,15 @@ p67_pudp_handle_msg(
         const char * msg, 
         int msgl, 
         void * args);
+
+/*
+    dstmsg must be at least sizeof(p67_pudp_hdr_t) + ackmsgl
+*/
+p67_err
+p67_pudp_generate_ack(
+        const unsigned char * srcmsg, int srcmsgl, 
+        const unsigned char * ackmsg, int ackmsgl,
+        char * dstmsg);
 
 /*
     sets the URG header for pudp packet

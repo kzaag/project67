@@ -5,7 +5,7 @@
 #include "err.h"
 #include "audio.h"
 #include "stream.h"
-#include "protos.h"
+#include "proto.h"
 
 typedef struct q_inode {
     uint32_t seq;

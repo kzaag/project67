@@ -318,6 +318,28 @@ p67_pudp_urg(char * msg)
 }
 
 p67_err
+p67_pudp_generate_ack(
+        const unsigned char * srcmsg, int srcmsgl, 
+        const unsigned char * ackmsg, int ackmsgl,
+        char * dstmsg)
+{
+    if(srcmsgl < 5 || srcmsg[0] != P67_PUDP_HDR_URG)
+        return p67_err_eagain;
+    
+    const p67_pudp_hdr_t * srchdr = (const p67_pudp_hdr_t *)srcmsg;
+    p67_pudp_hdr_t * dsthdr = (p67_pudp_hdr_t *)dstmsg;
+    dsthdr->type = P67_PUDP_HDR_ACK;
+    dsthdr->mid = srchdr->mid;
+
+    if(ackmsgl > 0) {
+        if(ackmsg == NULL) return p67_err_einval;
+        memcpy(dstmsg+sizeof(p67_pudp_hdr_t), ackmsg, ackmsgl);
+    }
+
+    return 0;
+}
+
+p67_err
 p67_pudp_handle_msg(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     p67_err err = 0;
@@ -325,14 +347,14 @@ p67_pudp_handle_msg(p67_conn_t * conn, const char * msg, int msgl, void * args)
     (void)args;
 
     /* ACKs remove messages from pending cache */
-    if(msg[0] & P67_PUDP_HDR_ACK) {
+    if(msg[0] == P67_PUDP_HDR_ACK) {
         err = p67_pudp_remove((const unsigned char *)msg, msgl);
         if(msgl == 5) wh = 1;
     }
 
     /* URGent messages are ACKed and forwarded to user */
-    if(msg[0] & P67_PUDP_HDR_URG) {
-        char ack[5];
+    if(msg[0] == P67_PUDP_HDR_URG) {
+        unsigned char ack[5];
         int wrote;
         ack[0] = P67_PUDP_HDR_ACK;
         memcpy(ack + 1, msg + 1, 4);
