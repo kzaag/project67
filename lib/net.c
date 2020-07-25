@@ -201,7 +201,7 @@ p67_conn_free(void * ptr, int also_free_ptr)
     if(conn->ssl != NULL) {
         SSL_shutdown(conn->ssl);
         if((sfd = SSL_get_fd(conn->ssl)) > 0) p67_sfd_close(sfd);
-        //SSL_free(conn->ssl);
+        SSL_free(conn->ssl);
         conn->ssl = NULL;
     }
 
@@ -901,11 +901,11 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
 end:
     if(pubk != NULL) free(pubk);
     p67_addr_free(&addr);
-    if(castr != NULL) ASN1_STRING_free(castr);
+    //if(castr != NULL) ASN1_STRING_free(castr);
     //if(ne != NULL) X509_NAME_ENTRY_free(ne);
     //if(x509_name != NULL) X509_NAME_free(x509_name);
-    //if(pkey != NULL) EVP_PKEY_free(pkey);
-    //if(x509 != NULL) X509_free(x509);
+    if(pkey != NULL) EVP_PKEY_free(pkey);
+    if(x509 != NULL) X509_free(x509);
 	return success;
 }
 
@@ -1051,6 +1051,9 @@ p67_net_connect(p67_conn_pass_t * pass)
     if((ctx = SSL_CTX_new(DTLS_client_method())) == NULL) goto end;
 
     if(SSL_CTX_set_cipher_list(ctx, CIPHER) != 1) goto end;
+
+    SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION);
 
     if(SSL_CTX_use_certificate_file(ctx, pass->certpath, SSL_FILETYPE_PEM) != 1) goto end;
 
@@ -1553,6 +1556,9 @@ p67_net_listen(p67_conn_pass_t * pass)
     if(SSL_CTX_use_PrivateKey_file(ctx, pass->keypath, SSL_FILETYPE_PEM) != 1)
         goto end;
 
+    SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION);
+
     if(SSL_CTX_check_private_key(ctx) != 1) goto end;
 
     SSL_CTX_set_verify(ctx, 
@@ -1611,6 +1617,7 @@ p67_net_listen(p67_conn_pass_t * pass)
                 conn->args = pass->gen_args();
             else
                 conn->args = pass->args;
+            conn->free_args = pass->free_args;
             conn->ssl = ssl;
             conn->ssl_lock = P67_NET_SLOCK_STATE_LOCKED;
             if((err = p67_conn_insert_existing(conn)) != 0) break;
