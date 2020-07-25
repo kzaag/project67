@@ -4,6 +4,7 @@
 #include <string.h>
 #include <limits.h>
 
+#include "bwt.h"
 #include "err.h"
 #include "db.h"
 
@@ -24,35 +25,71 @@ struct p67rs_session {
 #define P67RS_PATH_LOGIN 1
 #define P67RS_PATH_REGISTER 2
 
-typedef struct p67rs_hdr {
-    uint8_t path;
-} p67rs_hdr_t;
-
-p67rs_hdr_t * p67rs_get_hdr_from_msg(const char * msg, int msgl);
-p67rs_hdr_t * p67rs_get_hdr_from_msg(const char * msg, int msgl)
-{
-    if((unsigned int)msgl < sizeof(p67rs_hdr_t))
-        return NULL;
-    return (p67rs_hdr_t *)msg;
-}
-
 p67rs_err
-p67rs_whandler_login(p67_conn_t * conn, const char * msg, int msgl);
+p67rs_whandler_login(
+    p67_conn_t * conn, 
+    const unsigned char * const msg, int msgl,
+    const unsigned char * payload, int payload_len);
 p67rs_err
-p67rs_whandler_login(p67_conn_t * conn, const char * msg, int msgl)
+p67rs_whandler_login(
+    p67_conn_t * conn, 
+    const unsigned char * const msg, int msgl,
+    const unsigned char * payload, int payload_len)
 {
-    p67rs_err err;
-
-    printf(T_YELLOW "login:\n%.*s\n" T_WHITE, msgl-5, msg+5);
-
+    p67rs_err err = 0;
+    const unsigned char max_credential_length = 128;
+    unsigned char username[max_credential_length+1], password[max_credential_length+1];
+    unsigned char tmp[max_credential_length], key[2];
+    unsigned char cbufl;
+    unsigned char ackmsg[P67_TLV_HEADER_LENGTH+1];
     char ack[P67_PUDP_HDR_SZ+2];
+    int state = 0;
+
+    while(1) {
+
+        cbufl = max_credential_length;
+
+        if((err = p67_tlv_get_next_fragment(&payload, &payload_len, key, tmp, &cbufl)) < 0) {
+            err=-err;
+            goto end;
+        }
+
+        switch(key[0]) {
+        case 'u':
+            memcpy(username, tmp, cbufl);
+            username[cbufl] = 0;
+            state++;
+            break;
+        case 'p':
+            memcpy(password, tmp, cbufl);
+            password[cbufl] = 0;
+            state++;
+            break;
+        default:
+            err = p67_err_etlvf;
+            goto end;
+        }
+
+        if(state == 2)
+            break;
+    }
+
+end:
+    if(err == 0) {
+        if(p67_tlv_add_fragment(
+                ackmsg, sizeof(ackmsg), "l", "\1", 1) < 0)
+            return p67_err_einval;
+    } else {
+        if(p67_tlv_add_fragment(
+                ackmsg, sizeof(ackmsg), "l", "\0", 1) < 0)
+            return p67_err_einval;
+    }
 
     if((err = p67_pudp_generate_ack(
-                (unsigned char *)msg, msgl, 
-                (const unsigned char *)"ok", 2, 
-                ack)) != 0)
+            msg, msgl, 
+            ackmsg, sizeof(ackmsg), 
+            ack)) != 0)
         return err;
-
     if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
         return err;
 
@@ -67,6 +104,44 @@ p67rs_whandler_register(const char * msg, int msgl)
     return 0;
 }
 
+p67rs_err
+p67rs_handle_message(
+    p67_conn_t * conn,
+    const unsigned char * const msg, const int msgl,
+    const unsigned char * payload, int payloadl);
+p67rs_err
+p67rs_handle_message(
+    p67_conn_t * conn,
+    const unsigned char * const msg, const int msgl,
+    const unsigned char * payload, int payloadl)
+{
+    p67rs_err err;
+    unsigned char command_key[2], nobytes = payloadl;
+
+    if((err = p67_tlv_get_next_fragment(
+                &payload, 
+                &payloadl, 
+                command_key, 
+                NULL, 
+                &nobytes)) != 0)
+        return err;
+
+    if(nobytes != 0) {
+        printf(
+            "WARN in handle message, "\
+                "expected path specifier to be 0 bytes long. Got: %d.\n",
+            nobytes);
+    }
+
+    switch(command_key[0]) {
+    case 'l':
+        return p67rs_whandler_login(conn, msg, msgl, payload, payloadl);
+    case 'r':
+    default:
+        return p67_err_einval;
+    }
+}
+
 p67_err
 server_cb(p67_conn_t * conn, const char * const msg, const int msgl, void * args)
 {
@@ -74,8 +149,8 @@ server_cb(p67_conn_t * conn, const char * const msg, const int msgl, void * args
     (void)addr;
     struct p67rs_session * s = (struct p67rs_session *)args;
     (void)s;
+    p67rs_err errv;
     p67_proto_hdr_t * proto_hdr;
-    p67rs_hdr_t * rs_hdr;
     int offset = 0;
 
     if((proto_hdr = p67_proto_get_hdr_from_msg(msg, msgl)) == NULL)
@@ -94,24 +169,13 @@ server_cb(p67_conn_t * conn, const char * const msg, const int msgl, void * args
         */
         offset += sizeof(p67_pudp_hdr_t);
         if(offset >= msgl) goto err;
-        
-        if((rs_hdr = p67rs_get_hdr_from_msg(msg+offset, msgl-offset)) == NULL)
-            goto err;
 
-        offset += sizeof(*rs_hdr);
-        if(offset >= msgl) goto err;
+        if((errv = p67rs_handle_message(
+                    conn, 
+                    (const unsigned char *)msg, msgl, 
+                    (unsigned char *)msg+offset, msgl-offset)) != 0)
+            p67rs_err_print_err("Handle message returned error/s: ", errv);
 
-        switch(rs_hdr->path) {
-        case P67RS_PATH_LOGIN:
-            p67rs_whandler_login(conn, msg, msgl);
-            break;
-        case P67RS_PATH_REGISTER:
-            p67rs_whandler_register(msg, msgl);
-            break;
-        default:
-            goto err;
-        }
-        
         break;
         //return p67_pudp_handle_msg(conn, msg, msgl, NULL);
     case P67_PROTO_UNDEFINED:
@@ -132,17 +196,15 @@ err:
 
 volatile int sessid = 0;
 
-
 void * create_rs_session(void);
 void * create_rs_session(void)
 {
     struct p67rs_session * p = calloc(1, sizeof(struct p67rs_session));
     if(p == NULL) {
-        p67_err_print_err("create client session: ", p67_err_eerrno);
+        p67_err_print_err("ERR in create client session: ", p67_err_eerrno);
         exit(2);
     }
     p->sessid=(sessid++);
-    printf("creating session with id = %d\n", p->sessid);
     return p;
 }
 

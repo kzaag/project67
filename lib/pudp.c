@@ -314,7 +314,7 @@ p67_pudp_urg(char * msg)
     uint32_t mid = ntohl(p67_pudp_mid);
     msg[0] = P67_PUDP_HDR_URG;
     memcpy(msg + 1, (char *)&mid, 4);
-    return msg;
+    return msg+5;
 }
 
 p67_err

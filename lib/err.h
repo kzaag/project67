@@ -20,9 +20,11 @@ enum p67_err {
     p67_err_eagain = 0x800,  /* EAGAIN */
     p67_err_enomem = 0x1000,  /* not enough memory */
     p67_err_eacodecs = 0x2000,  /* audio codecs error */
+    p67_err_etlvf = 0x4000,     /* invalid tlv format */
+    p67_err_eot = 0x8000,   /* end of transmission */
     /* these values can be used for other libraries and executables to define their own errors and handlings */
-    p67_err__prev__  = 0x3FFF,
-    p67_err__next__  = 0x4000
+    p67_err__prev__  = 0xFFFFF,
+    p67_err__next__  = 0x100000
 };
 
 typedef enum p67_err p67_err;

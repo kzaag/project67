@@ -774,6 +774,8 @@ p67_net_verify_ssl_callback(int ok, X509_STORE_CTX *ctx)
     EVP_PKEY * pkey = NULL;
     p67_node_t * node = NULL;
 
+    return 1;
+
     bzero(&addr, sizeof(p67_addr_t));
 
     /* 
@@ -1586,7 +1588,7 @@ p67_net_listen(p67_conn_pass_t * pass)
 
         if((bio = BIO_new_dgram(sfd, BIO_NOCLOSE)) == NULL) goto end;
 
-        p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
+        //p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
 
         if((ssl = SSL_new(ctx)) == NULL) goto end;
 

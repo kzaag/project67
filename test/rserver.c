@@ -9,8 +9,16 @@ p67_err
 process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     const p67_addr_t * addr = p67_conn_get_addr(conn);
+    p67_proto_hdr_t * hdr = p67_proto_get_hdr_from_msg(msg, msgl);
+    if(hdr == NULL) return p67_err_einval;
 
-    if(msgl < 1) return 0;
+    switch(hdr->h_val) {
+    case P67_PROTO_PUDP_ACK:
+    case P67_PROTO_PUDP_URG:
+    default:
+        return p67_err_einval;
+    }
+
 
     if(p67_pudp_is_proto(msg, msgl)) {
         printf(T_YELLOW "%s:%s says: %.*s\n" T_WHITE, 
@@ -22,21 +30,39 @@ process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
 
 p67_err login(p67_conn_pass_t * pass)
 {
+    p67_err err;
     unsigned char msg[120];
     int len = 120;
+
+    unsigned char * msgp = msg;
     int ix = 0;
 
-    p67_pudp_urg(msg);
+    msgp = p67_pudp_urg(msg);
     ix += sizeof(p67_pudp_hdr_t);
     
-    msg[ix] = 1;
-    ix += 1;
+    if(ix >= len)
+        return p67_err_enomem;
 
-    ix+=snprintf(msg+ix, len-ix, "\nhello\nworld\n");
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "l", NULL, 0)) < 0)
+        return -err;
+    ix += err;
+    msgp+=err;
 
-    printf("%d\n", ix);
+    #define USER "vattd"
 
-    p67_err err;
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "u", USER, sizeof(USER))) < 0)
+        return -err;
+    ix += err;
+    msgp+=err;
+
+    #define PASS "123" 
+
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "p", PASS, sizeof(PASS))) < 0)
+        return -err;
+    ix += err;
+    msgp+=err;
+
+
     if((err = p67_pudp_write_urg(pass, msg, ix, -1, NULL, NULL)) != 0)
         return err;
 

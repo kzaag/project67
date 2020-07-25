@@ -87,4 +87,12 @@ p67_err_print_err(const char * hdr, p67_err err)
             fprintf(stderr, "%sUnkown audio codecs error\n", hdr);
         }
     }
+
+    if(err & p67_err_etlvf) {
+        fprintf(stderr, "%sInvalid TLV format\n", hdr);
+    }
+
+    if(err & p67_err_eot) {
+        fprintf(stderr, "%sEnd of transmission\n", hdr);
+    }
 }
