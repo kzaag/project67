@@ -12,7 +12,21 @@ enum p67rs_err {
 
 typedef enum p67rs_err p67rs_err;
 
+/*
+    HTTP-like webserver status codes
+*/
+enum p67rs_werr {
+    p67rs_werr_200 = 0,
+    p67rs_werr_400 = 0x2,
+    p67rs_werr_500 = 0x4,
+};
+
+typedef enum p67rs_werr p67rs_werr;
+
 void
 p67rs_err_print_err(const char * hdr, p67rs_err err);
+
+void
+p67rs_werr_print_status(const char * hdr, p67rs_werr err);
 
 #endif

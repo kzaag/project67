@@ -6,6 +6,23 @@
 #define T_WHITE "\033[0m"
 
 p67_err
+print_response(unsigned char * key, unsigned char * value, int vlength)
+{
+    uint32_t err;
+
+    if(vlength < sizeof(err)) {
+        printf("Unkown response format\n");
+        return 0;
+    }
+
+    err = ntohl(*(uint32_t *)value);
+
+    printf("response status for %.*s = %d.\n", P67_TLV_KEY_LENGTH, key, err);
+
+    return 0;
+}
+
+p67_err
 process_message(p67_conn_t * conn, const char * const msg, const int msgl, void * args)
 {
     const p67_addr_t * addr = p67_conn_get_addr(conn);
@@ -21,10 +38,13 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
 
     const unsigned char * msgp = (unsigned char *)(msg + hdrsize);
     int msgpl = msgl-hdrsize;
-    unsigned char v[P67_TLV_VALUE_MAX_LENGTH + 1], k[P67_TLV_KEY_LENGTH];
-    unsigned char vlength;
+    unsigned char 
+                v[P67_TLV_VALUE_MAX_LENGTH + 1], 
+                k[P67_TLV_KEY_LENGTH],
+                vlength,
+                ix;
 
-    switch(allhdr.hdr.hdr_type) {
+    switch(allhdr.hdr.cmn_shdr) {
     case P67_PUDP_HDR_ACK:
         while(1) {
             vlength = P67_TLV_VALUE_MAX_LENGTH;
@@ -34,8 +54,7 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
                 return err;
             }
             v[vlength] = 0;
-            printf("response fragment from %s:%s: K=\"%.*s\" V=\"%s\"\n", 
-                    addr->hostname, addr->service, P67_TLV_KEY_LENGTH, k, v);
+            print_response(k, v, vlength);
         }     
         break;
     default:
@@ -60,21 +79,21 @@ p67_err login(p67_conn_pass_t * pass)
     if(ix >= len)
         return p67_err_enomem;
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "l", NULL, 0)) < 0)
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "l\0", NULL, 0)) < 0)
         return -err;
     ix += err;
     msgp+=err;
 
     #define USER "vattd"
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "u", USER, sizeof(USER))) < 0)
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "u\0", USER, sizeof(USER))) < 0)
         return -err;
     ix += err;
     msgp+=err;
 
     #define PASS "123" 
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "p", PASS, sizeof(PASS))) < 0)
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "p\0", PASS, sizeof(PASS))) < 0)
         return -err;
     ix += err;
     msgp+=err;
@@ -89,6 +108,7 @@ p67_err login(p67_conn_pass_t * pass)
 void
 finish(int sig)
 {
+
     p67_lib_free();
     raise(sig);
 }

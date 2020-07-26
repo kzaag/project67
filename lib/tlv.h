@@ -2,13 +2,14 @@
 #define P67_TLV_H 1
 
 #include "err.h"
+#include <stdint.h>
 
 /*
     p67 tlv fragment:
     message can contain 0 - N such TLV fragments.
 
     |---|---|--------------------------------------|
-    | 2 | 1 |               0 - 255                | 
+    | 3 | 1 |               0 - 255                | 
     |---|---|--------------------------------------|
       |   |                   |
       |   |                   |
@@ -16,13 +17,18 @@
       |   |
       |   -----> [ VLENGTH : 1 byte value length, allowed values e [0, 255] ]
       |
-      ---> [ KEY: 2 byte key. ]
+      ---> [ KEY: 3 byte key. ]
 
     KEY + VLENGTH fields create HEADER
 
 */
 
-#define P67_TLV_KEY_LENGTH 2
+typedef struct p67_tlv_header {
+    uint8_t key[3];
+    uint8_t vlength;
+} p67_tlv_header_t;
+
+#define P67_TLV_KEY_LENGTH 3
 #define P67_TLV_VLENGTH_LENGTH 1
 
 #define P67_TLV_HEADER_LENGTH \

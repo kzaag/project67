@@ -4,11 +4,14 @@
 #include "net.h"
 #include <stdint.h>
 
+#define p67_static_assert(test) typedef char __p67sa[( !!(test) )*2-1 ]
+
 #define __p67_pudp_hdr_common(prefix) \
-    uint8_t prefix##_type; 
+    uint16_t prefix##shdr; \
+    uint16_t prefix##uhdr;
 
 #define __p67_pudp_hdr_id(prefix) \
-    uint32_t prefix##_mid;
+    uint32_t prefix##mid;
 
 #define P67_NET_STRUCT struct __attribute__((packed))
 
@@ -16,30 +19,32 @@
     generic message header. 
 */
 typedef P67_NET_STRUCT p67_pudp_hdr {
-    __p67_pudp_hdr_common(hdr)
+    __p67_pudp_hdr_common(cmn_)
 } p67_pudp_hdr_t;
+
+p67_static_assert(sizeof(p67_pudp_hdr_t) == (2*2));
 
 /*
     ACK ( acknowledgement ) message header. 
 */
 typedef P67_NET_STRUCT p67_pudp_ack_hdr {
-    __p67_pudp_hdr_common(ack)
-    __p67_pudp_hdr_id(ack)
+    __p67_pudp_hdr_common(ack_)
+    __p67_pudp_hdr_id(ack_)
 } p67_pudp_ack_hdr_t;
 
 /*
     URG ( urgent ) message header
 */
 typedef P67_NET_STRUCT p67_pudp_urg_hdr {
-    __p67_pudp_hdr_common(urg)
-    __p67_pudp_hdr_id(urg)
+    __p67_pudp_hdr_common(urg_)
+    __p67_pudp_hdr_id(urg_)
 } p67_pudp_urg_hdr_t;
 
 /*
     DAT ( data ) message header.
 */
 typedef P67_NET_STRUCT p67_pudp_dat_hdr {
-    __p67_pudp_hdr_common(dat)
+    __p67_pudp_hdr_common(dat_)
 } p67_pudp_dat_hdr_t;
 
 /*
@@ -143,7 +148,7 @@ p67_pudp_generate_ack(
     sets the URG header for pudp packet
 */
 char *
-p67_pudp_urg(char * msg);
+p67_pudp_urg(char * msg, uint16_t urg_uhdr);
 
 /*
     returns human representation of P67_PUDP_EVT_*
@@ -152,9 +157,11 @@ p67_pudp_urg(char * msg);
 char *
 p67_pudp_evt_str(char * buff, int buffl, int evt);
 
+
 p67_err
 p67_pudp_parse_msg_hdr(
     const unsigned char * const msg, const int msg_size,
-    p67_pudp_hdr_t * hdr, int * hdr_size);
+    p67_pudp_hdr_t * hdr, int * hdr_size, 
+    int reverse_endian);
 
 #endif

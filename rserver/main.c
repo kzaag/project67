@@ -26,6 +26,37 @@ struct p67rs_session {
 #define P67RS_PATH_REGISTER 2
 
 p67rs_err
+p67rs_respond_with_err(
+    p67_conn_t * conn, p67rs_werr err,
+    const unsigned char * command,
+    const unsigned char * const msg, int msgl);
+p67rs_err
+p67rs_respond_with_err(
+    p67_conn_t * conn, p67rs_werr err,
+    const unsigned char * command,
+    const unsigned char * const msg, int msgl)
+{
+    uint32_t serr = p67_cmn_htonl((uint32_t)err);
+    unsigned char ackmsg[P67_TLV_HEADER_LENGTH+sizeof(serr)];
+    char ack[sizeof(p67_pudp_ack_hdr_t) + sizeof(ackmsg)];
+
+    if(p67_tlv_add_fragment(
+            ackmsg, sizeof(ackmsg), 
+            command, (unsigned char *)&serr, sizeof(serr)) < 0)
+        return p67_err_einval;
+
+    if((err = p67_pudp_generate_ack(
+            msg, msgl, 
+            ackmsg, sizeof(ackmsg), 
+            ack)) != 0)
+        return err;
+    if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
+        return err;
+
+    return 0;
+}
+
+p67rs_err
 p67rs_whandler_login(
     p67_conn_t * conn, 
     const unsigned char * const msg, int msgl,
@@ -38,18 +69,20 @@ p67rs_whandler_login(
 {
     p67rs_err err = 0;
     const unsigned char max_credential_length = 128;
-    unsigned char username[max_credential_length+1], password[max_credential_length+1];
-    unsigned char tmp[max_credential_length], key[2];
-    unsigned char cbufl;
-    unsigned char ackmsg[P67_TLV_HEADER_LENGTH+1];
-    char ack[sizeof(p67_pudp_ack_hdr_t) + sizeof(ackmsg)];
+    unsigned char 
+                username[max_credential_length+1], 
+                password[max_credential_length+1],
+                tmp[max_credential_length], 
+                key[P67_TLV_KEY_LENGTH],
+                cbufl;
     int state = 0;
 
     while(1) {
 
         cbufl = max_credential_length;
 
-        if((err = p67_tlv_get_next_fragment(&payload, &payload_len, key, tmp, &cbufl)) < 0) {
+        if((err = p67_tlv_get_next_fragment(
+                    &payload, &payload_len, key, tmp, &cbufl)) < 0) {
             err=-err;
             goto end;
         }
@@ -76,24 +109,12 @@ p67rs_whandler_login(
 
 end:
     if(err == 0) {
-        if(p67_tlv_add_fragment(
-                ackmsg, sizeof(ackmsg), (unsigned char *)"l", (unsigned char *)"1", 1) < 0)
-            return p67_err_einval;
+        return p67rs_respond_with_err(
+                conn, 0, (unsigned char *)"l\0", msg, msgl);
     } else {
-        if(p67_tlv_add_fragment(
-                ackmsg, sizeof(ackmsg), (unsigned char *)"l", (unsigned char *)"0", 1) < 0)
-            return p67_err_einval;
+        return p67rs_respond_with_err(
+                conn, p67rs_werr_400, (unsigned char *)"l\0", msg, msgl);
     }
-
-    if((err = p67_pudp_generate_ack(
-            msg, msgl, 
-            ackmsg, sizeof(ackmsg), 
-            ack)) != 0)
-        return err;
-    if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
-        return err;
-
-    return 0;
 }
 
 p67rs_err p67rs_whandler_register(const char * msg, int msgl);
@@ -116,7 +137,7 @@ p67rs_handle_message(
     const unsigned char * payload, int payloadl)
 {
     p67rs_err err;
-    unsigned char command_key[2], nobytes = payloadl;
+    unsigned char command_key[P67_TLV_KEY_LENGTH], nobytes = payloadl;
 
     if((err = p67_tlv_get_next_fragment(
                 &payload, 
@@ -158,7 +179,7 @@ server_cb(p67_conn_t * conn, const char * const msg, const int msgl, void * args
                 &(int){sizeof(allhdr)})) != 0)
         return err;
  
-    switch(allhdr.hdr.hdr_type) {
+    switch(allhdr.hdr.cmn_shdr) {
     case P67_PUDP_HDR_ACK:
         break;
     case P67_PUDP_HDR_DAT:
