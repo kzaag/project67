@@ -95,4 +95,9 @@ p67_err_print_err(const char * hdr, p67_err err)
     if(err & p67_err_eot) {
         fprintf(stderr, "%sEnd of transmission\n", hdr);
     }
+
+    if(err & p67_err_epudpf) {
+        fprintf(stderr, "%sInvalid pudp format\n", hdr);
+    }
+
 }

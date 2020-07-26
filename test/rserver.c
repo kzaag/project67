@@ -6,23 +6,40 @@
 #define T_WHITE "\033[0m"
 
 p67_err
-process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
+process_message(p67_conn_t * conn, const char * const msg, const int msgl, void * args)
 {
     const p67_addr_t * addr = p67_conn_get_addr(conn);
-    p67_proto_hdr_t * hdr = p67_proto_get_hdr_from_msg(msg, msgl);
-    if(hdr == NULL) return p67_err_einval;
+    p67_err err;
+    p67_pudp_all_hdr_t allhdr;
+    int hdrsize = sizeof(allhdr);
+    
+    if((err = p67_pudp_parse_msg_hdr(
+                (unsigned char *)msg, msgl, 
+                (p67_pudp_hdr_t *)&allhdr, 
+                &hdrsize)) != 0)
+        return err;
 
-    switch(hdr->h_val) {
-    case P67_PROTO_PUDP_ACK:
-    case P67_PROTO_PUDP_URG:
+    const unsigned char * msgp = (unsigned char *)(msg + hdrsize);
+    int msgpl = msgl-hdrsize;
+    unsigned char v[P67_TLV_VALUE_MAX_LENGTH + 1], k[P67_TLV_KEY_LENGTH];
+    unsigned char vlength;
+
+    switch(allhdr.hdr.hdr_type) {
+    case P67_PUDP_HDR_ACK:
+        while(1) {
+            vlength = P67_TLV_VALUE_MAX_LENGTH;
+            err = p67_tlv_get_next_fragment(&msgp, &msgpl, k, v, &vlength);
+            if(err != 0) {
+                if(err == p67_err_eot) break;
+                return err;
+            }
+            v[vlength] = 0;
+            printf("response fragment from %s:%s: K=\"%.*s\" V=\"%s\"\n", 
+                    addr->hostname, addr->service, P67_TLV_KEY_LENGTH, k, v);
+        }     
+        break;
     default:
         return p67_err_einval;
-    }
-
-
-    if(p67_pudp_is_proto(msg, msgl)) {
-        printf(T_YELLOW "%s:%s says: %.*s\n" T_WHITE, 
-            addr->hostname, addr->service, msgl-5, msg+5);
     }
 
     return p67_pudp_handle_msg(conn, msg, msgl, NULL);
@@ -38,7 +55,7 @@ p67_err login(p67_conn_pass_t * pass)
     int ix = 0;
 
     msgp = p67_pudp_urg(msg);
-    ix += sizeof(p67_pudp_hdr_t);
+    ix += sizeof(p67_pudp_urg_hdr_t);
     
     if(ix >= len)
         return p67_err_enomem;

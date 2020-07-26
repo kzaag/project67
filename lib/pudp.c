@@ -5,10 +5,7 @@
 #include <string.h>
 
 #define P67_PUDP_INODE_LEN 101
-#define P67_PUDP_CHUNK_LEN 512
-
-#define P67_PUDP_INTERV 2000
-#define P67_PUDP_TTL_DEF 5000
+#define P67_PUDP_CHUNK_LEN 256
 
 #define pudp_hashin(ix) ((ix) % P67_PUDP_INODE_LEN)
 
@@ -38,7 +35,7 @@ static __thread uint32_t __mid = 0;
 /****BEGIN PRIVATE PROTOTYPES****/
 
 p67_err
-p67_pudp_remove(const uint8_t * msg, int msgl);
+p67_pudp_urg_remove(uint32_t id);
 
 static void *
 pudp_loop(void * args);
@@ -54,10 +51,6 @@ p67_pudp_mid_location(void)
     __mid++;
     return &__mid;
 }
-
-#define P67_PUDP_EVT_GOT_ACK 1
-#define P67_PUDP_EVT_TIMEOUT 2
-#define P67_PUDP_EVT_ERROR   3
 
 char *
 p67_pudp_evt_str(char * buff, int buffl, int evt)
@@ -97,20 +90,25 @@ p67_pudp_write_urg(
     p67_pudp_callback_t cb)
 {
     p67_err err;
-    uint32_t id;
     size_t hash, i;
+    p67_pudp_urg_hdr_t uhdr;
 
-    if(!(msg[0] & P67_PUDP_HDR_URG))
+    if(msgl > P67_PUDP_CHUNK_LEN) return p67_err_einval;
+
+    if((err = p67_pudp_parse_msg_hdr(
+            msg, msgl, (p67_pudp_hdr_t *)&uhdr, &(int){sizeof(uhdr)})) != 0)
+        return err;
+
+    if(uhdr.urg_type != P67_PUDP_HDR_URG)
         return p67_err_einval;
+
+    uint32_t mid = p67_cmn_ntohl(uhdr.urg_mid);
 
     if(pudp.state == P67_THREAD_SM_STATE_STOP)
         if((err = p67_pudp_start_loop()) != 0 && err != p67_err_eaconn)
             return err;
 
-    if(msgl > P67_PUDP_CHUNK_LEN) return p67_err_einval;
-
-    pudp_msg_to_id(msg, id);
-    hash = pudp_hashin(id);
+    hash = pudp_hashin(mid);
 
     i = hash;
 
@@ -135,7 +133,7 @@ p67_pudp_write_urg(
         pudp_inodes[i].size = msgl;
         pudp_inodes[i].cb = cb;
         pudp_inodes[i].index = i;
-        pudp_inodes[i].iid = id;
+        pudp_inodes[i].iid = mid;
         if(ttl <= 0)
             pudp_inodes[i].ttl = P67_PUDP_TTL_DEF;
         else
@@ -196,19 +194,10 @@ p67_pudp_start_loop(void)
 }
 
 p67_err
-p67_pudp_remove(const unsigned char * msg, int msgl)
+p67_pudp_urg_remove(uint32_t id)
 {
-    uint32_t id;
     int state;
     size_t hash, i;
-
-    if(msgl < 5)
-        return p67_err_einval;
-
-    if(!(msg[0] & P67_PUDP_HDR_ACK))
-        return p67_err_einval;
-
-    pudp_msg_to_id(msg, id);
 
     hash = pudp_hashin(id);
 
@@ -311,10 +300,45 @@ end:
 char *
 p67_pudp_urg(char * msg)
 {
-    uint32_t mid = ntohl(p67_pudp_mid);
-    msg[0] = P67_PUDP_HDR_URG;
-    memcpy(msg + 1, (char *)&mid, 4);
-    return msg+5;
+    p67_pudp_urg_hdr_t uhdr;
+    uhdr.urg_mid = ntohl(p67_pudp_mid);
+    uhdr.urg_type = P67_PUDP_HDR_URG;
+    memcpy(msg, (char *)&uhdr, sizeof(uhdr));
+    return msg+sizeof(uhdr);
+}
+
+p67_err
+p67_pudp_parse_msg_hdr(
+    const unsigned char * const msg, const int msg_size,
+    p67_pudp_hdr_t * hdr, int * hdr_size)
+{
+    if(msg == NULL) return p67_err_einval;
+    if((unsigned long)msg_size < sizeof(p67_pudp_hdr_t)) return p67_err_epudpf;
+
+    p67_pudp_hdr_t * __hdr = (p67_pudp_hdr_t *)msg;
+    int __hdr_size;
+
+    switch(__hdr->hdr_type) {
+    case P67_PUDP_HDR_DAT:
+        __hdr_size = sizeof(p67_pudp_dat_hdr_t);
+        break;
+    case P67_PUDP_HDR_ACK:
+        __hdr_size = sizeof(p67_pudp_ack_hdr_t);
+        break;
+    case P67_PUDP_HDR_URG:
+        __hdr_size = sizeof(p67_pudp_urg_hdr_t);
+        break;
+    default:
+        return p67_err_epudpf;
+    }
+
+    if(*hdr_size < __hdr_size)
+        return p67_err_enomem;
+    if(msg_size < __hdr_size)
+        return p67_err_epudpf;
+    memcpy(hdr, __hdr, __hdr_size);
+
+    return 0;
 }
 
 p67_err
@@ -323,47 +347,66 @@ p67_pudp_generate_ack(
         const unsigned char * ackmsg, int ackmsgl,
         char * dstmsg)
 {
-    if(srcmsgl < 5 || srcmsg[0] != P67_PUDP_HDR_URG)
-        return p67_err_eagain;
-    
-    const p67_pudp_hdr_t * srchdr = (const p67_pudp_hdr_t *)srcmsg;
-    p67_pudp_hdr_t * dsthdr = (p67_pudp_hdr_t *)dstmsg;
-    dsthdr->type = P67_PUDP_HDR_ACK;
-    dsthdr->mid = srchdr->mid;
+    if((unsigned long)srcmsgl < sizeof(p67_pudp_urg_hdr_t))
+        return p67_err_einval;
+
+    const p67_pudp_urg_hdr_t * srchdr = (const p67_pudp_urg_hdr_t *)srcmsg;
+    p67_pudp_ack_hdr_t * ackhdr = (p67_pudp_ack_hdr_t *)dstmsg;
+
+    if(srchdr->urg_type != P67_PUDP_HDR_URG)
+        return p67_err_einval;
+
+    ackhdr->ack_type = P67_PUDP_HDR_ACK;
+    ackhdr->ack_mid = srchdr->urg_mid;
 
     if(ackmsgl > 0) {
         if(ackmsg == NULL) return p67_err_einval;
-        memcpy(dstmsg+sizeof(p67_pudp_hdr_t), ackmsg, ackmsgl);
+        memcpy(dstmsg+sizeof(p67_pudp_ack_hdr_t), ackmsg, ackmsgl);
     }
 
     return 0;
 }
 
 p67_err
-p67_pudp_handle_msg(p67_conn_t * conn, const char * msg, int msgl, void * args)
+p67_pudp_handle_msg(
+    p67_conn_t * conn, 
+    const char * msg, int msgl, 
+    void * args)
 {
-    p67_err err = 0;
-    int wh = 0;
     (void)args;
+    p67_err err;
+    int wh = 0;
+    p67_pudp_all_hdr_t allhdr;
+    p67_pudp_ack_hdr_t ackmsg;
+    int size = sizeof(allhdr);
 
-    /* ACKs remove messages from pending cache */
-    if(msg[0] == P67_PUDP_HDR_ACK) {
-        err = p67_pudp_remove((const unsigned char *)msg, msgl);
-        if(msgl == 5) wh = 1;
-    }
+    if((err = p67_pudp_parse_msg_hdr(
+            (unsigned char *)msg, msgl, (p67_pudp_hdr_t *)&allhdr, &size)) == 0) {
 
-    /* URGent messages are ACKed and forwarded to user */
-    if(msg[0] == P67_PUDP_HDR_URG) {
-        unsigned char ack[5];
-        int wrote;
-        ack[0] = P67_PUDP_HDR_ACK;
-        memcpy(ack + 1, msg + 1, 4);
-        wrote = sizeof(ack);
-        err = p67_net_write_conn(conn, ack, &wrote);
+        switch(allhdr.hdr.hdr_type) {
+        case P67_PUDP_HDR_ACK:
+            /* ACKs remove URG messages which are currently queued*/
+            err = p67_pudp_urg_remove(p67_cmn_ntohl(allhdr.ack.ack_mid));
+            if(msgl == sizeof(p67_pudp_urg_hdr_t)) wh = 1;
+            break;
+        case P67_PUDP_HDR_URG:
+            /* URGent messages are ACKed and forwarded to user */
+            if((err = p67_pudp_generate_ack(
+                    (unsigned char *)msg, msgl, NULL, 0, (char *)&ackmsg)) != 0)
+                break;
+            err = p67_net_must_write_conn(conn, (char *)&ackmsg, sizeof(ackmsg));
+            break;
+        case P67_PUDP_HDR_DAT:
+            /* nothing to be done with DAT */
+            break;
+        default:
+            err = p67_err_epudpf;
+            break;
+        }
     }
 
     if(err != 0){
-        p67_err_print_err("PUDP handle: ", err);
+        p67_err_print_err("ERR in pudp handle message: ", err);
         return 0;
     }
 

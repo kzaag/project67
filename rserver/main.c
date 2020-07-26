@@ -42,7 +42,7 @@ p67rs_whandler_login(
     unsigned char tmp[max_credential_length], key[2];
     unsigned char cbufl;
     unsigned char ackmsg[P67_TLV_HEADER_LENGTH+1];
-    char ack[P67_PUDP_HDR_SZ+2];
+    char ack[sizeof(p67_pudp_ack_hdr_t) + sizeof(ackmsg)];
     int state = 0;
 
     while(1) {
@@ -77,11 +77,11 @@ p67rs_whandler_login(
 end:
     if(err == 0) {
         if(p67_tlv_add_fragment(
-                ackmsg, sizeof(ackmsg), "l", "\1", 1) < 0)
+                ackmsg, sizeof(ackmsg), (unsigned char *)"l", (unsigned char *)"1", 1) < 0)
             return p67_err_einval;
     } else {
         if(p67_tlv_add_fragment(
-                ackmsg, sizeof(ackmsg), "l", "\0", 1) < 0)
+                ackmsg, sizeof(ackmsg), (unsigned char *)"l", (unsigned char *)"0", 1) < 0)
             return p67_err_einval;
     }
 
@@ -149,48 +149,32 @@ server_cb(p67_conn_t * conn, const char * const msg, const int msgl, void * args
     (void)addr;
     struct p67rs_session * s = (struct p67rs_session *)args;
     (void)s;
-    p67rs_err errv;
-    p67_proto_hdr_t * proto_hdr;
-    int offset = 0;
+    p67rs_err err;
+    p67_pudp_all_hdr_t allhdr;
 
-    if((proto_hdr = p67_proto_get_hdr_from_msg(msg, msgl)) == NULL)
-        goto err;
+    if((err = p67_pudp_parse_msg_hdr(
+                (unsigned char *)msg, msgl, 
+                (p67_pudp_hdr_t *)&allhdr, 
+                &(int){sizeof(allhdr)})) != 0)
+        return err;
  
-    switch(proto_hdr->h_val) {
-    case P67_PROTO_PUDP_ACK:
-        /*
-            here will be handled incoming remote respones to requests sent by the rserver
-        */
+    switch(allhdr.hdr.hdr_type) {
+    case P67_PUDP_HDR_ACK:
         break;
-    case P67_PROTO_PUDP_URG:
-
-        /*
-            URG will also have message id inside. we dont need it so just skip it;
-        */
-        offset += sizeof(p67_pudp_hdr_t);
-        if(offset >= msgl) goto err;
-
-        if((errv = p67rs_handle_message(
+    case P67_PUDP_HDR_DAT:
+        break;
+    case P67_PUDP_HDR_URG:
+        if((err = p67rs_handle_message(
                     conn, 
                     (const unsigned char *)msg, msgl, 
-                    (unsigned char *)msg+offset, msgl-offset)) != 0)
-            p67rs_err_print_err("Handle message returned error/s: ", errv);
-
+                    (unsigned char *)msg+sizeof(p67_pudp_urg_hdr_t), 
+                    msgl-sizeof(p67_pudp_urg_hdr_t))) != 0)
+            p67rs_err_print_err("Handle message returned error/s: ", err);
         break;
-        //return p67_pudp_handle_msg(conn, msg, msgl, NULL);
-    case P67_PROTO_UNDEFINED:
-        /*
-            handle incoming request
-        */
-        break;
-    case P67_PROTO_STREAM_DATA:
     default:
-        goto err;
+        break;
     }
 
-    return 0;
-    
-err:
     return 0;
 }
 

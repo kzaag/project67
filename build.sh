@@ -61,8 +61,8 @@ gcc-8 $FP/async.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67async $LOPENSSL;
 gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67net $LOPENSSL;
 gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert $LOPENSSL;
 gcc-8 $FP/pudp.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67pudp $LOPENSSL;
-gcc-8 $FP/stream.c $DEBUG $FP/wav.c \
-    -std=c99 -lp67 -o $WD/bin/p67stream $LOPENSSL $OPUS $PULSEAUDIO;
+#gcc-8 $FP/stream.c $DEBUG $FP/wav.c \
+#    -std=c99 -lp67 -o $WD/bin/p67stream $LOPENSSL $OPUS $PULSEAUDIO;
 gcc-8 $FP/rserver.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67rserver_client $LOPENSSL;
 
 FP="$WD/rserver"

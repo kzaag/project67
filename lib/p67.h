@@ -7,7 +7,7 @@
 #include <p67/net.h>
 #include <p67/pudp.h>
 #include <p67/audio.h>
-#include <p67/stream.h>
+//#include <p67/stream.h>
 #include <p67/tlv.h>
 
 void
