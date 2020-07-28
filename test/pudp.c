@@ -6,25 +6,34 @@
 p67_err
 process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
-    switch (msg[0]) {
+    p67_err err;
+    const p67_pudp_all_hdr_t * hdr;
+
+    if((hdr = p67_pudp_parse_hdr((const unsigned char *)msg, msgl, &err)) == NULL)
+        return err;
+
+    printf("got: %d\n", msgl);
+
+    switch (p67_cmn_ntohs(hdr->cmn.cmn_stp)) {
     case P67_PUDP_HDR_ACK:
-        if(msgl < 5)
-            return p67_err_einval;
-        printf("ACK received with payload (%d bytes): %*.*s\n", 
-            msgl-5, msgl-5, msgl-5, msg+5);
-        return p67_pudp_handle_msg(conn, msg, msgl, NULL);
-    case P67_PUDP_HDR_URG:    
-        if(msgl < 5)
-            return p67_err_einval;
-        printf("URG received with payload (%d bytes): %*.*s\n", 
-            msgl-5, msgl-5, msgl-5, msg+5);
-        return p67_pudp_handle_msg(conn, msg, msgl, NULL);
+        printf("ACK received with payload (%d bytes): \"%.*s\"\n", 
+            msgl-P67_PUDP_ACK_HDR_OFFSET, 
+            msgl-P67_PUDP_ACK_HDR_OFFSET, 
+            msg+P67_PUDP_ACK_HDR_OFFSET);
+        break;
+    case P67_PUDP_HDR_URG:
+        printf("URG received with payload (%d bytes): \"%.*s\"\n", 
+            msgl-P67_PUDP_URG_HDR_OFFSET, 
+            msgl-P67_PUDP_URG_HDR_OFFSET, 
+            msg+P67_PUDP_URG_HDR_OFFSET);
+        break;
     default:
-        printf("Unknown message received with payload (%d bytes): %*.*s\n", 
-            msgl, msgl, msgl, msg);
+        printf("Unknown message received with payload (%d bytes): %.*s\n", 
+            msgl, msgl, msg);
         break;
     }
-    return 0;
+
+    return p67_pudp_handle_msg(conn, msg, msgl, NULL);
 }
 
 void
@@ -73,19 +82,26 @@ main(int argc, char ** argv)
 
     getchar();
     
-    const char cstr[] = "hello";
-    char msg[5 + 5];
-    p67_pudp_urg(msg);
-    memcpy(msg + 5, cstr, 5);
+#define MSG "hello"
+#define MSGL (sizeof(MSG) - 1)
 
-    if((err = p67_pudp_write_urg(&pass, msg, 10, 0, &sigterm, pudp_evt_callback)) != 0)
+    char msg[sizeof(p67_pudp_urg_hdr_t) + MSGL];
+
+    if(p67_pudp_generate_urg_for_msg(MSG, MSGL, msg, sizeof(msg), 0) == NULL) {
+        err = p67_err_einval;
+        goto end;
+    }
+    
+    if((err = p67_pudp_write_urg(&pass, msg, sizeof(msg), 0, &sigterm, pudp_evt_callback)) != 0)
         goto end; 
 
     if((err = p67_mutex_wait_for_change(&sigterm, P67_PUDP_EVT_NONE, -1)) != 0)
         goto end;
 
     char buff[120];
-    printf("\nFinished with EVT=\"%s\".\n\n", p67_pudp_evt_str(buff, sizeof(buff), sigterm));
+    printf("\nFinished with status: %s.\n\n", p67_pudp_evt_str(buff, sizeof(buff), sigterm));
+
+    getchar();
 
     err = p67_net_async_terminate(&pass);
 

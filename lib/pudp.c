@@ -10,8 +10,10 @@
 #define pudp_hashin(ix) ((ix) % P67_PUDP_INODE_LEN)
 
 typedef struct p67_pudp_inode {
-    size_t index; /* index in the underlying hash table */
-    unsigned int iid; /* id of this message */
+    /* index in the underlying hash table */
+    size_t index; 
+    /* id of this message. */
+    unsigned int iid;
     unsigned int size; /* size of the pudp_data chunk */
     unsigned int ttl;  /* inode timeout ( in miliseconds ) */
     unsigned long long lt; /* time when inode was initialized */
@@ -39,9 +41,6 @@ p67_pudp_urg_remove(uint32_t id);
 
 static void *
 pudp_loop(void * args);
-
-p67_err
-proto_handle_msg(p67_conn_t * conn, const char * msg, int msgl, void * args);
 
 /****END PRIVATE PROTOTYPES****/
 
@@ -74,9 +73,6 @@ p67_pudp_evt_str(char * buff, int buffl, int evt)
     return buff;
 }
 
-
-void * p67_pudp_loop(void * args);
-
 #define pudp_msg_to_id(msg, idval) \
     { (idval) = ((msg)[1] >> 24) + ((msg)[2] >> 16) + ((msg)[3] >> 8) + (msg)[4]; }
 
@@ -91,18 +87,17 @@ p67_pudp_write_urg(
 {
     p67_err err;
     size_t hash, i;
-    p67_pudp_urg_hdr_t uhdr;
+    const p67_pudp_urg_hdr_t * hdr;
 
     if(msgl > P67_PUDP_CHUNK_LEN) return p67_err_einval;
 
-    if((err = p67_pudp_parse_msg_hdr(
-            msg, msgl, (p67_pudp_hdr_t *)&uhdr, &(int){sizeof(uhdr)}, 1)) != 0)
-        return err;
+    if((hdr = (p67_pudp_urg_hdr_t *)p67_pudp_parse_hdr(msg, msgl, NULL)) == NULL)
+        return p67_err_epudpf;
 
-    if(uhdr.urg_shdr != P67_PUDP_HDR_URG)
+    if(hdr->urg_stp != p67_cmn_htons(P67_PUDP_HDR_URG))
         return p67_err_einval;
 
-    uint32_t mid = uhdr.urg_mid;
+    uint32_t mid = p67_cmn_ntohl(hdr->urg_mid);
 
     if(pudp.state == P67_THREAD_SM_STATE_STOP)
         if((err = p67_pudp_start_loop()) != 0 && err != p67_err_eaconn)
@@ -297,86 +292,138 @@ end:
     return NULL;
 }
 
-char *
-p67_pudp_urg(char * msg, uint16_t urg_uhdr)
+const p67_pudp_all_hdr_t *
+p67_pudp_parse_hdr(
+    const unsigned char * const msg,
+    const int msg_size, 
+    p67_err * err)
 {
-    p67_pudp_urg_hdr_t urghdr;
-    urghdr.urg_mid = p67_cmn_ntohl(p67_pudp_mid);
-    urghdr.urg_shdr = p67_cmn_htons(P67_PUDP_HDR_URG);
-    urghdr.urg_uhdr = p67_cmn_htons(urg_uhdr);
-    memcpy(msg, (char *)&urghdr, sizeof(urghdr));
-    return msg+sizeof(urghdr);
-}
+    p67_pudp_all_hdr_t * hdr;
+    p67_err __err = 0;
+    uint16_t stp;
 
-p67_err
-p67_pudp_parse_msg_hdr(
-    const unsigned char * const msg, const int msg_size,
-    p67_pudp_hdr_t * hdr, int * hdr_size, 
-    int reverse_endian)
-{
-    if(msg == NULL) return p67_err_einval;
-    if((unsigned long)msg_size < sizeof(p67_pudp_hdr_t)) return p67_err_epudpf;
+    // assign val to the __err variable and jump to the end if cnd is true
+    #define ejmp(cnd, val) \
+            if(cnd) { __err = val; goto end; }
 
-    p67_pudp_all_hdr_t * __hdr = (p67_pudp_all_hdr_t *)msg;
-    int __hdr_size;
-    uint16_t tmp = p67_cmn_ntohs(__hdr->hdr.cmn_shdr);
+    ejmp(msg == NULL, p67_err_einval);
 
-    switch(tmp) {
-    case P67_PUDP_HDR_DAT:
-        __hdr_size = sizeof(p67_pudp_dat_hdr_t);
-        break;
+    hdr = (p67_pudp_all_hdr_t *)msg;
+
+    ejmp((long unsigned)msg_size < sizeof(hdr->cmn), p67_err_epudpf);
+
+    stp = p67_cmn_ntohs(hdr->cmn.cmn_stp);
+
+    switch(stp) {
     case P67_PUDP_HDR_ACK:
-        __hdr_size = sizeof(p67_pudp_ack_hdr_t);
-        if(reverse_endian) __hdr->ack.ack_mid = p67_cmn_ntohl(__hdr->ack.ack_mid);
+        ejmp((long unsigned)msg_size < sizeof(hdr->ack), p67_err_epudpf);
         break;
     case P67_PUDP_HDR_URG:
-        __hdr_size = sizeof(p67_pudp_urg_hdr_t);
-        if(reverse_endian) __hdr->urg.urg_mid = p67_cmn_ntohl(__hdr->urg.urg_mid);
+        ejmp((long unsigned)msg_size < sizeof(hdr->urg), p67_err_epudpf);
+        break;
+    case P67_PUDP_HDR_DAT:
+        ejmp((long unsigned)msg_size < sizeof(hdr->dat), p67_err_epudpf);
         break;
     default:
-        return p67_err_epudpf;
+        ejmp(1, p67_err_epudpf);
     }
 
-    if(*hdr_size < __hdr_size)
-        return p67_err_enomem;
-    if(msg_size < __hdr_size)
-        return p67_err_epudpf;
-
-    if(reverse_endian) {
-        __hdr->hdr.cmn_shdr = tmp;
-        __hdr->hdr.cmn_uhdr = p67_cmn_ntohs(__hdr->hdr.cmn_uhdr);
+end:
+    if(__err != 0) {
+        if(err != NULL) 
+            *err = __err;
+        return NULL;
     }
 
-    memcpy(hdr, __hdr, __hdr_size);
+    return hdr;
+}
+
+const p67_pudp_urg_hdr_t *
+p67_pudp_generate_urg_for_msg(
+    char * urg_payload, int urg_payload_l,
+    char * dst_msg, int dst_msg_l,
+    uint16_t urg_utp)
+{
+    p67_pudp_urg_hdr_t * urghdr;
+
+    if((size_t)dst_msg_l < (sizeof(*urghdr) + urg_payload_l)) return NULL;
+
+    urghdr = (p67_pudp_urg_hdr_t *)dst_msg;
+
+    urghdr->urg_mid = p67_cmn_htonl(p67_pudp_mid);
+    urghdr->urg_stp = p67_cmn_htons(P67_PUDP_HDR_URG);
+    urghdr->urg_utp = p67_cmn_htons(urg_utp);
+    if(dst_msg_l > 0) {
+        if(dst_msg == NULL) return NULL;
+        memcpy(dst_msg+sizeof(*urghdr), urg_payload, urg_payload_l);
+    }
+    return urghdr;
+}
+
+p67_err
+p67_pudp_generate_ack_from_hdr(
+        const p67_pudp_urg_hdr_t * srchdr,
+        const unsigned char * ackpayload, int ackpayloadl,
+        char * dstmsg, int dstmsgl)
+{
+    p67_pudp_ack_hdr_t * dsthdr = (p67_pudp_ack_hdr_t *)dstmsg;
+
+    if((long unsigned)dstmsgl < sizeof(*dsthdr)) return p67_err_epudpf;
+
+    dsthdr->ack_utp = srchdr->urg_utp;
+    dsthdr->ack_mid = srchdr->urg_mid;
+    dsthdr->ack_stp = p67_cmn_htons(P67_PUDP_HDR_ACK); 
+
+    if(ackpayloadl > 0) {
+        if(ackpayload == NULL) return p67_err_einval;
+        memcpy(
+            dstmsg+sizeof(*dsthdr), 
+            dstmsg, dstmsgl);
+    }
 
     return 0;
 }
 
 p67_err
-p67_pudp_generate_ack(
-        const unsigned char * srcmsg, int srcmsgl, 
-        const unsigned char * ackmsg, int ackmsgl,
-        char * dstmsg)
+p67_pudp_generate_ack_from_msg(
+        const unsigned char * srcmsg, int srcmsgl,
+        const unsigned char * ackpayload, int ackpayloadl,
+        char * dstmsg, int dstmsgl)
 {
-    if((unsigned long)srcmsgl < sizeof(p67_pudp_urg_hdr_t))
-        return p67_err_einval;
-
     const p67_pudp_urg_hdr_t * srchdr = (const p67_pudp_urg_hdr_t *)srcmsg;
-    p67_pudp_ack_hdr_t * ackhdr = (p67_pudp_ack_hdr_t *)dstmsg;
+    
+    if((long unsigned)srcmsgl < sizeof(*srchdr)) return p67_err_epudpf;
 
-    if(srchdr->urg_shdr != P67_PUDP_HDR_URG)
-        return p67_err_einval;
+    if(p67_cmn_ntohs(srchdr->urg_stp) != P67_PUDP_HDR_URG)
+        return p67_err_epudpf;
+    
+    return p67_pudp_generate_ack_from_hdr(
+        srchdr, 
+        ackpayload, ackpayloadl,
+        dstmsg, dstmsgl);
+}
 
-    ackhdr->ack_shdr = p67_cmn_htons(P67_PUDP_HDR_ACK);
-    ackhdr->ack_uhdr = srchdr->urg_uhdr;
-    ackhdr->ack_mid = srchdr->urg_mid;
+p67_err
+p67_pudp_write_ack_for_urg(
+    p67_conn_t * conn, 
+    const p67_pudp_urg_hdr_t * urg_hdr)
+{
+    p67_pudp_ack_hdr_t ack;
+    p67_err err;
 
-    if(ackmsgl > 0) {
-        if(ackmsg == NULL) return p67_err_einval;
-        memcpy(dstmsg+sizeof(p67_pudp_ack_hdr_t), ackmsg, ackmsgl);
-    }
+    ack.ack_mid = urg_hdr->urg_mid;
+    ack.ack_stp = p67_cmn_htons(P67_PUDP_HDR_ACK);
+    ack.ack_utp = urg_hdr->urg_utp;
 
-    return 0;
+    err = p67_pudp_generate_ack_from_hdr(
+        urg_hdr,
+        NULL, 0,
+        (char *)&ack, sizeof(ack));
+
+    if(err != 0)
+        return err;
+
+    return p67_net_must_write_conn(conn, &ack, sizeof(ack));
 }
 
 p67_err
@@ -386,35 +433,31 @@ p67_pudp_handle_msg(
     void * args)
 {
     (void)args;
-    p67_err err;
+    p67_err err = 0;
     int wh = 0;
-    p67_pudp_all_hdr_t allhdr;
-    p67_pudp_ack_hdr_t ackmsg;
-    int size = sizeof(allhdr);
+    const p67_pudp_all_hdr_t * msg_hdr;
+    uint16_t stp;
 
-    if((err = p67_pudp_parse_msg_hdr(
-            (unsigned char *)msg, msgl, (p67_pudp_hdr_t *)&allhdr, &size, 1)) == 0) {
+    if((msg_hdr = p67_pudp_parse_hdr(
+                (unsigned char *)msg, msgl, NULL)) == NULL)
+        return p67_err_epudpf;
 
-        switch(allhdr.hdr.cmn_shdr) {
-        case P67_PUDP_HDR_ACK:
-            /* ACKs remove URG messages which are currently queued*/
-            err = p67_pudp_urg_remove(allhdr.ack.ack_mid);
-            if(msgl == sizeof(p67_pudp_urg_hdr_t)) wh = 1;
-            break;
-        case P67_PUDP_HDR_URG:
-            /* URGent messages are ACKed and forwarded to user */
-            if((err = p67_pudp_generate_ack(
-                    (unsigned char *)msg, msgl, NULL, 0, (char *)&ackmsg)) != 0)
-                break;
-            err = p67_net_must_write_conn(conn, (char *)&ackmsg, sizeof(ackmsg));
-            break;
-        case P67_PUDP_HDR_DAT:
-            /* nothing to be done with DAT */
-            break;
-        default:
-            err = p67_err_epudpf;
-            break;
-        }
+    stp = p67_cmn_ntohs(msg_hdr->cmn.cmn_stp);
+
+    switch(stp) {
+    case P67_PUDP_HDR_ACK:
+        /* ACKs remove URG messages from pending queue */
+        err = p67_pudp_urg_remove(p67_cmn_ntohl(msg_hdr->ack.ack_mid));
+        break;
+    case P67_PUDP_HDR_URG:
+        err = p67_pudp_write_ack_for_urg(conn, &msg_hdr->urg);
+        break;
+    case P67_PUDP_HDR_DAT:
+        /* DATs are ignored */
+        break;
+    default:
+        err = p67_err_einval;
+        break;
     }
 
     if(err != 0){

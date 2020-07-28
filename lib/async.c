@@ -12,7 +12,7 @@
             (int*)(uaddr), \
             (int)(op), \
             (int)(val), \
-            (const struct timeval *)(timeout), \
+            (const struct timespec *)(timeout), \
             (int*)(uaddr2), \
             (int)(val3))
 
@@ -75,10 +75,10 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms)
 {
     int err;
 
-    struct timeval tv;
+    struct timespec tv;
     if(maxms > 0) {
         tv.tv_sec = maxms / 1000;
-        tv.tv_usec = (maxms % 1000) * 1000;
+        tv.tv_nsec = (maxms % 1000) * 1e6;
     }
 
     while(1) {
@@ -88,7 +88,6 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms)
         } else {
             err = futex(pptr, FUTEX_WAIT, state, NULL, NULL, 0);
         }
-
         if(err != 0) {
             if(errno == EAGAIN) {
                 continue;

@@ -7,8 +7,8 @@
 #define p67_static_assert(test) typedef char __p67sa[( !!(test) )*2-1 ]
 
 #define __p67_pudp_hdr_common(prefix) \
-    uint16_t prefix##shdr; \
-    uint16_t prefix##uhdr;
+    uint16_t prefix##stp; \
+    uint16_t prefix##utp;
 
 #define __p67_pudp_hdr_id(prefix) \
     uint32_t prefix##mid;
@@ -24,6 +24,8 @@ typedef P67_NET_STRUCT p67_pudp_hdr {
 
 p67_static_assert(sizeof(p67_pudp_hdr_t) == (2*2));
 
+#define P67_PUDP_HDR_OFFSET (sizeof(p67_pudp_hdr_t))
+
 /*
     ACK ( acknowledgement ) message header. 
 */
@@ -31,6 +33,8 @@ typedef P67_NET_STRUCT p67_pudp_ack_hdr {
     __p67_pudp_hdr_common(ack_)
     __p67_pudp_hdr_id(ack_)
 } p67_pudp_ack_hdr_t;
+
+#define P67_PUDP_ACK_HDR_OFFSET (sizeof(p67_pudp_ack_hdr_t))
 
 /*
     URG ( urgent ) message header
@@ -40,12 +44,16 @@ typedef P67_NET_STRUCT p67_pudp_urg_hdr {
     __p67_pudp_hdr_id(urg_)
 } p67_pudp_urg_hdr_t;
 
+#define P67_PUDP_URG_HDR_OFFSET (sizeof(p67_pudp_urg_hdr_t))
+
 /*
     DAT ( data ) message header.
 */
 typedef P67_NET_STRUCT p67_pudp_dat_hdr {
     __p67_pudp_hdr_common(dat_)
 } p67_pudp_dat_hdr_t;
+
+#define P67_PUDP_DAT_HDR_OFFSET (sizeof(p67_pudp_dat_hdr_t))
 
 /*
     BAT ( batch ) message header.
@@ -54,7 +62,7 @@ typedef P67_NET_STRUCT p67_pudp_dat_hdr {
 */
 
 typedef union p67_pudp_all_hdr {
-    p67_pudp_hdr_t hdr;
+    p67_pudp_hdr_t     cmn;
     p67_pudp_ack_hdr_t ack;
     p67_pudp_urg_hdr_t urg;
     p67_pudp_dat_hdr_t dat;
@@ -102,8 +110,8 @@ typedef void (* p67_pudp_callback_t)(
     retransmission loop will be awoken at least P67_PUDP_INTERV miliseconds.
     can be more often depending on messages registrations.
 */
-#define P67_PUDP_INTERV 100
-#define P67_PUDP_TTL_DEF 5000
+#define P67_PUDP_INTERV 200
+#define P67_PUDP_TTL_DEF 2500
 
 p67_err
 p67_pudp_write_urg(
@@ -135,20 +143,30 @@ p67_pudp_handle_msg(
         int msgl, 
         void * args);
 
-/*
-    dstmsg must be at least sizeof(p67_pudp_ack_hdr_t) + ackmsgl bytes long.
-*/
 p67_err
-p67_pudp_generate_ack(
+p67_pudp_generate_ack_from_hdr(
+        const p67_pudp_urg_hdr_t * srchdr,
+        const unsigned char * ackpayload, int ackpayloadl,
+        char * dstmsg, int dstmsgl);
+
+p67_err
+p67_pudp_generate_ack_from_msg(
+        /* URG message */
         const unsigned char * srcmsg, int srcmsgl, 
-        const unsigned char * ackmsg, int ackmsgl,
-        char * dstmsg);
+        /* optional ACK message payload, pass NULL and 0 to ignore */
+        const unsigned char * ackpayload, int ackpayloadl,
+        /* destination message */
+        char * dstmsg, int dstmsgl);
 
 /*
-    sets the URG header for pudp packet
+    return pointer pointing to header of the message, 
+        or null on error ( p67_err_einval )
 */
-char *
-p67_pudp_urg(char * msg, uint16_t urg_uhdr);
+const p67_pudp_urg_hdr_t *
+p67_pudp_generate_urg_for_msg(
+    char * urg_payload, int urg_payload_l,
+    char * dst_msg, int dst_msg_l,
+    uint16_t urg_utp);
 
 /*
     returns human representation of P67_PUDP_EVT_*
@@ -157,11 +175,15 @@ p67_pudp_urg(char * msg, uint16_t urg_uhdr);
 char *
 p67_pudp_evt_str(char * buff, int buffl, int evt);
 
+const p67_pudp_all_hdr_t *
+p67_pudp_parse_hdr(
+    const unsigned char * const msg,
+    const int msg_size, 
+    p67_err * err);
 
 p67_err
-p67_pudp_parse_msg_hdr(
-    const unsigned char * const msg, const int msg_size,
-    p67_pudp_hdr_t * hdr, int * hdr_size, 
-    int reverse_endian);
+p67_pudp_write_ack_for_urg(
+    p67_conn_t * conn, 
+    const p67_pudp_urg_hdr_t * urg_hdr);
 
 #endif

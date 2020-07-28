@@ -63,11 +63,13 @@ gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67gencert $LOPENSSL;
 gcc-8 $FP/pudp.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67pudp $LOPENSSL;
 #gcc-8 $FP/stream.c $DEBUG $FP/wav.c \
 #    -std=c99 -lp67 -o $WD/bin/p67stream $LOPENSSL $OPUS $PULSEAUDIO;
-gcc-8 $FP/rserver.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67rserver_client $LOPENSSL;
+#gcc-8 $FP/rserver.c $DEBUG -std=c99 -lp67 -o $WD/bin/p67rserver_client $LOPENSSL;
 
 FP="$WD/rserver"
 FILES=`find $FP -name "*.c" ! -name "__*"`;
 LPQ=`pkg-config --libs libpq`;
+
+if [ ]; then
 
 gcc-8 \
     $FILES \
@@ -86,5 +88,7 @@ gcc-8 \
     $LPQ \
     -lp67 \
     -o $WD/bin/p67rserver;
+
+fi;
 
 bash $WD/devcert.sh $WD;
