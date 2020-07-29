@@ -5,6 +5,8 @@
 #include <pthread.h>
 #include <arpa/inet.h>
 
+#define p67_cmn_static_assert(test) typedef char __p67sa[( !!(test) )*2-1 ]
+
 #define p67_cmn_ntohs(x) ntohs(x)
 #define p67_cmn_ntohl(x) ntohl(x)
 #define p67_cmn_htons(x) htons(x)

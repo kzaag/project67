@@ -1,3 +1,0 @@
-/*
-    reliable udp based big file transfer protocol
-*/

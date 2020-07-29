@@ -1,18 +1,10 @@
 # Development certificates and keys used in testing.
 
-# Do not use in the production server!!!!
-
-# In the production server it is highly recommended to get in touch with professional CA
-# and obtain some well known root CA certificate.
-
-# hint: if you go with Let's encrypt then you might want to use DST Root CA x3 certficate.
-#            (hint x2: /etc/ssl/certs/DST_Root_CA_X3.pem)
-
-# vattd
+# Do not use in the production server...
 
 set -e
 
-cd $1/bin
+cd $1/bin/test
 
 echo "[req]
 prompt = no
@@ -50,7 +42,7 @@ openssl x509 -req -days 100 -in .csr -CA chain.pem -CAkey ca_private_key \
 
 # ---- begin generate default certs ---- #
 
-./p67gencert > /dev/null;
+./gencert > /dev/null;
 
 # ---- end generate default certs ---- #
 

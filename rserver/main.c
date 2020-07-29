@@ -38,18 +38,19 @@ p67rs_respond_with_err(
 {
     uint32_t serr = p67_cmn_htonl((uint32_t)err);
     unsigned char ackmsg[P67_TLV_HEADER_LENGTH+sizeof(serr)];
-    char ack[sizeof(p67_pudp_ack_hdr_t) + sizeof(ackmsg)];
+    char ack[P67_DMP_PDP_ACK_OFFSET + sizeof(ackmsg)];
 
     if(p67_tlv_add_fragment(
             ackmsg, sizeof(ackmsg), 
             command, (unsigned char *)&serr, sizeof(serr)) < 0)
         return p67_err_einval;
 
-    if((err = p67_pudp_generate_ack(
+    if((err = p67_dmp_pdp_generate_ack_from_msg(
             msg, msgl, 
             ackmsg, sizeof(ackmsg), 
-            ack)) != 0)
+            ack, sizeof(ack))) != 0)
         return err;
+
     if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
         return err;
 
@@ -168,28 +169,23 @@ server_cb(p67_conn_t * conn, const char * const msg, const int msgl, void * args
 {
     const p67_addr_t * addr = p67_conn_get_addr(conn);
     (void)addr;
-    struct p67rs_session * s = (struct p67rs_session *)args;
-    (void)s;
+    // struct p67rs_session * s = (struct p67rs_session *)args;
+    // (void)s;
     p67rs_err err;
-    p67_pudp_all_hdr_t allhdr;
+    const p67_dmp_hdr_store_t * hdr;
 
-    if((err = p67_pudp_parse_msg_hdr(
-                (unsigned char *)msg, msgl, 
-                (p67_pudp_hdr_t *)&allhdr, 
-                &(int){sizeof(allhdr)})) != 0)
-        return err;
+    if((hdr = p67_dmp_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL)
+        return p67_err_epdpf;
  
-    switch(allhdr.hdr.cmn_shdr) {
-    case P67_PUDP_HDR_ACK:
+    switch(p67_cmn_ntohs(hdr->cmn.cmn_stp)) {
+    case P67_DMP_STP_PDP_ACK:
         break;
-    case P67_PUDP_HDR_DAT:
-        break;
-    case P67_PUDP_HDR_URG:
+    case P67_DMP_STP_PDP_URG:
         if((err = p67rs_handle_message(
                     conn, 
                     (const unsigned char *)msg, msgl, 
-                    (unsigned char *)msg+sizeof(p67_pudp_urg_hdr_t), 
-                    msgl-sizeof(p67_pudp_urg_hdr_t))) != 0)
+                    (unsigned char *)msg+sizeof(hdr->urg), 
+                    msgl-sizeof(hdr->urg))) != 0)
             p67rs_err_print_err("Handle message returned error/s: ", err);
         break;
     default:
@@ -226,8 +222,8 @@ main(void)
     p67_net_config_val.c_auth = P67_NET_C_AUTH_TRUST_UNKOWN;
     p67rs_err err = 0;
     p67_conn_pass_t pass = P67_CONN_PASS_INITIALIZER;
-    pass.certpath = "p2pcert.cert";
-    pass.keypath = "p2pcert";
+    pass.certpath = "test/p2pcert.cert";
+    pass.keypath = "test/p2pcert";
     pass.local.rdonly = 1;
     pass.remote.rdonly = 1;
     pass.handler = server_cb;

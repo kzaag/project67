@@ -22,7 +22,7 @@ enum p67_err {
     p67_err_eacodecs = 0x2000,  /* audio codecs error */
     p67_err_etlvf = 0x4000,     /* invalid tlv format */
     p67_err_eot = 0x8000,   /* end of transmission */
-    p67_err_epudpf = 0x10000, /* invalid pudp format */
+    p67_err_epdpf = 0x10000, /* invalid pudp format */
     /* these values can be used for other libraries and executables to define their own errors and handlings */
     p67_err__prev__  = 0xFFFFF,
     p67_err__next__  = 0x100000
