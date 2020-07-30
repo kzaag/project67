@@ -3,6 +3,7 @@
 
 #include "err.h"
 #include <stdint.h>
+#include <limits.h>
 
 /*
     p67 tlv fragment:

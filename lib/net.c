@@ -9,6 +9,7 @@
 #include <sys/time.h>
 #include <errno.h>
 
+#include "hash.h"
 #include "log.h"
 #include "net.h"
 
@@ -62,9 +63,6 @@ p67_conn_t * conn_cache[CONN_CACHE_LEN];
 p67_node_t * node_cache[NODE_CACHE_LEN];
 p67_async_t cache_lock = P67_ASYNC_INTIIALIZER;
 
-#define P67_FH_FNV1_OFFSET (p67_hash_t)0xcbf29ce484222425
-#define P67_FH_FNV1_PRIME (p67_hash_t)0x100000001b3
-
 #define CIPHER "ECDHE-ECDSA-AES256-GCM-SHA384"
 #define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
 
@@ -74,10 +72,7 @@ p67_async_t cache_lock = P67_ASYNC_INTIIALIZER;
 */
 #define ERR_BUFFER_LENGTH 128
 
-
 #define p67_conn_size sizeof(p67_conn_t)
-
-typedef unsigned long p67_hash_t;
 
 /*---BEGIN PRIVATE PROTOTYPES---*/
 
@@ -98,17 +93,14 @@ p67_conn_insert(
 void
 p67_conn_free(void * ptr, int also_free_ptr);
 
-extern inline p67_hash_t
-p67_hash_fn(const __u_char * key, int len);
-
 extern inline p67_err 
-p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl);
+p67_net_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl);
 
 #define p67_conn_insert_existing(conn) \
-    p67_hash_insert(P67_CT_CONN, &(conn)->addr_remote, NULL, (p67_liitem_t *)(conn))
+    p67_net_hash_insert(P67_CT_CONN, &(conn)->addr_remote, NULL, (p67_liitem_t *)(conn))
 
 #define p67_conn_remove(addr) \
-    p67_hash_remove(P67_CT_CONN, addr, NULL, p67_conn_free)
+    p67_net_hash_remove(P67_CT_CONN, addr, NULL, p67_conn_free)
 
 int 
 p67_net_verify_cookie_callback(
@@ -242,20 +234,8 @@ p67_node_free(void * ptr, int also_free_ptr)
     I really dont know which approach is better.
 */
 
-/* fnv 1a */
-inline p67_hash_t
-p67_hash_fn(const __u_char * key, int len)
-{
-    p67_hash_t hash = P67_FH_FNV1_OFFSET;
-    while(len-->0) {
-        hash ^= *(key++);
-        hash *= P67_FH_FNV1_PRIME;
-    }
-    return (hash % CONN_CACHE_LEN);
-}
-
 inline p67_err 
-p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl)
+p67_net_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl)
 {
     if(out == NULL) return p67_err_einval;
 
@@ -276,15 +256,18 @@ p67_hash_get_table(int p67_ct, p67_liitem_t *** out, size_t * outl)
 }
 
 p67_liitem_t * 
-p67_hash_lookup(int p67_ct, const p67_addr_t * key)
+p67_net_hash_lookup(int p67_ct, const p67_addr_t * key)
 {
     p67_liitem_t * ret = NULL, ** cc;
-    p67_hash_t hash = p67_hash_fn((__u_char *)&key->sock, key->socklen);
+    size_t outlen;
 
     if(key == NULL) return NULL;
 
-    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return NULL;
+    if(p67_net_hash_get_table(p67_ct, &cc, &outlen) != 0) return NULL;
     
+    p67_hash_t hash = p67_hash_fn(
+        (__u_char *)&key->sock, key->socklen, outlen);
+
     p67_spinlock_lock(&cache_lock);
 
     for(ret = cc[hash]; ret != NULL; ret = ret->next) {
@@ -299,16 +282,22 @@ p67_hash_lookup(int p67_ct, const p67_addr_t * key)
 }
 
 p67_err
-p67_hash_insert(int p67_ct, const p67_addr_t * key, p67_liitem_t ** ret, p67_liitem_t * prealloc)
+p67_net_hash_insert(
+    int p67_ct, 
+    const p67_addr_t * key, 
+    p67_liitem_t ** ret,
+    p67_liitem_t * prealloc)
 {
     if(key == NULL) return p67_err_einval;
 
-    unsigned long hash = p67_hash_fn((__u_char *)&key->sock, key->socklen);
     p67_liitem_t * r, ** np = NULL;
     p67_liitem_t ** cc;
+    size_t outlen;
 
-    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0)
+    if(p67_net_hash_get_table(p67_ct, &cc, &outlen) != 0)
         return p67_err_einval;
+
+    unsigned long hash = p67_hash_fn((__u_char *)&key->sock, key->socklen, outlen);
 
     r = cc[hash];
     p67_spinlock_lock(&cache_lock);
@@ -381,7 +370,7 @@ p67_conn_insert(
 
     if(p67_addr_dup(&laddr, local) != 0) return p67_err_eerrno;
     
-    if((err = p67_hash_insert(P67_CT_CONN, remote, (p67_liitem_t**)&conn, NULL)) != 0) {
+    if((err = p67_net_hash_insert(P67_CT_CONN, remote, (p67_liitem_t**)&conn, NULL)) != 0) {
         p67_addr_free(&laddr);
         return err;
     }
@@ -418,7 +407,7 @@ p67_node_insert(
         }
     }
 
-    if((err = p67_hash_insert(P67_CT_NODE, addr, (p67_liitem_t**)&node, NULL)) != 0) {
+    if((err = p67_net_hash_insert(P67_CT_NODE, addr, (p67_liitem_t**)&node, NULL)) != 0) {
         return err;
     }
 
@@ -432,21 +421,22 @@ p67_node_insert(
 }
 
 p67_err
-p67_hash_remove(
+p67_net_hash_remove(
         int p67_ct, 
         p67_addr_t * addr, 
-        p67_liitem_t ** out, 
+        p67_liitem_t ** out,
         dispose_callback_t callback)
 {
     if(addr == NULL) return p67_err_einval;
 
     p67_liitem_t * ptr, * prev, ** cc;
-    unsigned long hash = p67_hash_fn((__u_char *)&addr->sock, addr->socklen);
-
+    size_t outlen;
     prev = NULL;
     ptr = NULL;
 
-    if(p67_hash_get_table(p67_ct, &cc, NULL) != 0) return p67_err_einval;
+    if(p67_net_hash_get_table(p67_ct, &cc, &outlen) != 0) return p67_err_einval;
+
+    unsigned long hash = p67_hash_fn((__u_char *)&addr->sock, addr->socklen, outlen);
 
     p67_spinlock_lock(&cache_lock);
 

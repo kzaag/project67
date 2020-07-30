@@ -8,6 +8,7 @@
 #include <p67/dmp/dmp.h>
 #include <p67/dmp/pdp.h>
 #include <p67/dmp/base.h>
+#include <p67/hash.h>
 #include <p67/audio.h>
 //#include <p67/stream.h>
 #include <p67/tlv.h>

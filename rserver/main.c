@@ -169,6 +169,7 @@ server_cb(p67_conn_t * conn, const char * const msg, const int msgl, void * args
 {
     const p67_addr_t * addr = p67_conn_get_addr(conn);
     (void)addr;
+    (void)args;
     // struct p67rs_session * s = (struct p67rs_session *)args;
     // (void)s;
     p67rs_err err;

@@ -1,11 +1,14 @@
 #if !defined NET_H
 #define NET_H
 
+#include <openssl/ssl.h>
+
+#include "hash.h"
 #include "err.h"
 #include "sfd.h"
 #include "cmn.h"
 #include "async.h"
-#include <openssl/ssl.h>
+
 
 typedef struct p67_conn p67_conn_t;
 typedef struct p67_node p67_node_t;
@@ -76,19 +79,19 @@ void
 p67_node_free(void * ptr, int also_free_ptr);
 
 #define p67_conn_lookup(addr) \
-    ((p67_conn_t *)p67_hash_lookup(P67_CT_CONN, (addr)))
+    ((p67_conn_t *)p67_net_hash_lookup(P67_CT_CONN, (addr)))
 
 #define p67_node_lookup(addr) \
-    ((p67_node_t *)p67_hash_lookup(P67_CT_NODE, (addr)))
+    ((p67_node_t *)p67_net_hash_lookup(P67_CT_NODE, (addr)))
 
 p67_liitem_t * 
-p67_hash_lookup(int p67_ct, const p67_addr_t * key);
+p67_net_hash_lookup(int p67_ct, const p67_addr_t * key);
 
 #define p67_conn_is_already_connected(addr) \
     (p67_conn_lookup((addr)) != NULL)
 
 p67_err
-p67_hash_insert(
+p67_net_hash_insert(
     int p67_ct, 
     const p67_addr_t * key, 
     p67_liitem_t ** ret, 
@@ -116,14 +119,14 @@ typedef void (* dispose_callback_t)(void * p, int);
     If callback is provided then item will be disposed and nothing will be placed in *out
 */
 p67_err
-p67_hash_remove(
+p67_net_hash_remove(
         int p67_ct, 
         p67_addr_t * addr, 
         p67_liitem_t ** out, 
         dispose_callback_t callback);
 
 #define p67_node_remove(addr) \
-    p67_hash_remove(P67_CT_NODE, addr, NULL, p67_node_free)
+    p67_net_hash_remove(P67_CT_NODE, addr, NULL, p67_node_free)
 
 p67_err
 p67_net_get_peer_pk(p67_addr_t * addr, char ** pk);
