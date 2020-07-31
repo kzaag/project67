@@ -6,12 +6,15 @@
 
 #include <p67/p67.h>
 
+#define P67RS_SERVER_LOGIN_TAG (unsigned char *)"l\0"
+#define P67RS_SERVER_BWT_TAG (unsigned char *)"bwt"
+
 /*****/
 
 p67rs_err
 p67rs_usermap_add(
     p67rs_usermap_t * usermap,
-    char * username, p67_sockaddr_t * saddr);
+    const char * username, const p67_sockaddr_t * saddr);
 
 const p67rs_usermap_entry_t *
 p67rs_usermap_lookup(
@@ -114,7 +117,7 @@ p67rs_usermap_lookup(
 p67rs_err
 p67rs_usermap_add(
     p67rs_usermap_t * usermap,
-    char * username, p67_sockaddr_t * saddr)
+    const char * username, const p67_sockaddr_t * saddr)
 {
     if(usermap == NULL || usermap->buffer == NULL)
         return p67_err_einval;
@@ -152,6 +155,7 @@ p67rs_usermap_add(
     entry->saddr = *saddr;
     entry->next = NULL;
 
+    p67_spinlock_unlock(&usermap->rwlock);
     return 0;
 }
 
@@ -196,7 +200,7 @@ p67rs_usermap_create(
 }
 
 p67rs_err
-p67rs_respond_with_err(
+p67rs_server_respond_with_err(
     p67_conn_t * conn, p67rs_werr err,
     const unsigned char * command,
     const unsigned char * const msg, int msgl)
@@ -223,6 +227,44 @@ p67rs_respond_with_err(
 }
 
 p67rs_err
+p67rs_server_respond_with_bwt(
+    p67_conn_t * conn,
+    const unsigned char * command,
+    const unsigned char * const msg, int msgl,
+    p67rs_bwt_t * bwt)
+{
+    uint32_t serr = p67_cmn_htonl((uint32_t)0);
+    p67rs_err err;
+    const int status_offset = P67_TLV_HEADER_LENGTH + sizeof(serr);
+    const int bwt_offset = P67_TLV_HEADER_LENGTH + sizeof(*bwt);
+    unsigned char ackmsg[status_offset + bwt_offset];
+    char ack[P67_DMP_PDP_ACK_OFFSET + sizeof(ackmsg)];
+
+    if(p67_tlv_add_fragment(
+            ackmsg, status_offset, 
+            command, 
+            (unsigned char *)&serr, sizeof(serr)) < 0)
+        return p67_err_einval;
+
+    if(p67_tlv_add_fragment(
+            ackmsg+status_offset, sizeof(ackmsg)-status_offset, 
+            P67RS_SERVER_BWT_TAG, 
+            (unsigned char *)bwt, sizeof(*bwt)) < 0)
+        return p67_err_einval;
+
+    if((err = p67_dmp_pdp_generate_ack_from_msg(
+            msg, msgl, 
+            ackmsg, sizeof(ackmsg), 
+            ack, sizeof(ack))) != 0)
+        return err;
+
+    if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
+        return err;
+
+    return 0;
+}
+
+p67rs_err
 p67rs_server_handle_login(
     p67_conn_t * conn, 
     p67rs_server_t * server,
@@ -232,6 +274,9 @@ p67rs_server_handle_login(
     p67rs_err err = 0;
     p67rs_bwt_t bwt;
     p67rs_werr werr = 0;
+    const p67_addr_t * remote = p67_conn_get_addr(conn);
+    if(!remote)
+        return p67_err_einval;
     const unsigned char max_credential_length = 128;
     char 
         username[max_credential_length+1], 
@@ -278,14 +323,32 @@ p67rs_server_handle_login(
         goto end;
     }
 
+    if((err = p67rs_usermap_add(
+            server->usermap, username, &remote->sock)) != 0) {
+        if(err == (p67rs_err)p67_err_eaconn) {
+            // already was added. just update address
+            p67rs_usermap_entry_t * entry;
+            if((entry = (p67rs_usermap_entry_t *)p67rs_usermap_lookup(
+                        server->usermap, username)) == NULL) {
+                werr = p67rs_werr_500;
+                goto end;
+            }
+            entry->saddr = remote->sock;
+            err = 0;
+            goto end;
+        }
+        werr = p67rs_werr_500;
+        goto end;
+    }
+
 end:
     if(err == 0) {
-        return p67rs_respond_with_err(
-                conn, 0, (unsigned char *)"l\0", msg, msgl);
+        return p67rs_server_respond_with_bwt(
+                conn, P67RS_SERVER_LOGIN_TAG, msg, msgl, &bwt);
     } else {
         if(!werr) werr = p67rs_werr_400;
-        return p67rs_respond_with_err(
-                conn, werr, (unsigned char *)"l\0", msg, msgl);
+        return p67rs_server_respond_with_err(
+                conn, werr, P67RS_SERVER_LOGIN_TAG, msg, msgl);
     }
 }
 

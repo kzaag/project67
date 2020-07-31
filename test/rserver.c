@@ -50,7 +50,20 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
                 return err;
             }
             v[vlength] = 0;
-            print_response(k, v, vlength);
+            switch(k[0]) {
+            case 'l':
+                print_response(k, v, vlength);
+                break;
+            case 'b':
+                printf("---- begin BWT token: (%d bytes) ----\n", vlength);
+                for(ix = 0; ix < vlength; ix++) {
+                    printf("%02x", v[ix] & 0xff);
+                    if(ix > 0 && (ix % 14) == 0)
+                        printf("\n");
+                }
+                printf("\n----- end BWT token -----\n");
+                break;
+            }
         }     
         break;
     default:
@@ -101,14 +114,21 @@ p67_err login(p67_conn_pass_t * pass)
 
     p67_async_t sig = P67_ASYNC_INTIIALIZER;
 
+    p67_epoch_t start, end;
+
+    p67_cmn_time_ms(&start);
+
     if((err = p67_dmp_pdp_write_urg(pass, msg, ix, -1, &sig, NULL)) != 0)
         return err;
 
     p67_mutex_wait_for_change(&sig, 0, -1);
 
+    p67_cmn_time_ms(&end);
+
     char buff[64];
     printf(
-        "login PDP status is: %s\n", 
+        "login took %llu ms. PDP status is: %s\n",
+        end-start,
         p67_dmp_pdp_evt_str(buff, sizeof(buff), sig));
 
     return 0;

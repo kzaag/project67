@@ -1,3 +1,5 @@
+#!/bin/sh
+
 # Development certificates and keys used in testing.
 
 # Do not use in the production server...
