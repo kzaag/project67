@@ -595,7 +595,7 @@ __p67_net_enter_read_loop(void * args)
     ssize_t len;
     BIO * bio;
     // if no message arrives for max_rcvto_ms miliseconds then close connection
-    const int max_rcvto_ms = 30000;
+    const int max_rcvto_ms = 10000;
     char rbuff[READ_BUFFER_LENGTH], errbuf[ERR_BUFFER_LENGTH];
     int num_timeouts = 0, max_timeouts, sslr = 1, 
         err, callret, rcvto_ms;
@@ -634,6 +634,7 @@ __p67_net_enter_read_loop(void * args)
                     err = callret;
                     goto end;
                 }
+                num_timeouts = 0;
                 break;
             case SSL_ERROR_WANT_READ:
                 if (BIO_ctrl(bio, BIO_CTRL_DGRAM_GET_RECV_TIMER_EXP, 0, NULL)) {
