@@ -6,6 +6,7 @@
 #include <p67/err.h>
 #include <openssl/hmac.h>
 
+#include "db.h"
 #include "bwt.h"
 #include "err.h"
 
@@ -82,6 +83,44 @@ p67rs_bwt_validate(p67rs_bwt_t * bwt)
 
     if(now > bwt->payload.exp)  
         return p67rs_err_bwt_exp;
+
+    return 0;
+}
+
+p67rs_err
+p67rs_bwt_login_user(
+    p67rs_db_ctx_t * ctx,
+    const char * username,
+    const char * password,
+    p67rs_bwt_t * bwt)
+{
+    p67rs_db_user_hint_t hint;
+    unsigned char hash[P67RS_DB_PASS_HASH_SIZE];
+    p67rs_err err;
+    p67rs_db_user_t * users = NULL;
+    int usersl;
+    
+    if((err = p67rs_db_hash_pass(password, hash)) != 0)
+        return err;
+
+    hint.u_pwd_hash = hash;
+    hint.u_name = (char *)username;
+    hint.u_id = NULL;
+
+    if((err = p67rs_db_user_read(ctx, &hint, &users, &usersl)) != 0)
+        return err;
+
+    if(usersl != 1) {
+        free(users);
+        return p67_err_einval;
+    }
+
+    if((err = p67rs_bwt_create_for_user_days(users, 1, bwt)) != 0) {
+        free(users);
+        return p67_err_einval;
+    }
+
+    free(users);
 
     return 0;
 }

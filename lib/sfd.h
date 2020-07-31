@@ -145,4 +145,10 @@ p67_err
 p67_sfd_get_peer_name(p67_sfd_t sfd, p67_addr_t * __restrict__ addr)
     __nonnull((2));
 
+p67_err
+p67_sfd_set_timeouts(p67_sfd_t sfd, int sndto_ms, int rcvto_ms);
+
+p67_err
+p67_sfd_get_timeouts(p67_sfd_t sfd, int * sndto_ms, int * rcvto_ms);
+
 #endif

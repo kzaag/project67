@@ -23,12 +23,8 @@ struct p67rs_db_ctx {
 void
 p67rs_db_err_set(PGconn * conn);
 
-p67_err
-p67rs_db_hash_pass(const char * password, unsigned char * hash);
-
 p67rs_err
 p67rs_parse_cs(const char * path, char ** cs, int * len);
-
 
 void
 p67rs_db_err_set(PGconn * conn)
@@ -49,13 +45,22 @@ p67rs_db_hash_pass(const char * password, unsigned char * hash)
         #include "salt.h"
     };
 
+    // printf("hashing bytes:\n");
+    // int i = 0;
+    // while(password[i]) {
+    //     printf("%d\n", password[i]);
+    //     i++;
+    // }
+    // printf("done hashing bytes\n");
+
     if(!PKCS5_PBKDF2_HMAC(
                 password, strlen(password), 
                 p67rs_db_salt, sizeof(p67rs_db_salt),
                 1000,
                 EVP_sha3_256(), 
-                sizeof(hash), hash))
+                P67RS_DB_PASS_HASH_SIZE, hash))
         return p67_err_essl;
+
     return 0;
 }
 
@@ -168,13 +173,16 @@ p67rs_db_ctx_create_from_dp_config(p67rs_db_ctx_t ** ctx, const char * config_pa
         goto end;
     }
 
+    err = 0;
+
 end:
     free(cs);
     if(err != 0) {
         free(*ctx);
+        *ctx = NULL;
     }
 
-    return 0;
+    return err;
 }
 
 p67rs_err
@@ -255,26 +263,30 @@ p67rs_db_user_read(
     p67rs_err err;
 
     const char * parameters[] = {
-        hint == NULL ? NULL : (char *)hint->u_id,
-        hint == NULL ? NULL : (char *)hint->u_name
+        hint == NULL || hint->u_id == NULL ? NULL : (char *)hint->u_id,
+        hint == NULL || hint->u_name == NULL ? NULL : (char *)hint->u_name,
+        hint == NULL || hint->u_pwd_hash == NULL ? NULL : (char *)hint->u_pwd_hash
     };
 
     Oid types[] = {
         BYTEAOID,
-        TEXTOID
+        TEXTOID,
+        BYTEAOID,
     };
 
     const int fmts[] = {
         P67RS_DB_PQFMT_BINARY,
-        P67RS_DB_PQFMT_TEXT
+        P67RS_DB_PQFMT_TEXT,
+        P67RS_DB_PQFMT_BINARY
     };
 
     const int lengths[] = {
         hint == NULL || hint->u_id == NULL ? 0 : P67RS_DB_ID_SIZE,
-        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name)
+        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name),
+        hint == NULL || hint->u_pwd_hash == NULL ? 0 : P67RS_DB_PASS_HASH_SIZE
     };
 
-    const int query_len = 128;
+    const int query_len = 159;
     char query[query_len+1];
     int query_ix = 0;
 
@@ -283,6 +295,8 @@ p67rs_db_user_read(
         query_ix += snprintf(query+query_ix, query_len - query_ix, " u_id = $1 and ");
     if(hint != NULL && hint->u_name != NULL)
         query_ix += snprintf(query+query_ix, query_len - query_ix, " u_name = $2 and ");
+    if(hint != NULL && hint->u_pwd_hash != NULL)
+        query_ix += snprintf(query+query_ix, query_len - query_ix, " u_pwd_hash = $3 and ");
     query_ix += snprintf(query+query_ix, query_len - query_ix, " 1=1 ");
 
     query[query_ix] = 0;
@@ -290,7 +304,7 @@ p67rs_db_user_read(
     res = PQexecParams(
         ctx->conn,
         query,
-        2,
+        3,
         types,
         parameters,
         lengths,
@@ -368,30 +382,34 @@ p67rs_db_user_delete(
 {
     PGresult * res;
 
-    if(hint->u_id == NULL && hint->u_name == NULL)
-        return p67_err_einval;
+    //if(hint->u_id == NULL && hint->u_name == NULL)
+    //    return p67_err_einval;
 
     const char * parameters[] = {
         hint == NULL ? NULL : (char *)hint->u_id,
-        hint == NULL ? NULL : (char *)hint->u_name
+        hint == NULL ? NULL : (char *)hint->u_name,
+        hint == NULL ? NULL : (char *)hint->u_pwd_hash,
     };
 
     Oid types[] = {
         BYTEAOID,
-        TEXTOID
+        TEXTOID,
+        BYTEAOID
     };
 
     const int fmts[] = {
         P67RS_DB_PQFMT_BINARY,
-        P67RS_DB_PQFMT_TEXT
+        P67RS_DB_PQFMT_TEXT,
+        P67RS_DB_PQFMT_BINARY
     };
 
     const int lengths[] = {
         hint == NULL || hint->u_id == NULL ? 0 : P67RS_DB_ID_SIZE,
-        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name)
+        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name),
+        hint == NULL || hint->u_pwd_hash == NULL ? 0 : P67RS_DB_PASS_HASH_SIZE
     };
 
-    const int query_len = 128;
+    const int query_len = 159;
     char query[query_len+1];
     int query_ix = 0;
 
@@ -400,6 +418,8 @@ p67rs_db_user_delete(
         query_ix += snprintf(query+query_ix, query_len - query_ix, " u_id = $1 and ");
     if(hint != NULL && hint->u_name != NULL)
         query_ix += snprintf(query+query_ix, query_len - query_ix, " u_name = $2 and ");
+    if(hint != NULL && hint->u_pwd_hash != NULL)
+        query_ix += snprintf(query+query_ix, query_len - query_ix, " u_pwd_hash = $3 and ");
     query_ix += snprintf(query+query_ix, query_len - query_ix, " 1=1 ");
 
     query[query_ix] = 0;
@@ -407,7 +427,7 @@ p67rs_db_user_delete(
     res = PQexecParams(
         ctx->conn,
         query,
-        2,
+        3,
         types,
         parameters,
         lengths,

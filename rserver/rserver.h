@@ -27,7 +27,6 @@ typedef struct p67rs_usermap {
 typedef struct p67rs_server {
     p67rs_usermap_t  * usermap;
     p67rs_db_ctx_t   * db_ctx;
-    p67_conn_pass_t  * conn;
 } p67rs_server_t;
 
 p67rs_err
@@ -38,19 +37,7 @@ p67rs_usermap_create(
 void
 p67rs_usermap_free(p67rs_usermap_t * usermap);
 
-p67rs_err
-p67rs_usermap_add(
-    p67rs_usermap_t * usermap,
-    char * username, p67_sockaddr_t * saddr);
-
-const p67rs_usermap_entry_t *
-p67rs_usermap_lookup(
-    p67rs_usermap_t * usermap,
-    char * username);
-
-p67_err
-p67rs_usermap_remove(
-    p67rs_usermap_t * usermap,
-    char * username);
+void
+p67rs_server_setup_pass(p67_conn_pass_t * pass, p67rs_server_t * server);
 
 #endif

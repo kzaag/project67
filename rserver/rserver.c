@@ -1,9 +1,55 @@
 #include "rserver.h"
+#include "bwt.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#include <p67/hash.h>
+#include <p67/p67.h>
+
+/*****/
+
+p67rs_err
+p67rs_usermap_add(
+    p67rs_usermap_t * usermap,
+    char * username, p67_sockaddr_t * saddr);
+
+const p67rs_usermap_entry_t *
+p67rs_usermap_lookup(
+    p67rs_usermap_t * usermap,
+    char * username);
+
+p67_err
+p67rs_usermap_remove(
+    p67rs_usermap_t * usermap,
+    char * username);
+
+p67rs_err
+p67rs_respond_with_err(
+    p67_conn_t * conn, p67rs_werr err,
+    const unsigned char * command,
+    const unsigned char * const msg, int msgl);
+    
+p67rs_err
+p67rs_server_handle_command(
+    p67_conn_t * conn, 
+    p67rs_server_t * server,
+    const unsigned char * const msg, const int msgl,
+    const unsigned char * payload, int payloadl);
+
+p67rs_err
+p67rs_server_handle_login(
+    p67_conn_t * conn, 
+    p67rs_server_t * server,
+    const unsigned char * const msg, int msgl,
+    const unsigned char * payload, int payload_len);
+
+p67_err
+p67rs_server_cb(
+    p67_conn_t * conn, 
+    const char * const msg, const int msgl, 
+    void * args);
+
+/*****/
 
 p67_err
 p67rs_usermap_remove(
@@ -147,4 +193,175 @@ p67rs_usermap_create(
     *usermap = up;
 
     return 0;
+}
+
+p67rs_err
+p67rs_respond_with_err(
+    p67_conn_t * conn, p67rs_werr err,
+    const unsigned char * command,
+    const unsigned char * const msg, int msgl)
+{
+    uint32_t serr = p67_cmn_htonl((uint32_t)err);
+    unsigned char ackmsg[P67_TLV_HEADER_LENGTH+sizeof(serr)];
+    char ack[P67_DMP_PDP_ACK_OFFSET + sizeof(ackmsg)];
+
+    if(p67_tlv_add_fragment(
+            ackmsg, sizeof(ackmsg), 
+            command, (unsigned char *)&serr, sizeof(serr)) < 0)
+        return p67_err_einval;
+
+    if((err = p67_dmp_pdp_generate_ack_from_msg(
+            msg, msgl, 
+            ackmsg, sizeof(ackmsg), 
+            ack, sizeof(ack))) != 0)
+        return err;
+
+    if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
+        return err;
+
+    return 0;
+}
+
+p67rs_err
+p67rs_server_handle_login(
+    p67_conn_t * conn, 
+    p67rs_server_t * server,
+    const unsigned char * const msg, int msgl,
+    const unsigned char * payload, int payload_len)
+{
+    p67rs_err err = 0;
+    p67rs_bwt_t bwt;
+    p67rs_werr werr = 0;
+    const unsigned char max_credential_length = 128;
+    char 
+        username[max_credential_length+1], 
+        password[max_credential_length+1];
+    unsigned char 
+                tmp[max_credential_length],
+                key[P67_TLV_KEY_LENGTH],
+                cbufl;
+    int state = 0;
+
+    while(1) {
+
+        cbufl = max_credential_length;
+
+        if((err = p67_tlv_get_next_fragment(
+                    &payload, &payload_len, key, tmp, &cbufl)) < 0) {
+            err=-err;
+            goto end;
+        }
+
+        switch(key[0]) {
+        case 'u':
+            memcpy(username, tmp, cbufl);
+            username[cbufl] = 0;
+            state++;
+            break;
+        case 'p':
+            memcpy(password, tmp, cbufl);
+            password[cbufl] = 0;
+            state++;
+            break;
+        default:
+            err = p67_err_etlvf;
+            goto end;
+        }
+
+        if(state == 2)
+            break;
+    }
+
+    if((err = p67rs_bwt_login_user(
+                server->db_ctx, username, password, &bwt)) != 0) {
+        werr = p67rs_werr_401;
+        goto end;
+    }
+
+end:
+    if(err == 0) {
+        return p67rs_respond_with_err(
+                conn, 0, (unsigned char *)"l\0", msg, msgl);
+    } else {
+        if(!werr) werr = p67rs_werr_400;
+        return p67rs_respond_with_err(
+                conn, werr, (unsigned char *)"l\0", msg, msgl);
+    }
+}
+
+p67rs_err
+p67rs_server_handle_command(
+    p67_conn_t * conn, 
+    p67rs_server_t * server,
+    const unsigned char * const msg, const int msgl,
+    const unsigned char * payload, int payloadl)
+{
+    p67rs_err err;
+    unsigned char command_key[P67_TLV_KEY_LENGTH], nobytes = payloadl;
+
+    if((err = p67_tlv_get_next_fragment(
+                &payload, 
+                &payloadl, 
+                command_key, 
+                NULL, 
+                &nobytes)) != 0)
+        return err;
+
+    if(nobytes != 0) {
+        printf(
+            "WARN in handle message, "\
+                "expected path specifier to be 0 bytes long. Got: %d.\n",
+            nobytes);
+    }
+
+    switch(command_key[0]) {
+    case 'l':
+        return p67rs_server_handle_login(
+            conn, server, msg, msgl, payload, payloadl);
+    case 'r':
+    default:
+        return p67_err_einval;
+    }
+}
+
+p67_err
+p67rs_server_cb(
+    p67_conn_t * conn, 
+    const char * const msg, const int msgl, 
+    void * args)
+{
+    // const p67_addr_t * addr = p67_conn_get_addr(conn);
+    // (void)addr;
+    p67rs_server_t * server = (p67rs_server_t *)args;
+    if(server == NULL)
+        return p67_err_einval;
+    p67rs_err err;
+    const p67_dmp_hdr_store_t * hdr;
+
+    if((hdr = p67_dmp_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL)
+        return p67_err_epdpf;
+ 
+    switch(p67_cmn_ntohs(hdr->cmn.cmn_stp)) {
+    case P67_DMP_STP_PDP_ACK:
+        break;
+    case P67_DMP_STP_PDP_URG:
+        if((err = p67rs_server_handle_command(
+                    conn, server,
+                    (const unsigned char *)msg, msgl, 
+                    (unsigned char *)msg+sizeof(hdr->urg), 
+                    msgl-sizeof(hdr->urg))) != 0)
+            p67rs_err_print_err("Handle message returned error/s: ", err);
+        break;
+    default:
+        break;
+    }
+
+    return 0;
+}
+
+void
+p67rs_server_setup_pass(p67_conn_pass_t * pass, p67rs_server_t * server)
+{
+    pass->handler = p67rs_server_cb;
+    pass->args = server;
 }

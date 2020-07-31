@@ -594,17 +594,28 @@ __p67_net_enter_read_loop(void * args)
 {
     ssize_t len;
     BIO * bio;
+    // if no message arrives for max_rcvto_ms miliseconds then close connection
+    const int max_rcvto_ms = 30000;
     char rbuff[READ_BUFFER_LENGTH], errbuf[ERR_BUFFER_LENGTH];
-    int num_timeouts = 0, max_timeouts = 5, sslr = 1, err, callret;
+    int num_timeouts = 0, max_timeouts, sslr = 1, 
+        err, callret, rcvto_ms;
     p67_conn_t * conn = (p67_conn_t *)args;
+    p67_sfd_t sfd;
 
     p67_err_mask_all(err);
     
     if((bio = SSL_get_rbio(conn->ssl)) == NULL) goto end;
     
+    if((sfd = SSL_get_fd(conn->ssl)) < 0) goto end;
+
+    if(p67_sfd_get_timeouts(sfd, NULL, &rcvto_ms) != 0)
+        goto end;
+
+    max_timeouts = max_rcvto_ms / rcvto_ms;
+
     DLOG("Entering read loop\n");
 
-    while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN && num_timeouts < max_timeouts)) {
+    while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) && num_timeouts < max_timeouts) {
         sslr = 1;
         while(sslr) {
             if(conn->hread.state != P67_THREAD_SM_STATE_RUNNING) {
@@ -613,7 +624,6 @@ __p67_net_enter_read_loop(void * args)
             }
 
             len = SSL_read(conn->ssl, rbuff, READ_BUFFER_LENGTH);
-
             err = SSL_get_error(conn->ssl, len);
 
             switch (err) {
@@ -961,7 +971,10 @@ __p67_net_accept(void * args)
 
     p67_err_mask_all(err);
 
-    if(p67_net_bio_set_timeout(rbio, P67_DEFAULT_TIMEOUT_MS) != 0) goto end;
+    if(p67_sfd_set_timeouts(sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS) != 0)
+        goto end;
+
+    //if(p67_net_bio_set_timeout(rbio, P67_DEFAULT_TIMEOUT_MS) != 0) goto end;
 
     do {
         ret = SSL_accept(pass->ssl);
@@ -1019,6 +1032,7 @@ p67_net_connect(p67_conn_pass_t * pass)
 {
     int sfd, noclose;
     p67_err err;
+    int sslerr;
     SSL * ssl = NULL;
     BIO * bio = NULL;
     SSL_CTX * ctx = NULL;
@@ -1070,12 +1084,26 @@ p67_net_connect(p67_conn_pass_t * pass)
 
     SSL_set_bio(ssl, bio, bio);
 
-    p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
+    if(p67_sfd_set_timeouts(sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS) != 0)
+        goto end;
+    //p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
 
-    if (SSL_connect(ssl) != 1) goto end;
+    if ((sslerr = SSL_connect(ssl)) != 1) {
+        /*
+            i found it very tricky to try to recover DTLS connection 
+                after one side crashes without sending close_notify ( SSL_shutdown ) or due to truncation attack.
+            right now solution is to define rcv timeout, after which connection can be set anew;
+            its not perfect since one side will have to wait for considerable amount of time
+        */
+        
+        // if(SSL_get_error(ssl, sslerr) == SSL_ERROR_WANT_READ) {
+        //     //SSL_shutdown(ssl);
+        // }
+        goto end;
+    }
 
     if(pass->gen_args != NULL)
-        args = pass->gen_args();
+        args = pass->gen_args(pass->args);
     else
         args = pass->args;
 
@@ -1606,7 +1634,7 @@ p67_net_listen(p67_conn_pass_t * pass)
             DLOG("Accepting %s:%s...\n", conn->addr_remote.hostname, conn->addr_remote.service);
             conn->callback = pass->handler;
             if(pass->gen_args != NULL)
-                conn->args = pass->gen_args();
+                conn->args = pass->gen_args(pass->args);
             else
                 conn->args = pass->args;
             conn->free_args = pass->free_args;

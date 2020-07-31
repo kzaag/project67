@@ -28,4 +28,11 @@ p67rs_bwt_create_for_user_days(
 p67rs_err
 p67rs_bwt_validate(p67rs_bwt_t * bwt);
 
+p67rs_err
+p67rs_bwt_login_user(
+    p67rs_db_ctx_t * ctx,
+    const char * username,
+    const char * password,
+    p67rs_bwt_t * bwt);
+
 #endif

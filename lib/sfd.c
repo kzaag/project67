@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <poll.h>
 #include <errno.h>
+#include <sys/time.h>
 
 #include "sfd.h"
 
@@ -470,4 +471,46 @@ p67_sfd_get_peer_name(p67_sfd_t sfd, p67_addr_t * addr)
         return p67_err_eerrno;
 
     return p67_addr_set_sockaddr(addr, &sockaddr, len);
+}
+
+p67_err
+p67_sfd_set_timeouts(p67_sfd_t sfd, int sndto_ms, int rcvto_ms)
+{
+    struct timeval tv;
+
+    if(sndto_ms > 0) {
+        tv.tv_sec = sndto_ms / 1000;
+        tv.tv_usec = (sndto_ms % 1000) * 1e3;
+        if(setsockopt(sfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) < 0)
+            return p67_err_eerrno;
+    }
+
+    if(rcvto_ms > 0) {
+        tv.tv_sec = rcvto_ms / 1000;
+        tv.tv_usec = (rcvto_ms % 1000) * 1e3;
+        if(setsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+            return p67_err_eerrno;
+    }
+
+    return 0;
+}
+
+p67_err
+p67_sfd_get_timeouts(p67_sfd_t sfd, int * sndto_ms, int * rcvto_ms)
+{
+    struct timeval tv;
+
+    if(sndto_ms) {
+        if(getsockopt(sfd, SOL_SOCKET, SO_SNDTIMEO, &tv, &(socklen_t){sizeof(tv)}) < 0)
+            return p67_err_eerrno;
+        *sndto_ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+    }
+
+    if(rcvto_ms) {
+        if(getsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &tv, &(socklen_t){sizeof(tv)}) < 0)
+            return p67_err_eerrno;
+        *rcvto_ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+    }
+
+    return 0;
 }

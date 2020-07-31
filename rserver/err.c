@@ -15,6 +15,10 @@ p67rs_werr_print_status(const char * hdr, p67rs_werr err)
         fprintf(stderr, "%sBad Request\n", hdr);
     }
 
+    if(err & p67rs_werr_401) {
+        fprintf(stderr, "%sUnauthorized\n", hdr);
+    }
+
     if(err & p67rs_werr_500) {
         fprintf(stderr, "%sInternal Server Error\n", hdr);
     }

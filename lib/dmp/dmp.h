@@ -10,7 +10,7 @@
 /*
     datagrams multiplexing protocol
 
-    used to add certain TCP/SCTP-like functionalities 
+    used to add certain TCP/SCTP-like functionalities to udp
       
 */
 

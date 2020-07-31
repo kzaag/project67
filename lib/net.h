@@ -19,7 +19,7 @@ typedef struct p67_liitem p67_liitem_t;
 
 typedef p67_err (* p67_conn_callback_t)(p67_conn_t * conn, const char *, int, void *); 
 
-typedef void * (* p67_conn_gen_args_cb)(void);
+typedef void * (* p67_conn_gen_args_cb)(void *);
 typedef void (* p67_conn_free_args_cb)(void *);
 
 #define P67_CONN_PASS_INITIALIZER {0}

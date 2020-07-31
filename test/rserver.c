@@ -17,7 +17,7 @@ print_response(unsigned char * key, unsigned char * value, int vlength)
 
     err = p67_cmn_ntohl(*(uint32_t *)value);
 
-    printf("response status for %.*s = %d.\n", P67_TLV_KEY_LENGTH, key, err);
+    printf("response status for command: %.*s = %d.\n", P67_TLV_KEY_LENGTH, key, err);
 
     return 0;
 }
@@ -83,23 +83,33 @@ p67_err login(p67_conn_pass_t * pass)
     ix += err;
     msgp+=err;
 
-    #define USER "vattd"
+    #define USER "test"
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "u\0", USER, sizeof(USER))) < 0)
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "u\0", USER, sizeof(USER)-1)) < 0)
         return -err;
     ix += err;
     msgp+=err;
 
-    #define PASS "123" 
+    #define PASS "test" 
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "p\0", PASS, sizeof(PASS))) < 0)
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "p\0", PASS, sizeof(PASS)-1)) < 0)
         return -err;
     ix += err;
     msgp+=err;
 
+    printf("attempting login with credentials: username=%s password=%s\n", USER, PASS);
 
-    if((err = p67_dmp_pdp_write_urg(pass, msg, ix, -1, NULL, NULL)) != 0)
+    p67_async_t sig = P67_ASYNC_INTIIALIZER;
+
+    if((err = p67_dmp_pdp_write_urg(pass, msg, ix, -1, &sig, NULL)) != 0)
         return err;
+
+    p67_mutex_wait_for_change(&sig, 0, -1);
+
+    char buff[64];
+    printf(
+        "login PDP status is: %s\n", 
+        p67_dmp_pdp_evt_str(buff, sizeof(buff), sig));
 
     return 0;
 }
@@ -107,8 +117,7 @@ p67_err login(p67_conn_pass_t * pass)
 void
 finish(int sig)
 {
-
-    p67_lib_free();
+    //p67_lib_free();
     raise(sig);
 }
 
@@ -155,3 +164,31 @@ end:
     p67_lib_free();
     if(err == 0) return 0; else return 2;
 }
+
+// struct p67rs_session {
+//     int sessid;
+//     p67_async_t state;
+// };
+
+// volatile int sessid = 0;
+
+// void * create_rs_session(void * args);
+// void * create_rs_session(void * args)
+// {
+//     (void)args;
+    
+//     struct p67rs_session * p = calloc(1, sizeof(struct p67rs_session));
+//     if(p == NULL) {
+//         p67_err_print_err("ERR in create client session: ", p67_err_eerrno);
+//         exit(2);
+//     }
+//     p->sessid=(sessid++);
+//     return p;
+// }
+
+// void free_rs_session(void * s);
+// void free_rs_session(void * s)
+// {
+//     free(s);
+// }
+
