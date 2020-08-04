@@ -98,7 +98,7 @@ p67_pdp_write_urg(
     if(hdr->urg_stp != P67_DML_STP_PDP_URG)
         return p67_err_einval;
 
-    uint32_t mid = p67_cmn_ntohl(hdr->urg_mid);
+    uint16_t mid = p67_cmn_ntohs(hdr->urg_mid);
 
     if(pudp.state == P67_THREAD_SM_STATE_STOP)
         if((err = p67_pdp_start_loop()) != 0 && err != p67_err_eaconn)
@@ -301,7 +301,7 @@ pdp_loop(void * args)
 
 end:
     if(err != 0)
-        p67_err_print_err("pUdp loop: ", err);
+        p67_err_print_err("error[s] occured in PDP loop: ", err);
     p67_mutex_set_state(&_pudp->state, P67_THREAD_SM_STATE_SIG_STOP, P67_THREAD_SM_STATE_STOP);
     p67_mutex_set_state(&_pudp->state, P67_THREAD_SM_STATE_RUNNING, P67_THREAD_SM_STATE_STOP);
     return NULL;

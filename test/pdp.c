@@ -89,7 +89,8 @@ main(int argc, char ** argv)
     unsigned char * res;
     int resl;
     
-    if((err = p67_pdp_write_urg(&pass.remote, msg, sizeof(msg), 0, &sigterm, (void **)&res, &resl)) != 0)
+    if((err = p67_pdp_write_urg(
+                &pass.remote, msg, sizeof(msg), 0, &sigterm, (void **)&res, &resl)) != 0)
         goto end; 
 
     if((err = p67_mutex_wait_for_change(&sigterm, P67_PDP_EVT_NONE, -1)) != 0)
@@ -109,7 +110,7 @@ main(int argc, char ** argv)
     err = p67_net_async_terminate(&pass);
 
 end:
-    if(err != 0) p67_err_print_err("Error occurred: ", err);
+    if(err != 0) p67_err_print_err("Error[s] occurred in main: ", err);
     p67_lib_free();
     if(err == 0) return 0; else return 2;
 }
