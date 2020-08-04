@@ -1,5 +1,5 @@
-#if !defined(P67_DMP_PDP_H)
-#define P67_DMP_PDP_H 1
+#if !defined(P67_PDP_H)
+#define P67_PDP_H 1
 
 /*
     persistent datagrams protocol (pdp) implementation
@@ -10,48 +10,48 @@
 #include "base.h"
 #include <stdint.h>
 
-#define __p67_dmp_pdp_message_id(prefix) \
-    uint32_t prefix##mid;
+#define __p67_pdp_message_id(prefix) \
+    uint16_t prefix##mid;
 
 /*
     acknowledgement message header. 
 */
-typedef struct p67_dmp_pdp_ack_hdr {
-    __p67_dmp_hdr_common(ack_)
-    __p67_dmp_pdp_message_id(ack_)
-} p67_dmp_pdp_ack_hdr_t;
+typedef struct p67_pdp_ack_hdr {
+    __p67_dml_hdr_common(ack_)
+    __p67_pdp_message_id(ack_)
+} p67_pdp_ack_hdr_t;
 
-#define P67_DMP_PDP_ACK_OFFSET (sizeof(p67_dmp_pdp_ack_hdr_t))
+#define P67_PDP_ACK_OFFSET (sizeof(p67_pdp_ack_hdr_t))
 
 /*
     URG ( urgent ) message header
 */
-typedef struct p67_dmp_pdp_urg_hdr {
-    __p67_dmp_hdr_common(urg_)
-    __p67_dmp_pdp_message_id(urg_)
-} p67_dmp_pdp_urg_hdr_t;
+typedef struct p67_pdp_urg_hdr {
+    __p67_dml_hdr_common(urg_)
+    __p67_pdp_message_id(urg_)
+} p67_pdp_urg_hdr_t;
 
-#define P67_DMP_PDP_URG_OFFSET (sizeof(p67_dmp_pdp_urg_hdr_t))
+#define P67_PDP_URG_OFFSET (sizeof(p67_pdp_urg_hdr_t))
 
-extern uint32_t * p67_dmp_pdp_mid_location(void) __attribute_const__;
+extern uint16_t * p67_pdp_mid_location(void) __attribute_const__;
 
-#define p67_dmp_pdp_mid (*p67_dmp_pdp_mid_location())
+#define p67_pdp_mid (*p67_pdp_mid_location())
 
 /*
     pudp event types used in URG-ACK communication model
 */
-#define P67_DMP_PDP_EVT_NONE    0
-#define P67_DMP_PDP_EVT_GOT_ACK 1
-#define P67_DMP_PDP_EVT_TIMEOUT 2
-#define P67_DMP_PDP_EVT_ERROR   3
+#define P67_PDP_EVT_NONE    0
+#define P67_PDP_EVT_GOT_ACK 1
+#define P67_PDP_EVT_TIMEOUT 2
+#define P67_PDP_EVT_ERROR   3
 
 /*
     pudp message queue inode statuses
     message queue is used to keep URG messages and rretransmission them when needed.
 */
-#define P67_DMP_PDP_ISTATE_FREE 0
-#define P67_DMP_PDP_ISTATE_PASS 1
-#define P67_DMP_PDP_ISTATE_ACTV 2
+#define P67_PDP_ISTATE_FREE 0
+#define P67_PDP_ISTATE_PASS 1
+#define P67_PDP_ISTATE_ACTV 2
 
 /*
     callback of this type, can be optionally passed when sending URG message
@@ -60,20 +60,20 @@ extern uint32_t * p67_dmp_pdp_mid_location(void) __attribute_const__;
     arg value will vary depending on EVT, 
         for P67_PUDP_EVT_ERROR this will be pointer to p67_err value with details.
 */
-typedef void (* p67_dmp_pdp_callback_t)(
-        p67_conn_pass_t * pass, int p67_pudp_evt, void * arg);
+// typedef void (* p67_pdp_callback_t)(
+//         p67_conn_pass_t * pass, int p67_pudp_evt, void * arg);
 
 /*
     retransmission loop will be awoken at least P67_PUDP_INTERV miliseconds.
     can be more often depending on messages registrations.
 */
-#define P67_DMP_PDP_INTERV 200
-#define P67_DMP_PDP_TTL_DEF 2500
+#define P67_PDP_INTERV 200
+#define P67_PDP_TTL_DEF 2500
 
 p67_err
-p67_dmp_pdp_write_urg(
+p67_pdp_write_urg(
             /* context */
-            p67_conn_pass_t * pass, 
+            p67_addr_t * addr, 
             const uint8_t * msg, 
             int msgl, 
             /* 
@@ -85,22 +85,21 @@ p67_dmp_pdp_write_urg(
                 async handler which user can use to await for message being rejected or sent.
             */
             p67_async_t * termsig,
-            /*
-                see p67_pudp_callback_t comment
-            */
-            p67_dmp_pdp_callback_t cb);
+            
+            void ** res,
+            int * resl);
 
 p67_err
-p67_dmp_pdp_start_loop(void);
+p67_pdp_start_loop(void);
 
 p67_err
-p67_dmp_pdp_generate_ack_from_hdr(
-        const p67_dmp_pdp_urg_hdr_t * srchdr,
+p67_pdp_generate_ack_from_hdr(
+        const p67_pdp_urg_hdr_t * srchdr,
         const unsigned char * ackpayload, int ackpayloadl,
         char * dstmsg, int dstmsgl);
 
 p67_err
-p67_dmp_pdp_generate_ack_from_msg(
+p67_pdp_generate_ack(
         /* URG message */
         const unsigned char * srcmsg, int srcmsgl, 
         /* optional ACK message payload, pass NULL and 0 to ignore */
@@ -112,8 +111,8 @@ p67_dmp_pdp_generate_ack_from_msg(
     return pointer pointing to header of the message, 
         or null on error ( p67_err_einval )
 */
-const p67_dmp_pdp_urg_hdr_t *
-p67_dmp_pdp_generate_urg_for_msg(
+const p67_pdp_urg_hdr_t *
+p67_pdp_generate_urg_for_msg(
     char * urg_payload, int urg_payload_l,
     char * dst_msg, int dst_msg_l,
     uint16_t urg_utp);
@@ -123,14 +122,15 @@ p67_dmp_pdp_generate_urg_for_msg(
     make buff about 32 bytes should be enough.
 */
 char *
-p67_dmp_pdp_evt_str(char * buff, int buffl, int evt);
+p67_pdp_evt_str(char * buff, int buffl, int evt);
 
 p67_err
-p67_dmp_pdp_write_ack_for_urg(
+p67_pdp_write_ack_for_urg(
     p67_conn_t * conn, 
-    const p67_dmp_pdp_urg_hdr_t * urg_hdr);
+    const p67_pdp_urg_hdr_t * urg_hdr);
 
 p67_err
-p67_dmp_pdp_urg_remove(uint32_t id);
+p67_pdp_urg_remove(
+    uint32_t id, unsigned char * msg, int msgl);
 
 #endif

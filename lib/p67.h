@@ -5,9 +5,9 @@
 #include <p67/cmn.h>
 #include <p67/log.h>
 #include <p67/net.h>
-#include <p67/dmp/dmp.h>
-#include <p67/dmp/pdp.h>
-#include <p67/dmp/base.h>
+#include <p67/dml/dml.h>
+#include <p67/dml/pdp.h>
+#include <p67/dml/base.h>
 #include <p67/hash.h>
 #include <p67/audio.h>
 //#include <p67/stream.h>

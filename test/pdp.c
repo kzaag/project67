@@ -7,25 +7,19 @@ p67_err
 process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
 {
     p67_err err;
-    const p67_dmp_hdr_store_t * hdr;
+    const p67_dml_hdr_store_t * hdr;
 
-    if((hdr = p67_dmp_parse_hdr((const unsigned char *)msg, msgl, &err)) == NULL)
+    if((hdr = p67_dml_parse_hdr((const unsigned char *)msg, msgl, &err)) == NULL)
         return err;
 
-    printf("got: %d\n", msgl);
-
     switch (p67_cmn_ntohs(hdr->cmn.cmn_stp)) {
-    case P67_DMP_STP_PDP_ACK:
-        printf("ACK received with payload (%d bytes): \"%.*s\"\n", 
-            msgl-P67_DMP_PDP_ACK_OFFSET, 
-            msgl-P67_DMP_PDP_ACK_OFFSET, 
-            msg+P67_DMP_PDP_ACK_OFFSET);
+    case P67_DML_STP_PDP_ACK:
         break;
-    case P67_DMP_STP_PDP_URG:
+    case P67_DML_STP_PDP_URG:
         printf("URG received with payload (%d bytes): \"%.*s\"\n", 
-            msgl-P67_DMP_PDP_URG_OFFSET, 
-            msgl-P67_DMP_PDP_URG_OFFSET, 
-            msg+P67_DMP_PDP_URG_OFFSET);
+            msgl-P67_PDP_URG_OFFSET, 
+            msgl-P67_PDP_URG_OFFSET, 
+            msg+P67_PDP_URG_OFFSET);
         break;
     default:
         printf("Unknown message received with payload (%d bytes): %.*s\n", 
@@ -33,15 +27,15 @@ process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
         break;
     }
 
-    return p67_dmp_handle_msg(conn, msg, msgl, NULL);
+    return p67_dml_handle_msg(conn, msg, msgl, NULL);
 }
 
 void
 pudp_evt_callback(p67_conn_pass_t * pass, int evt, void * arg)
 {
     char buff[120];
-    printf("EVT: %s\n", p67_dmp_pdp_evt_str(buff, sizeof(buff), evt));
-    if(evt == P67_DMP_PDP_EVT_ERROR) {
+    printf("EVT: %s\n", p67_pdp_evt_str(buff, sizeof(buff), evt));
+    if(evt == P67_PDP_EVT_ERROR) {
         p67_err_print_err("err: ", *(p67_err*)arg);
     }
 }
@@ -52,7 +46,7 @@ main(int argc, char ** argv)
     p67_conn_pass_t pass = P67_CONN_PASS_INITIALIZER;
     p67_err err;
     int len;
-    int sigterm = P67_DMP_PDP_EVT_NONE;
+    int sigterm = P67_PDP_EVT_NONE;
     
     char keypath[] = "p2pcert";
     char certpath[] = "p2pcert.cert";
@@ -85,21 +79,30 @@ main(int argc, char ** argv)
 #define MSG "hellow"
 #define MSGL (sizeof(MSG) - 1)
 
-    char msg[sizeof(p67_dmp_pdp_urg_hdr_t) + MSGL];
+    char msg[sizeof(p67_pdp_urg_hdr_t) + MSGL];
 
-    if(p67_dmp_pdp_generate_urg_for_msg(MSG, MSGL, msg, sizeof(msg), 0) == NULL) {
+    if(p67_pdp_generate_urg_for_msg(MSG, MSGL, msg, sizeof(msg), 0) == NULL) {
         err = p67_err_einval;
         goto end;
     }
+
+    unsigned char * res;
+    int resl;
     
-    if((err = p67_dmp_pdp_write_urg(&pass, msg, sizeof(msg), 0, &sigterm, pudp_evt_callback)) != 0)
+    if((err = p67_pdp_write_urg(&pass.remote, msg, sizeof(msg), 0, &sigterm, (void **)&res, &resl)) != 0)
         goto end; 
 
-    if((err = p67_mutex_wait_for_change(&sigterm, P67_DMP_PDP_EVT_NONE, -1)) != 0)
+    if((err = p67_mutex_wait_for_change(&sigterm, P67_PDP_EVT_NONE, -1)) != 0)
         goto end;
 
-    char buff[120];
-    printf("\nFinished with status: %s.\n\n", p67_dmp_pdp_evt_str(buff, sizeof(buff), sigterm));
+    if(sigterm == P67_PDP_EVT_GOT_ACK) {
+        p67_dml_pretty_print(res, resl);
+        free(res);
+    } else {
+        char buff[120];
+        printf("\nFinished with status: %s.\n", 
+            p67_pdp_evt_str(buff, sizeof(buff), sigterm));
+    }
 
     getchar();
 

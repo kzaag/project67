@@ -613,7 +613,7 @@ __p67_net_enter_read_loop(void * args)
 
     max_timeouts = max_rcvto_ms / rcvto_ms;
 
-    DLOG("Entering read loop\n");
+    //DLOG("Entering read loop\n");
 
     while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) && num_timeouts < max_timeouts) {
         sslr = 1;
@@ -658,7 +658,7 @@ __p67_net_enter_read_loop(void * args)
     }
 
     end:
-    DLOG("Leaving read loop\n");
+    //DLOG("Leaving read loop\n");
     p67_mutex_set_state(
             &conn->hread.state, 
             P67_THREAD_SM_STATE_RUNNING, 

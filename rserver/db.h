@@ -15,7 +15,10 @@ typedef struct p67rs_db_user {
 
 typedef struct p67rs_db_user_hint {
     unsigned char * u_id;
+    
     char * u_name;
+    int u_name_l;
+
     unsigned char * u_pwd_hash;
 } p67rs_db_user_hint_t;
 
@@ -30,6 +33,10 @@ p67rs_db_ctx_free(p67rs_db_ctx_t * ctx);
 
 char *
 p67rs_db_err_get(void);
+
+p67_err
+p67rs_db_hash_pass(
+    const char * password, int passwordl, unsigned char * hash);
 
 p67rs_err
 p67rs_db_user_create(
@@ -46,7 +53,10 @@ p67rs_db_user_read(
     p67rs_db_user_t ** users, 
     int * usersl);
 
-p67_err
-p67rs_db_hash_pass(const char * password, unsigned char * hash);
+p67rs_err
+p67rs_db_user_validate_pass(
+    p67rs_db_ctx_t * ctx,
+    char * username, int usernamel,
+    unsigned char * password, int passwordl);
 
 #endif

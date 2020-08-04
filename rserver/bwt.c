@@ -100,11 +100,12 @@ p67rs_bwt_login_user(
     p67rs_db_user_t * users = NULL;
     int usersl;
     
-    if((err = p67rs_db_hash_pass(password, hash)) != 0)
+    if((err = p67rs_db_hash_pass(password, strlen(password), hash)) != 0)
         return err;
 
     hint.u_pwd_hash = hash;
     hint.u_name = (char *)username;
+    hint.u_name_l = strlen(username);
     hint.u_id = NULL;
 
     if((err = p67rs_db_user_read(ctx, &hint, &users, &usersl)) != 0)

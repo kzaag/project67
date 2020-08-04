@@ -156,7 +156,7 @@ end:
 
 /*
     Assign connected peer to connection using address
-    Method is not thread safe
+    function is not thread safe
 */
 p67_err
 p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sal)

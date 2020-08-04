@@ -39,7 +39,7 @@ p67rs_db_err_get(void)
 }
 
 p67_err
-p67rs_db_hash_pass(const char * password, unsigned char * hash)
+p67rs_db_hash_pass(const char * password, int passwordl, unsigned char * hash)
 {
     static const unsigned char p67rs_db_salt[] = {
         #include "salt.h"
@@ -54,7 +54,7 @@ p67rs_db_hash_pass(const char * password, unsigned char * hash)
     // printf("done hashing bytes\n");
 
     if(!PKCS5_PBKDF2_HMAC(
-                password, strlen(password), 
+                password, passwordl, 
                 p67rs_db_salt, sizeof(p67rs_db_salt),
                 1000,
                 EVP_sha3_256(), 
@@ -200,7 +200,8 @@ p67rs_db_user_create(
     if(!RAND_bytes(id, sizeof(id)))
         return p67_err_essl | p67_err_eerrno;
 
-    if((err  = p67rs_db_hash_pass(user->pass_cstr, hash)) != 0)
+    if((err  = p67rs_db_hash_pass(
+                user->pass_cstr, strlen(user->pass_cstr), hash)) != 0)
         return err;
     
     const char * parameters[] = {
@@ -282,7 +283,7 @@ p67rs_db_user_read(
 
     const int lengths[] = {
         hint == NULL || hint->u_id == NULL ? 0 : P67RS_DB_ID_SIZE,
-        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name),
+        hint == NULL || hint->u_name == NULL ? 0 : hint->u_name_l,
         hint == NULL || hint->u_pwd_hash == NULL ? 0 : P67RS_DB_PASS_HASH_SIZE
     };
 
@@ -377,6 +378,34 @@ end:
 }
 
 p67rs_err
+p67rs_db_user_validate_pass(
+    p67rs_db_ctx_t * ctx,
+    char * username, int usernamel,
+    unsigned char * password, int passwordl)
+{
+    unsigned char hash[P67RS_DB_PASS_HASH_SIZE];
+    p67rs_err err;
+    p67rs_db_user_hint_t hint;
+    int check;
+
+    if((err = p67rs_db_hash_pass((char *)password, passwordl, hash)) != 0)
+        return err;
+
+    hint.u_name = username;
+    hint.u_name_l = usernamel;
+    hint.u_pwd_hash = hash;
+    hint.u_id = NULL;
+
+    if((err = p67rs_db_user_read(ctx, &hint, NULL, &check)) != 0)
+        return err;
+
+    if(check != 1)
+        return p67_err_einval;
+
+    return 0;
+}
+
+p67rs_err
 p67rs_db_user_delete(
     p67rs_db_ctx_t * ctx, const p67rs_db_user_hint_t * hint)
 {
@@ -405,7 +434,7 @@ p67rs_db_user_delete(
 
     const int lengths[] = {
         hint == NULL || hint->u_id == NULL ? 0 : P67RS_DB_ID_SIZE,
-        hint == NULL || hint->u_name == NULL ? 0 : strlen(hint->u_name),
+        hint == NULL || hint->u_name == NULL ? 0 : hint->u_name_l,
         hint == NULL || hint->u_pwd_hash == NULL ? 0 : P67RS_DB_PASS_HASH_SIZE
     };
 

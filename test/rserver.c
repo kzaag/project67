@@ -6,18 +6,18 @@
 #define T_WHITE "\033[0m"
 
 p67_err
-print_response(unsigned char * key, unsigned char * value, int vlength)
+print_status(const p67_tlv_header_t * header, const unsigned char * value)
 {
-    uint32_t err;
+    uint16_t err;
 
-    if(vlength != sizeof(err)) {
-        printf("Unkown response format\n");
+    if(header->key[0] != 's' || header->vlength != sizeof(err)) {
+        printf("Unkown status format\n");
         return 0;
     }
 
-    err = p67_cmn_ntohl(*(uint32_t *)value);
+    err = p67_cmn_ntohl(*(uint16_t *)value);
 
-    printf("response status for command: %.*s = %d.\n", P67_TLV_KEY_LENGTH, key, err);
+    printf("response status: %u.\n", err);
 
     return 0;
 }
@@ -27,37 +27,29 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
 {
     const p67_addr_t * addr = p67_conn_get_addr(conn);
     p67_err err;
-    const p67_dmp_hdr_store_t * hdr;
+    const p67_dml_hdr_store_t * hdr;
 
-    if((hdr = p67_dmp_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL)
+    if((hdr = p67_dml_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL)
         return err;
 
     const unsigned char * msgp = (unsigned char *)(msg + sizeof(*hdr));
+    const unsigned char * value;
+    const p67_tlv_header_t * header;
     int msgpl = msgl-sizeof(*hdr);
-    unsigned char 
-                v[P67_TLV_VALUE_MAX_LENGTH + 1], 
-                k[P67_TLV_KEY_LENGTH],
-                vlength,
-                ix;
+    uint8_t ix;
 
     switch(p67_cmn_ntohs(hdr->cmn.cmn_stp)) {
-    case P67_DMP_STP_PDP_ACK:
-        while(1) {
-            vlength = P67_TLV_VALUE_MAX_LENGTH;
-            err = p67_tlv_get_next_fragment(&msgp, &msgpl, k, v, &vlength);
-            if(err != 0) {
-                if(err == p67_err_eot) break;
-                return err;
-            }
-            v[vlength] = 0;
-            switch(k[0]) {
-            case 'l':
-                print_response(k, v, vlength);
+    case P67_DML_STP_PDP_ACK:
+        while((err = p67_tlv_next(&msgp, &msgpl, &header, &value)) == 0) {
+        
+            switch(header->key[0]) {
+            case 's':
+                print_status(header, value);
                 break;
             case 'b':
-                printf("---- begin BWT token: (%d bytes) ----\n", vlength);
-                for(ix = 0; ix < vlength; ix++) {
-                    printf("%02x", v[ix] & 0xff);
+                printf("---- begin BWT token: (%d bytes) ----\n", header->vlength);
+                for(ix = 0; ix < header->vlength; ix++) {
+                    printf("%02x", value[ix] & 0xff);
                     if(ix > 0 && (ix % 14) == 0)
                         printf("\n");
                 }
@@ -65,12 +57,14 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
                 break;
             }
         }     
-        break;
+        
+        if(err == p67_err_eot) break;
+        return err;
     default:
         return p67_err_einval;
     }
 
-    return p67_dmp_handle_msg(conn, msg, msgl, NULL);
+    return p67_dml_handle_msg(conn, msg, msgl, NULL);
 }
 
 p67_err login(p67_conn_pass_t * pass)
@@ -82,11 +76,11 @@ p67_err login(p67_conn_pass_t * pass)
     unsigned char * msgp = msg;
     int ix = 0;
 
-    if(p67_dmp_pdp_generate_urg_for_msg(NULL, 0, msgp, len, 0) == NULL)
+    if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, len, 0) == NULL)
         return p67_err_einval;
 
-    msgp += P67_DMP_PDP_URG_OFFSET;
-    ix += P67_DMP_PDP_URG_OFFSET;
+    msgp += P67_PDP_URG_OFFSET;
+    ix += P67_PDP_URG_OFFSET;
     
     if(ix >= len)
         return p67_err_enomem;
@@ -118,7 +112,7 @@ p67_err login(p67_conn_pass_t * pass)
 
     p67_cmn_time_ms(&start);
 
-    if((err = p67_dmp_pdp_write_urg(pass, msg, ix, -1, &sig, NULL)) != 0)
+    if((err = p67_pdp_write_urg(&pass->remote, msg, ix, -1, &sig, NULL, NULL)) != 0)
         return err;
 
     p67_mutex_wait_for_change(&sig, 0, -1);
@@ -129,7 +123,7 @@ p67_err login(p67_conn_pass_t * pass)
     printf(
         "login took %llu ms. PDP status is: %s\n",
         end-start,
-        p67_dmp_pdp_evt_str(buff, sizeof(buff), sig));
+        p67_pdp_evt_str(buff, sizeof(buff), sig));
 
     return 0;
 }
