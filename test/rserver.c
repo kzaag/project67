@@ -15,7 +15,7 @@ print_status(const p67_tlv_header_t * header, const unsigned char * value)
         return 0;
     }
 
-    err = p67_cmn_ntohl(*(uint16_t *)value);
+    err = p67_cmn_ntohs(*(uint16_t *)value);
 
     printf("response status: %u.\n", err);
 
@@ -32,13 +32,15 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
     if((hdr = p67_dml_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL)
         return err;
 
+    p67_dml_pretty_print(msg, msgl);
+
     const unsigned char * msgp = (unsigned char *)(msg + sizeof(*hdr));
     const unsigned char * value;
     const p67_tlv_header_t * header;
     int msgpl = msgl-sizeof(*hdr);
     uint8_t ix;
 
-    switch(p67_cmn_ntohs(hdr->cmn.cmn_stp)) {
+    switch(hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
         while((err = p67_tlv_next(&msgp, &msgpl, &header, &value)) == 0) {
         
@@ -58,11 +60,18 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
             }
         }     
         
-        if(err == p67_err_eot) break;
-        return err;
+        if(err == p67_err_eot) {
+            err = 0;
+            break;
+        }
+        err = p67_err_etlvf;
     default:
-        return p67_err_einval;
+        err = p67_err_epdpf;
+        return 0;
     }
+
+    if(err != 0)
+        p67_err_print_err("process message: ", err);
 
     return p67_dml_handle_msg(conn, msg, msgl, NULL);
 }
@@ -76,7 +85,7 @@ p67_err login(p67_conn_pass_t * pass)
     unsigned char * msgp = msg;
     int ix = 0;
 
-    if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, len, 0) == NULL)
+    if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, len, 'l') == NULL)
         return p67_err_einval;
 
     msgp += P67_PDP_URG_OFFSET;

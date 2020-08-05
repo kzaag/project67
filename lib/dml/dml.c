@@ -8,7 +8,6 @@ p67_dml_parse_hdr(
 {
     p67_dml_hdr_store_t * hdr;
     p67_err __err = 0;
-    uint16_t stp;
 
     // assign val to the __err variable and jump to the end if cnd is true
     #define ejmp(cnd, val) \
@@ -20,9 +19,7 @@ p67_dml_parse_hdr(
 
     ejmp((long unsigned)msg_size < sizeof(hdr->cmn), p67_err_epdpf);
 
-    stp = p67_cmn_ntohs(hdr->cmn.cmn_stp);
-
-    switch(stp) {
+    switch(hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
         ejmp((long unsigned)msg_size < sizeof(hdr->ack), p67_err_epdpf);
         break;
@@ -56,19 +53,16 @@ p67_dml_handle_msg(
     p67_err err = 0;
     int wh = 0;
     const p67_dml_hdr_store_t * msg_hdr;
-    uint16_t stp;
 
     if((msg_hdr = p67_dml_parse_hdr(
                 (unsigned char *)msg, msgl, NULL)) == NULL)
         return p67_err_epdpf;
 
-    stp = p67_cmn_ntohs(msg_hdr->cmn.cmn_stp);
-
-    switch(stp) {
+    switch(msg_hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
         /* ACKs remove URG messages from pending queue */
         err = p67_pdp_urg_remove(
-                p67_cmn_ntohl(msg_hdr->ack.ack_mid), 
+                p67_cmn_ntohs(msg_hdr->ack.ack_mid), 
                 (unsigned char *)msg, msgl);
         if(err == 0) 
             wh = 1;
@@ -79,7 +73,7 @@ p67_dml_handle_msg(
         err = p67_pdp_write_ack_for_urg(conn, &msg_hdr->urg);
         break;
     case P67_DML_STP_DAT:
-        /* DATs are effectively NOOPs on DMP layer */
+        /* DATs are effectively NOOPs on DML */
         break;
     default:
         err = p67_err_einval;
@@ -87,7 +81,7 @@ p67_dml_handle_msg(
     }
 
     if(err != 0){
-        p67_err_print_err("ERR in pudp handle message: ", err);
+        p67_err_print_err("error/s occured in dml handle message: ", err);
         return 0;
     }
 
@@ -103,31 +97,28 @@ p67_dml_pretty_print(const unsigned char * msg, int msgl)
 {
     const p67_dml_hdr_store_t * hdr;
     p67_err err;
-    uint16_t stp;
 
     if((hdr = p67_dml_parse_hdr(msg, msgl, &err)) == NULL)
         return err;
-    
-    stp = p67_cmn_ntohs(hdr->cmn.cmn_stp);
 
-    switch(stp) {
+    switch(hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
-        printf("ACK, utp: %d. Payload (%d bytes): %.*s\n", 
-            p67_cmn_ntohs(hdr->cmn.cmn_utp),
+        printf("ACK, utp: %d, payload (%d bytes): %.*s\n", 
+            hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_pdp_ack_hdr_t),
             msgl-(int)sizeof(p67_pdp_ack_hdr_t),
             msg+sizeof(p67_pdp_ack_hdr_t));
         break;
     case P67_DML_STP_PDP_URG:
-        printf("URG, utp: %d. Payload (%d bytes): %.*s\n", 
-            p67_cmn_ntohs(hdr->cmn.cmn_utp),
+        printf("URG, utp: %d, payload (%d bytes): %.*s\n", 
+            hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_pdp_urg_hdr_t),
             msgl-(int)sizeof(p67_pdp_urg_hdr_t),
             msg+sizeof(p67_pdp_urg_hdr_t));
         break;
     case P67_DML_STP_DAT:
-        printf("DAT, utp: %d. Payload (%d bytes): %.*s\n", 
-            p67_cmn_ntohs(hdr->cmn.cmn_utp),
+        printf("DAT, utp: %d, payload (%d bytes): %.*s\n", 
+            hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_dml_dat_hdr_t),
             msgl-(int)sizeof(p67_dml_dat_hdr_t),
             msg+sizeof(p67_dml_dat_hdr_t));

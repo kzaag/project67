@@ -115,7 +115,7 @@ const p67_pdp_urg_hdr_t *
 p67_pdp_generate_urg_for_msg(
     char * urg_payload, int urg_payload_l,
     char * dst_msg, int dst_msg_l,
-    uint16_t urg_utp);
+    uint8_t urg_utp);
 
 /*
     returns human representation of P67_PUDP_EVT_*
@@ -131,6 +131,6 @@ p67_pdp_write_ack_for_urg(
 
 p67_err
 p67_pdp_urg_remove(
-    uint32_t id, unsigned char * msg, int msgl);
+    uint16_t id, unsigned char * msg, int msgl);
 
 #endif

@@ -12,7 +12,7 @@ process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
     if((hdr = p67_dml_parse_hdr((const unsigned char *)msg, msgl, &err)) == NULL)
         return err;
 
-    switch (p67_cmn_ntohs(hdr->cmn.cmn_stp)) {
+    switch (hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
         break;
     case P67_DML_STP_PDP_URG:
@@ -100,7 +100,7 @@ main(int argc, char ** argv)
         p67_dml_pretty_print(res, resl);
         free(res);
     } else {
-        char buff[120];
+        char buff[32];
         printf("\nFinished with status: %s.\n", 
             p67_pdp_evt_str(buff, sizeof(buff), sigterm));
     }

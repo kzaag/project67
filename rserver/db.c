@@ -259,17 +259,17 @@ p67rs_db_user_read(
     p67rs_db_user_t ** users, 
     int * usersl)
 {
+    p67rs_err err;
     PGresult * res;
     int rsize, ix;
-    p67rs_err err;
 
     const char * parameters[] = {
-        hint == NULL || hint->u_id == NULL ? NULL : (char *)hint->u_id,
-        hint == NULL || hint->u_name == NULL ? NULL : (char *)hint->u_name,
-        hint == NULL || hint->u_pwd_hash == NULL ? NULL : (char *)hint->u_pwd_hash
+        hint == NULL || hint->u_id == NULL ? NULL : (const char *)hint->u_id,
+        hint == NULL || hint->u_name == NULL ? NULL : (const char *)hint->u_name,
+        hint == NULL || hint->u_pwd_hash == NULL ? NULL : (const char *)hint->u_pwd_hash
     };
 
-    Oid types[] = {
+    const Oid types[] = {
         BYTEAOID,
         TEXTOID,
         BYTEAOID,
@@ -277,7 +277,7 @@ p67rs_db_user_read(
 
     const int fmts[] = {
         P67RS_DB_PQFMT_BINARY,
-        P67RS_DB_PQFMT_TEXT,
+        P67RS_DB_PQFMT_BINARY,
         P67RS_DB_PQFMT_BINARY
     };
 

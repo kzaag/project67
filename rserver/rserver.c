@@ -52,13 +52,6 @@ p67rs_server_handle_command(
     const unsigned char * const msg, const int msgl,
     const unsigned char * payload, int payloadl);
 
-p67rs_err
-p67rs_server_handle_login(
-    p67_conn_t * conn, 
-    p67rs_server_t * server,
-    const unsigned char * const msg, int msgl,
-    const unsigned char * payload, int payload_len);
-
 p67_err
 p67rs_server_cb(
     p67_conn_t * conn, 
@@ -213,17 +206,17 @@ p67rs_usermap_create(
 
 p67rs_err
 p67rs_server_respond_with_err(
-    p67_conn_t * conn, p67rs_werr err,
-    const unsigned char * command,
+    p67_conn_t * conn, p67rs_werr werr,
     const unsigned char * const msg, int msgl)
 {
-    uint32_t serr = p67_cmn_htonl((uint32_t)err);
+    uint16_t serr = p67_cmn_htons((uint16_t)werr);
+    p67rs_err err;
     unsigned char ackmsg[P67_TLV_HEADER_LENGTH+sizeof(serr)];
     char ack[P67_PDP_ACK_OFFSET + sizeof(ackmsg)];
 
     if(p67_tlv_add_fragment(
             ackmsg, sizeof(ackmsg), 
-            command, (unsigned char *)&serr, sizeof(serr)) < 0)
+            (unsigned char *)"s", (unsigned char *)&serr, sizeof(serr)) < 0)
         return p67_err_einval;
 
     if((err = p67_pdp_generate_ack(
@@ -238,43 +231,43 @@ p67rs_server_respond_with_err(
     return 0;
 }
 
-p67rs_err
-p67rs_server_respond_with_bwt(
-    p67_conn_t * conn,
-    const unsigned char * command,
-    const unsigned char * const msg, int msgl,
-    p67rs_bwt_t * bwt)
-{
-    uint32_t serr = p67_cmn_htonl((uint32_t)0);
-    p67rs_err err;
-    const int status_offset = P67_TLV_HEADER_LENGTH + sizeof(serr);
-    const int bwt_offset = P67_TLV_HEADER_LENGTH + sizeof(*bwt);
-    unsigned char ackmsg[status_offset + bwt_offset];
-    char ack[P67_PDP_ACK_OFFSET + sizeof(ackmsg)];
+// p67rs_err
+// p67rs_server_respond_with_bwt(
+//     p67_conn_t * conn,
+//     const unsigned char * command,
+//     const unsigned char * const msg, int msgl,
+//     p67rs_bwt_t * bwt)
+// {
+//     uint32_t serr = p67_cmn_htonl((uint32_t)0);
+//     p67rs_err err;
+//     const int status_offset = P67_TLV_HEADER_LENGTH + sizeof(serr);
+//     const int bwt_offset = P67_TLV_HEADER_LENGTH + sizeof(*bwt);
+//     unsigned char ackmsg[status_offset + bwt_offset];
+//     char ack[P67_PDP_ACK_OFFSET + sizeof(ackmsg)];
 
-    if(p67_tlv_add_fragment(
-            ackmsg, status_offset, 
-            command, 
-            (unsigned char *)&serr, sizeof(serr)) < 0)
-        return p67_err_einval;
+//     if(p67_tlv_add_fragment(
+//             ackmsg, status_offset, 
+//             command, 
+//             (unsigned char *)&serr, sizeof(serr)) < 0)
+//         return p67_err_einval;
 
-    if(p67_tlv_add_fragment(
-            ackmsg+status_offset, sizeof(ackmsg)-status_offset, 
-            P67RS_SERVER_BWT_TAG, 
-            (unsigned char *)bwt, sizeof(*bwt)) < 0)
-        return p67_err_einval;
+//     if(p67_tlv_add_fragment(
+//             ackmsg+status_offset, sizeof(ackmsg)-status_offset, 
+//             P67RS_SERVER_BWT_TAG, 
+//             (unsigned char *)bwt, sizeof(*bwt)) < 0)
+//         return p67_err_einval;
 
-    if((err = p67_pdp_generate_ack(
-            msg, msgl, 
-            ackmsg, sizeof(ackmsg), 
-            ack, sizeof(ack))) != 0)
-        return err;
+//     if((err = p67_pdp_generate_ack(
+//             msg, msgl, 
+//             ackmsg, sizeof(ackmsg), 
+//             ack, sizeof(ack))) != 0)
+//         return err;
 
-    if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
-        return err;
+//     if((err = p67_net_must_write_conn(conn, ack, sizeof(ack))) != 0)
+//         return err;
 
-    return 0;
-}
+//     return 0;
+// }
 
 
 // p67rs_err
@@ -478,7 +471,7 @@ p67rs_server_respond_with_bwt(
 p67rs_err
 p67rs_server_handle_login(
     p67_conn_t * conn, 
-    p67rs_server_t * server,
+    p67rs_server_session_t * sess,
     const unsigned char * const msg, int msgl,
     const unsigned char * payload, int payload_len)
 {
@@ -494,13 +487,12 @@ p67rs_server_handle_login(
     int state = 0;
     const p67_tlv_header_t * tlv_hdr;
 
-
     while((err = p67_tlv_next(
             &payload, &payload_len, &tlv_hdr, &tlv_value)) == 0) {
 
         switch(tlv_hdr->key[0]) {
         case 'u':
-            if(tlv_hdr->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH) {
+            if(tlv_hdr->vlength < 1 || tlv_hdr->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH) {
                 werr = p67rs_werr_400;
                 goto end;
             }
@@ -509,7 +501,7 @@ p67rs_server_handle_login(
             state |= 1;
             break;
         case 'p':
-            if(tlv_hdr->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH) {
+            if(tlv_hdr->vlength < 1 || tlv_hdr->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH) {
                 werr = p67rs_werr_400;
                 goto end;
             }
@@ -526,7 +518,7 @@ p67rs_server_handle_login(
     }
 
     if((err = p67rs_db_user_validate_pass(
-                server->db_ctx, 
+                sess->server->db_ctx, 
                 username, usernamel, 
                 password, passwordl)) != 0) {
         werr = p67rs_werr_401;
@@ -534,10 +526,11 @@ p67rs_server_handle_login(
     }
 
     if((err = p67rs_usermap_add(
-            server->usermap, 
+            sess->server->usermap, 
             username, usernamel, 
             &remote->sock)) != 0) {
         if(err == (p67rs_err)p67_err_eaconn) {
+            err = 0;
             // p67rs_usermap_entry_t * entry;
             // if((entry = (p67rs_usermap_entry_t *)p67rs_usermap_lookup(
             //             server->usermap, username)) == NULL) {
@@ -545,16 +538,31 @@ p67rs_server_handle_login(
             //     goto end;
             // }
             // entry->saddr = remote->sock;
-            err = 0;
+        } else {
+            werr = p67rs_werr_500;
             goto end;
         }
-        werr = p67rs_werr_500;
-        goto end;
     }
 
+    if(sess->username == NULL || 
+            ( ( strlen(sess->username) != usernamel) && 
+                memcmp(sess->username, username, usernamel)) ) {
+        char * susername;
+        if((susername = malloc(usernamel+1)) == NULL) {
+            werr = p67rs_werr_500;
+            goto end;
+        }
+
+        memcpy(susername, username, usernamel);
+        susername[usernamel] = 0;
+
+        free(sess->username);
+        sess->username = susername;
+    }
+
+
 end:
-    return p67rs_server_respond_with_err(
-                conn, werr, P67RS_SERVER_LOGIN_TAG, msg, msgl);
+    return p67rs_server_respond_with_err(conn, werr, msg, msgl);
 }
 
 p67_err
@@ -563,15 +571,18 @@ p67rs_server_cb(
     const char * const msg, const int msgl, 
     void * args)
 {
-    p67rs_server_t * server = (p67rs_server_t *)args;
-    if(server == NULL)
+    p67rs_server_session_t * sess = (p67rs_server_session_t *)args;
+    if(sess == NULL)
         return p67_err_einval;
+    const p67_addr_t * peer = p67_conn_get_addr(conn);
     p67rs_err err;
     const p67_dml_hdr_store_t * hdr;
     int handled = 0;
 
-    if((hdr = p67_dml_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL)
+    if((hdr = p67_dml_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL) {
+        printf("Couldnt parse dml header\n");
         return p67_err_epdpf;
+    }
  
     switch(hdr->cmn.cmn_stp) {
     // case P67_DML_STP_PDP_ACK:
@@ -581,7 +592,7 @@ p67rs_server_cb(
         switch(hdr->cmn.cmn_utp) {
         case P67RS_SERVER_PATH_LOGIN:
             if((err = p67rs_server_handle_login(
-                    conn, server,
+                    conn, sess,
                     (const unsigned char *)msg, msgl, 
                     (unsigned char *)msg+sizeof(hdr->urg), 
                     msgl-sizeof(hdr->urg))) != 0) {
@@ -591,7 +602,10 @@ p67rs_server_cb(
                 handled = 1;
             break;
         default:
-            break;
+            printf(
+                "handler %s:%s: 404 for utp=%u\n", 
+                peer->hostname, peer->service, hdr->cmn.cmn_utp);
+            return p67_err_einval;
         }
         
         break;
@@ -599,12 +613,13 @@ p67rs_server_cb(
         break;
     }
 
-    if(handled)
+    if(handled) {
         return 0;
-    else
-        if((err = p67_dml_handle_msg(conn, msg, msgl, NULL)) != 0) {
+    } else {
+        if((err = p67_dml_handle_msg(conn, msg, msgl, NULL)) != 0 && err != (p67rs_err)p67_err_eagain) {
             p67rs_err_print_err("handle dml returned error/s: ", err);
         }
+    }
     return 0;
 }
 

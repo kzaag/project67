@@ -14,7 +14,7 @@ typedef struct p67_pdp_inode {
     /* index in the underlying hash table */
     size_t index; 
     /* id of this message. */
-    unsigned int iid;
+    uint16_t iid;
     unsigned int size; /* size of the pudp_data chunk */
     unsigned int ttl;  /* inode timeout ( in miliseconds ) */
     unsigned long long lt; /* time when inode was initialized */
@@ -194,7 +194,7 @@ p67_pdp_start_loop(void)
 
 p67_err
 p67_pdp_urg_remove(
-    uint32_t id, 
+    uint16_t id, 
     unsigned char * msg, int msgl)
 {
     int state;
@@ -312,7 +312,7 @@ const p67_pdp_urg_hdr_t *
 p67_pdp_generate_urg_for_msg(
     char * urg_payload, int urg_payload_l,
     char * dst_msg, int dst_msg_l,
-    uint16_t urg_utp)
+    uint8_t urg_utp)
 {
     p67_pdp_urg_hdr_t * urghdr;
 
