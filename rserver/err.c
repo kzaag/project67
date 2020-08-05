@@ -22,6 +22,14 @@ p67rs_werr_print_status(const char * hdr, p67rs_werr err)
     if(err & p67rs_werr_500) {
         fprintf(stderr, "%sInternal Server Error\n", hdr);
     }
+
+    if(err & p67rs_werr_eacall) {
+        fprintf(stderr, "%sAlready calling\n", hdr);
+    }
+
+    if(err & p67rs_werr_ecall) {
+        fprintf(stderr, "%sCall failed\n", hdr);
+    }
 }
 
 void

@@ -13,7 +13,7 @@ enum p67rs_err {
 typedef enum p67rs_err p67rs_err;
 
 /*
-    HTTP-like webserver status codes
+    RS status codes
 */
 enum p67rs_werr {
     p67rs_werr_200 = 0,
@@ -21,6 +21,8 @@ enum p67rs_werr {
     p67rs_werr_404 = 0x4,
     p67rs_werr_500 = 0x8,
     p67rs_werr_401 = 0x10,
+    p67rs_werr_eacall = 0x20,
+    p67rs_werr_ecall   = 0x40
 };
 
 typedef enum p67rs_werr p67rs_werr;

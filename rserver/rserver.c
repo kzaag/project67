@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include <p67/p67.h>
 
@@ -270,203 +271,261 @@ p67rs_server_respond_with_err(
 // }
 
 
-// p67rs_err
-// p67rs_server_handle_call(
-//     p67_conn_t * conn, 
-//     p67rs_server_t * server,
-//     const unsigned char * const msg, int msgl,
-//     const unsigned char * payload, int payload_len)
-// {
-//     /*
-//         src tries to call dst
-//     */
+p67rs_err
+p67rs_server_handle_call(
+    p67_conn_t * conn, 
+    p67rs_server_t * server,
+    const unsigned char * const msg, int msgl,
+    const unsigned char * payload, int payload_len)
+{
+    /*
+        src tries to call dst
+    */
 
-//     p67rs_err err = 0;
-//     uint16_t werr = 0;
-//     const p67rs_usermap_entry_t * entry;
-//     const p67_addr_t * call_src_addr = p67_conn_get_addr(conn);
-//     if(!call_src_addr)
-//         return p67_err_einval;
-//     unsigned char 
-//                 val[P67_TLV_VALUE_MAX_LENGTH],
-//                 key[P67_TLV_KEY_LENGTH],
-//                 vlength;
-//     char dst[P67RS_SERVER_MAX_CREDENTIAL_LENGTH+1];
-//     p67_addr_t dst_addr;
-//     const char * username = NULL;
-//     int state = 0;
+    p67rs_err err = 0;
+    uint16_t werr = 0;
+    const p67rs_usermap_entry_t * entry;
 
-//     while(1) {
-//         vlength = P67_TLV_VALUE_MAX_LENGTH;
-//         if((err = p67_tlv_get_next_fragment(
-//                     &payload, &payload_len, key, val, &vlength)) != 0) {
-//             err=-err;
-//             goto end;
-//         }
+    const unsigned char * tlv_value;
+    unsigned char tlv_vlength;
+    const p67_tlv_header_t * tlv_header;
 
-//         switch(key[0]) {
-//         case 't':
-//             memcpy(dst, val, vlength);
-//             dst[vlength] = 0;
-//             state++;
-//             break;
-//         default:
-//             break;
-//         }
+    struct {
+        const char * username;
+        uint16_t port;
+        const char * name;
+        p67_addr_t addr;
+    } src_call_peer, dst_call_peer;
 
-//     }
-
-//     if(state < 1) {
-//         err = p67_err_einval;
-//         goto end;
-//     }
-
-//     if((entry = p67rs_usermap_lookup(server->usermap, dst)) == NULL) {
-//         err = p67_err_enconn;
-//         goto end;
-//     }
-
-//     if((err = p67_addr_set_sockaddr(
-//                 &dst_addr, &entry->saddr, sizeof(entry->saddr))) != 0) {
-//         goto end;
-//     }
+    const char * hint;
+    int hintl;
+    const p67_addr_t * tmpaddr = p67_conn_get_addr(conn);
+    if(!tmpaddr) return p67_err_einval;
     
-//     if((entry = p67rs_usermap_lookup(server->usermap, username)) == NULL) {
-//         // right now user is allowed to call someone even if not logged in.
-//         // err = p67_err_enconn;
-//         // goto end;
-//     }
+    int tlv_state = 0;
 
-//     unsigned char callbuf[180];
-//     const int callbuf_size = 180;
-//     int call_rq_ix = 0;
-//     p67_async_t crt = P67_PDP_EVT_NONE;
+    /*
+        $1:
+        
+        src executes call request to RS with following parameters: 
+            (encoded in tlv fragments)
+        s = <src port>     | optional
+        N = <dst name>     | name of destination object
+        h = hint           | optional encouragment message passed to dst
+
+    */
+
+    while((err = p67_tlv_next(&payload, &payload_len, &tlv_header, &tlv_value)) == 0) {
+        switch(tlv_header->key[0]) {
+        case 's':
+            if(tlv_header->vlength != 2)
+                break;
+            src_call_peer.port = p67_cmn_ntohs(*(uint16_t *)tlv_value);
+            tlv_state |= 1;
+            break;
+        case 'N':
+            if(tlv_header->vlength == 0 || tlv_header->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH)
+                break;
+            dst_call_peer.username = tlv_value;
+            tlv_state |= 2;
+            break;
+        case 'h':
+            hint = tlv_value;
+            hintl = tlv_vlength;
+            tlv_state |= 4;
+            break;
+        }
+        if(tlv_state & (1 | 2 | 4))
+            break;
+    }
+
+    if(err == p67_err_eot) err = 0;
+    if(err != 0) {
+        werr = p67rs_werr_400;
+        goto end;
+    }
     
-//     /* add 'call' command tag */
-//     if((err = p67_tlv_add_fragment(
-//                 callbuf+call_rq_ix, callbuf_size-call_rq_ix,
-//                 "c", "c", 1)) != 0) {
-//         err=-err;
-//         goto end;
-//     } else {
-//         call_rq_ix+=err;
-//     }
+    if(!(tlv_state & 2)) {
+        err = p67_err_einval;
+        werr = p67rs_werr_400;
+        goto end;
+    }
 
-//     /* 
-//         if src is logged in then add username tag.
-//     */
-//     if(username) {
-//         if((err = p67_tlv_add_fragment(
-//                     callbuf+call_rq_ix, callbuf_size-call_rq_ix, 
-//                     "u", 
-//                     username, strlen(username)) <= 0)) {
-//             err=-err;
-//             goto end;
-//         } else {
-//             call_rq_ix+=err;
-//         }
-//     }
+    if((entry = p67rs_usermap_lookup(server->usermap, dst_call_peer.username)) == NULL) {
+        err = p67_err_enconn;
+        werr = p67rs_werr_ecall;
+        goto end;
+    }
 
-//     /*
-//         add target about src address
-//     */
-//     if((err = p67_tlv_add_fragment(
-//                 callbuf+call_rq_ix, callbuf_size-call_rq_ix,
-//                 "a",
-//                 (unsigned char *)&call_src_addr->sock, call_src_addr->socklen)) != 0) {
-//         err=-err;
-//         goto end;
-//     } else {
-//         call_rq_ix+=err;
-//     }
+    if((err = p67_addr_set_sockaddr(
+                &dst_call_peer.addr, &entry->saddr, sizeof(entry->saddr))) != 0) {
+        goto end;
+    }
+    
+    if((entry = p67rs_usermap_lookup(server->usermap, dst_call_peer.username)) == NULL) {
+        src_call_peer.username = NULL;
+        // right now user is allowed to call someone even if not logged in.
+        // err = p67_err_enconn;
+        // goto end;
+    }
 
-//     if((err = p67_pdp_write_urg(
-//                 &dst_addr, 
-//                 callbuf, call_rq_ix, 
-//                 2000, 
-//                 &crt, 
-//                 (void **)&callbuf, &callbuf_size)) != 0)
-//         goto end;
+    const int fwdmsgl = 180;
+    unsigned char fwdmsg[fwdmsgl];
+    int fwdmsgix = 0;
 
-//     if((err = p67_mutex_wait_for_change(&crt, 0, -1)) != 0)
-//         goto end;
+    /*
+        $2:
 
-//     state = 0;
+        RS forward src's call request to dst with following parameters: 
+            (encoded in tlv fragments)
+        S = <src ip>       | IPv4/6 address of src
+        s = <src port>     | port either currently used src port or suggested by src
+        h = hint           | optional passed from $1
+        N = <src username> | optional username of src
+    */
 
-//     // read peer response
-//     while(1) {
-//         vlength = P67_TLV_VALUE_MAX_LENGTH;
-//         if((err = p67_tlv_get_next_fragment(
-//                     &payload, &payload_len, key, val, &vlength)) != 0) {
-//             err=-err;
-//             goto end;
-//         }
+    if(p67_pdp_generate_urg_for_msg(
+            NULL, NULL, 
+            fwdmsg+fwdmsgix, fwdmsgl-fwdmsgix, 'c') == NULL) {
+        err = p67_err_einval;
+        werr = p67rs_werr_500;
+    }
+    fwdmsgix += sizeof(p67_pdp_urg_hdr_t);
 
-//         switch(key[0]) {
-//         case 'c':
-//             if(vlength != 2) return p67_err_einval;
-//             werr = p67_cmn_ntohs(val);
-//             if(werr != 0) {
-//                 werr = p67rs_werr_400;
-//                 goto end;
-//             }
-//             state += 1;
-//             break;
-//         default:
-//             break;
-//         }
-//     }
+    if((err = p67_tlv_add_fragment(
+            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "S",
+            src_call_peer.addr.hostname, 
+            strlen(src_call_peer.addr.hostname))) < 0) {
+        err=-err;
+        goto end;
+    } else {
+        fwdmsgix+=err;
+    }
 
-//     if(state != 1) {
-//         err = p67_err_einval;
-//         goto end;
-//     }
+    if((err = p67_tlv_add_fragment(
+            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "s",
+            (tlv_state & 1) ? &src_call_peer.port : src_call_peer.addr.service, 
+            sizeof(uint16_t))) < 0) {
+        err=-err;
+        goto end;
+    } else {
+        fwdmsgix+=err;
+    } 
 
-//     // respond with dst address.
+    if(src_call_peer.username) {
+        if((err = p67_tlv_add_fragment(
+                fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "N",
+                src_call_peer.username, 
+                strlen(src_call_peer.username)) <= 0)) {
+            err=-err;
+            goto end;
+        } else {
+            fwdmsgix+=err;
+        }
+    }
 
-//     call_rq_ix = 0;
+    if(tlv_state & 4) {
+        if((err = p67_tlv_add_fragment(
+                fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "h",
+                hint, hintl) <= 0)) {
+            err=-err;
+            goto end;
+        } else {
+            fwdmsgix+=err;
+        }
+    }
 
-//     call_rq_ix += sizeof(p67_pdp_ack_hdr_t);
+    p67_async_t fwdto = P67_ASYNC_INTIIALIZER;
+    char * fwdres;
+    int * fwdresl;
 
-//     if((err = p67_tlv_add_fragment(
-//                 callbuf+call_rq_ix, callbuf_size-call_rq_ix,
-//                 "c", &(uint16_t){p67_cmn_htons(0)}, 2)) != 0) {
-//         err=-err;
-//         goto end;
-//     } else {
-//         call_rq_ix+=err;
-//     }
+    if((err = p67_pdp_write_urg(
+            &dst_call_peer.addr, 
+            fwdmsg, fwdmsgix, 
+            2000, 
+            &fwdto, 
+            &fwdres, &fwdresl)) != 0)
+        goto end;
 
-//     if((err = p67_tlv_add_fragment(
-//                 callbuf+call_rq_ix, callbuf_size-call_rq_ix,
-//                 "a",
-//                 (unsigned char *)&dst_addr.sock, dst_addr.socklen)) != 0) {
-//         err=-err;
-//         goto end;
-//     } else {
-//         call_rq_ix+=err;
-//     }
+    if((err = p67_mutex_wait_for_change(&fwdto, 0, -1)) != 0)
+        goto end;
 
-//     if((err = p67_dmp_pdp_generate_ack(
-//             msg, msgl, 
-//             NULL, 0, 
-//             callbuf, sizeof(p67_pdp_ack_hdr_t))) != 0)
-//         return err;
+    tlv_state = 0;
+
+    // read peer response
+    while(1) {
+        vlength = P67_TLV_VALUE_MAX_LENGTH;
+        if((err = p67_tlv_get_next_fragment(
+                    &payload, &payload_len, key, val, &vlength)) != 0) {
+            err=-err;
+            goto end;
+        }
+
+        switch(key[0]) {
+        case 'c':
+            if(vlength != 2) return p67_err_einval;
+            werr = p67_cmn_ntohs(val);
+            if(werr != 0) {
+                werr = p67rs_werr_400;
+                goto end;
+            }
+            state += 1;
+            break;
+        default:
+            break;
+        }
+    }
+
+    if(state != 1) {
+        err = p67_err_einval;
+        goto end;
+    }
+
+    // respond with dst address.
+
+    call_rq_ix = 0;
+
+    call_rq_ix += sizeof(p67_pdp_ack_hdr_t);
+
+    if((err = p67_tlv_add_fragment(
+                callbuf+call_rq_ix, callbuf_size-call_rq_ix,
+                "c", &(uint16_t){p67_cmn_htons(0)}, 2)) != 0) {
+        err=-err;
+        goto end;
+    } else {
+        call_rq_ix+=err;
+    }
+
+    if((err = p67_tlv_add_fragment(
+                callbuf+call_rq_ix, callbuf_size-call_rq_ix,
+                "a",
+                (unsigned char *)&dst_addr.sock, dst_addr.socklen)) != 0) {
+        err=-err;
+        goto end;
+    } else {
+        call_rq_ix+=err;
+    }
+
+    if((err = p67_dmp_pdp_generate_ack(
+            msg, msgl, 
+            NULL, 0, 
+            callbuf, sizeof(p67_pdp_ack_hdr_t))) != 0)
+        return err;
 
 
-//     if((err = p67_net_must_write_conn(conn, callbuf, call_rq_ix)) != 0) 
-//         goto end;
+    if((err = p67_net_must_write_conn(conn, callbuf, call_rq_ix)) != 0) 
+        goto end;
 
-// end:
-//     if(err == 0) {
-//         return p67_err_einval;
-//     } else {
-//         if(!werr) werr = p67rs_werr_400;
-//         return p67rs_server_respond_with_err(
-//                 conn, werr, P67RS_SERVER_LOGIN_TAG, msg, msgl);
-//     }
+end:
+    if(err == 0) {
+        return p67_err_einval;
+    } else {
+        if(!werr) werr = p67rs_werr_400;
+        return p67rs_server_respond_with_err(
+                conn, werr, P67RS_SERVER_LOGIN_TAG, msg, msgl);
+    }
 
-// }
+}
 
 p67rs_err
 p67rs_server_handle_login(
