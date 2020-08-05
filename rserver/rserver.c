@@ -14,6 +14,8 @@
 
 #define P67RS_SERVER_MAX_CREDENTIAL_LENGTH 128
 
+#define __UC (unsigned char *)
+#define __C (char *)
 
 typedef struct p67rs_server_session {
     uint64_t       sessid;
@@ -287,7 +289,6 @@ p67rs_server_handle_call(
     const p67rs_usermap_entry_t * entry;
 
     const unsigned char * tlv_value;
-    unsigned char tlv_vlength;
     const p67_tlv_header_t * tlv_header;
 
     struct {
@@ -298,11 +299,15 @@ p67rs_server_handle_call(
     } src_call_peer, dst_call_peer;
 
     const char * hint;
-    int hintl;
+    unsigned char hintl;
     const p67_addr_t * tmpaddr = p67_conn_get_addr(conn);
     if(!tmpaddr) return p67_err_einval;
     
     int tlv_state = 0;
+
+    const int fwdmsgl = 180;
+    unsigned char fwdmsg[fwdmsgl];
+    int fwdmsgix = 0;
 
     /*
         $1:
@@ -326,12 +331,12 @@ p67rs_server_handle_call(
         case 'N':
             if(tlv_header->vlength == 0 || tlv_header->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH)
                 break;
-            dst_call_peer.username = tlv_value;
+            dst_call_peer.username = (char *)tlv_value;
             tlv_state |= 2;
             break;
         case 'h':
-            hint = tlv_value;
-            hintl = tlv_vlength;
+            hint = (char *)tlv_value;
+            hintl = tlv_header->vlength;
             tlv_state |= 4;
             break;
         }
@@ -339,7 +344,7 @@ p67rs_server_handle_call(
             break;
     }
 
-    if(err == p67_err_eot) err = 0;
+    if(err == (p67rs_err)p67_err_eot) err = 0;
     if(err != 0) {
         werr = p67rs_werr_400;
         goto end;
@@ -369,10 +374,6 @@ p67rs_server_handle_call(
         // goto end;
     }
 
-    const int fwdmsgl = 180;
-    unsigned char fwdmsg[fwdmsgl];
-    int fwdmsgix = 0;
-
     /*
         $2:
 
@@ -385,16 +386,15 @@ p67rs_server_handle_call(
     */
 
     if(p67_pdp_generate_urg_for_msg(
-            NULL, NULL, 
-            fwdmsg+fwdmsgix, fwdmsgl-fwdmsgix, 'c') == NULL) {
+            NULL, 0, (char *)fwdmsg+fwdmsgix, fwdmsgl-fwdmsgix, 'c') == NULL) {
         err = p67_err_einval;
         werr = p67rs_werr_500;
     }
     fwdmsgix += sizeof(p67_pdp_urg_hdr_t);
 
     if((err = p67_tlv_add_fragment(
-            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "S",
-            src_call_peer.addr.hostname, 
+            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, __UC "S",
+            __UC src_call_peer.addr.hostname, 
             strlen(src_call_peer.addr.hostname))) < 0) {
         err=-err;
         goto end;
@@ -403,19 +403,19 @@ p67rs_server_handle_call(
     }
 
     if((err = p67_tlv_add_fragment(
-            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "s",
-            (tlv_state & 1) ? &src_call_peer.port : src_call_peer.addr.service, 
+            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, __UC "s",
+            (tlv_state & 1) ? __UC &src_call_peer.port : __UC src_call_peer.addr.service, 
             sizeof(uint16_t))) < 0) {
         err=-err;
         goto end;
     } else {
         fwdmsgix+=err;
-    } 
+    }
 
     if(src_call_peer.username) {
         if((err = p67_tlv_add_fragment(
-                fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "N",
-                src_call_peer.username, 
+                fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, __UC "N",
+                __UC src_call_peer.username, 
                 strlen(src_call_peer.username)) <= 0)) {
             err=-err;
             goto end;
@@ -426,8 +426,8 @@ p67rs_server_handle_call(
 
     if(tlv_state & 4) {
         if((err = p67_tlv_add_fragment(
-                fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, "h",
-                hint, hintl) <= 0)) {
+                fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, __UC "h",
+                __UC hint, hintl) <= 0)) {
             err=-err;
             goto end;
         } else {
@@ -436,15 +436,15 @@ p67rs_server_handle_call(
     }
 
     p67_async_t fwdto = P67_ASYNC_INTIIALIZER;
-    char * fwdres;
-    int * fwdresl;
+    char * fwdres, * fwdresptr;
+    int fwdresl;
 
     if((err = p67_pdp_write_urg(
             &dst_call_peer.addr, 
             fwdmsg, fwdmsgix, 
             2000, 
             &fwdto, 
-            &fwdres, &fwdresl)) != 0)
+            (void **)&fwdres, &fwdresl)) != 0)
         goto end;
 
     if((err = p67_mutex_wait_for_change(&fwdto, 0, -1)) != 0)
@@ -452,79 +452,94 @@ p67rs_server_handle_call(
 
     tlv_state = 0;
 
-    // read peer response
-    while(1) {
-        vlength = P67_TLV_VALUE_MAX_LENGTH;
-        if((err = p67_tlv_get_next_fragment(
-                    &payload, &payload_len, key, val, &vlength)) != 0) {
-            err=-err;
-            goto end;
-        }
+    fwdresptr = fwdres;
 
-        switch(key[0]) {
-        case 'c':
-            if(vlength != 2) return p67_err_einval;
-            werr = p67_cmn_ntohs(val);
+    while((err = p67_tlv_next((const unsigned char **)&fwdresptr, &fwdresl, &tlv_header, &tlv_value)) == 0) {
+        
+        switch(tlv_header->key[0]) {
+        case 's':
+            if(tlv_header->vlength != 2) return p67_err_einval;
+            werr = p67_cmn_ntohs(*(uint16_t *)tlv_value);
             if(werr != 0) {
-                werr = p67rs_werr_400;
+                werr = p67rs_werr_ecall;
+                free(fwdres);
                 goto end;
             }
-            state += 1;
+            tlv_state |= 1;
             break;
         default:
             break;
         }
+
+        if(tlv_state == 1){
+            break;
+        }
     }
 
-    if(state != 1) {
+    if(err == (p67rs_err)p67_err_eot) err = 0;
+    if(err != 0) {
+        werr = p67rs_werr_400;
+        goto end;
+    }
+    
+    if(!(tlv_state & 1)) {
         err = p67_err_einval;
+        werr = p67rs_werr_ecall;
         goto end;
     }
 
-    // respond with dst address.
 
-    call_rq_ix = 0;
+    fwdmsgix = 0;
 
-    call_rq_ix += sizeof(p67_pdp_ack_hdr_t);
-
-    if((err = p67_tlv_add_fragment(
-                callbuf+call_rq_ix, callbuf_size-call_rq_ix,
-                "c", &(uint16_t){p67_cmn_htons(0)}, 2)) != 0) {
-        err=-err;
-        goto end;
-    } else {
-        call_rq_ix+=err;
-    }
-
-    if((err = p67_tlv_add_fragment(
-                callbuf+call_rq_ix, callbuf_size-call_rq_ix,
-                "a",
-                (unsigned char *)&dst_addr.sock, dst_addr.socklen)) != 0) {
-        err=-err;
-        goto end;
-    } else {
-        call_rq_ix+=err;
-    }
-
-    if((err = p67_dmp_pdp_generate_ack(
+    if((err = p67_pdp_generate_ack(
             msg, msgl, 
             NULL, 0, 
-            callbuf, sizeof(p67_pdp_ack_hdr_t))) != 0)
-        return err;
+            __C fwdmsg, fwdmsgl)) != 0) {
+        werr = p67rs_werr_500;
+        goto end;
+    } else {
+        fwdmsgix+=sizeof(p67_pdp_urg_hdr_t);
+    }
 
+    if((err = p67_tlv_add_fragment(
+                fwdmsg+fwdmsgix, fwdmsgl-fwdmsgix,
+                __UC "s", __UC "\0", 2)) != 0) {
+        err=-err;
+        goto end;
+    } else {
+        fwdmsgix+=err;
+    }
 
-    if((err = p67_net_must_write_conn(conn, callbuf, call_rq_ix)) != 0) 
+    if((err = p67_tlv_add_fragment(
+            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, __UC "T",
+            __UC dst_call_peer.addr.hostname, 
+            strlen(dst_call_peer.addr.hostname))) < 0) {
+        err=-err;
+        goto end;
+    } else {
+        fwdmsgix+=err;
+    }
+
+    if((err = p67_tlv_add_fragment(
+            fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, __UC"t",
+            __UC dst_call_peer.addr.service, 
+            sizeof(uint16_t))) < 0) {
+        err=-err;
+        goto end;
+    } else {
+        fwdmsgix+=err;
+    }
+
+    if((err = p67_net_must_write_conn(conn, fwdmsg, fwdmsgl)) != 0) 
         goto end;
 
 end:
     if(err == 0) {
-        return p67_err_einval;
+        return 0;
     } else {
         if(!werr) werr = p67rs_werr_400;
-        return p67rs_server_respond_with_err(
-                conn, werr, P67RS_SERVER_LOGIN_TAG, msg, msgl);
+        return p67rs_server_respond_with_err(conn, werr, msg, msgl);
     }
-
 }
 
 p67rs_err
