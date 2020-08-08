@@ -50,6 +50,7 @@ p67rs_fwcall_add(
     p67_sockaddr_t * sa = (p67_sockaddr_t *)((char *)fc + sizeof(p67rs_session_fwcall_t));
     *sa = addr->sock;
     fc->peer_saddr_l = addr->socklen;
+    fc->peer_saddr = sa;
     return p67_hashcntl_add(ctx, (p67_hashcntl_entry_t *)fc);
 }
 
@@ -341,16 +342,6 @@ p67rs_server_handle_call(
             sizeof(entry->saddr))) != 0) {
         goto end;
     }
-    
-    if((entry = p67rs_usermap_lookup(
-            session->server->usermap, 
-            session->username, 
-            strlen(session->username))) == NULL) {
-        src_call_peer.username = NULL;
-        // right now user is allowed to call someone even if not logged in.
-        // err = p67_err_enconn;
-        // goto end;
-    }
 
     if((err = p67rs_fwcall_add(session->fwcall, &dst_call_peer.addr)) != 0) {
         werr = p67rs_werr_eacall;
@@ -397,11 +388,11 @@ p67rs_server_handle_call(
         fwdmsgix+=err;
     }
 
-    if(src_call_peer.username) {
+    if(session->username) {
         if((err = p67_tlv_add_fragment(
                 fwdmsg+fwdmsgix, fwdmsgl+fwdmsgix, __UC "N",
-                __UC src_call_peer.username, 
-                strlen(src_call_peer.username)) <= 0)) {
+                __UC session->username, 
+                strlen(session->username)) <= 0)) {
             err=-err;
             goto end;
         } else {
@@ -432,6 +423,7 @@ p67rs_server_handle_call(
             (void **)&fwdres, &fwdresl)) != 0)
         goto end;
 
+
     p67_pdp_ack_hdr_t pack;
     p67_pdp_urg_hdr_t * urg = (p67_pdp_urg_hdr_t *)p67_dml_parse_hdr(msg, msgl, NULL);
     if(!urg || (urg->urg_stp != P67_DML_STP_PDP_URG)) {
@@ -443,11 +435,20 @@ p67rs_server_handle_call(
     pack.ack_utp = urg->urg_utp;
     pack.ack_mid = urg->urg_mid;
 
+    p67_spinlock_unlock(&conn->ssl_lock);
+
     if((err = p67_net_must_write_conn(conn, &pack, sizeof(pack))) != 0)
         goto end;
+        
 
-    if((err = p67_mutex_wait_for_change(&fwdto, 0, -1)) != 0)
-        goto end;
+    while(fwdto == 0) {
+        if((err = p67_mutex_wait_for_change(&fwdto, 0, P67_CONN_TERM_PERIOD_MS/5)) != 0)
+            goto end;
+        if(conn->ssl_lock == P67_NET_SLOCK_STATE_TERM)
+            return p67_err_enconn;
+    }
+
+    p67_spinlock_lock(&conn->ssl_lock);
 
     if(fwdto != P67_PDP_EVT_GOT_ACK) {
         err = p67_err_einval;
@@ -538,6 +539,8 @@ p67rs_server_handle_call(
     } else {
         fwdmsgix+=err;
     }
+
+    p67_spinlock_unlock(&conn->ssl_lock);
 
     if((err = p67_net_must_write_conn(conn, fwdmsg, fwdmsgl)) != 0) 
         goto end;
@@ -799,6 +802,7 @@ void p67rs_server_session_free(void * s)
 {
     if(!s) return;
     p67rs_server_session_t * sess = (p67rs_server_session_t *)s;
+    if(!sess) return;
     if(sess->username) {
         p67rs_usermap_remove(
             sess->server->usermap, 

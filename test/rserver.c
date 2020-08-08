@@ -78,8 +78,8 @@ process_message(p67_conn_t * conn, const char * const msg, const int msgl, void 
 
     return p67_dml_handle_msg(conn, msg, msgl, NULL);
 }
-
-p67_err login(p67_conn_pass_t * pass)
+int
+login(p67_conn_pass_t * pass, int argc, char ** argvs)
 {
     p67_err err;
     unsigned char msg[120];
@@ -106,29 +106,33 @@ p67_err login(p67_conn_pass_t * pass)
     int bl = 0;
     char tmp;
 
-    printf("username: ");
-    while((tmp = getchar()) != EOF && tmp != '\n') {
-        if(bl >= (sizeof(buff) - 1)) break;
+    if(argc < 2) {
+        printf("username: ");
+        while((tmp = getchar()) != EOF && tmp != '\n') {
+            if(bl >= (sizeof(buff) - 1)) break;
         buff[bl++] = tmp;
+        }
     }
 
     if(bl < 1) return p67_err_einval;
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "u\0", buff, bl)) < 0)
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "u\0", argc > 1 ? argvs[1] : buff, bl)) < 0)
         return -err;
     ix += err;
     msgp+=err;
 
-    printf("password: ");
-    bl = 0;
-    while((tmp = getchar()) != EOF && tmp != '\n') {
-        if(bl >= (sizeof(buff) - 1)) break;
-        buff[bl++] = tmp;
+    if(argc < 3) {
+        printf("password: ");
+        bl = 0;
+        while((tmp = getchar()) != EOF && tmp != '\n') {
+            if(bl >= (sizeof(buff) - 1)) break;
+            buff[bl++] = tmp;
+        }
     }
 
     if(bl < 1) return p67_err_einval;
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "p\0", buff, bl)) < 0)
+    if((err = p67_tlv_add_fragment(msgp, len-ix, "p\0", argc > 2 ? argvs[2] : buff, bl)) < 0)
         return -err;
     ix += err;
     msgp+=err;
@@ -370,8 +374,9 @@ main(int argc, char ** argv)
     if((err = add_command(commands, "echo", echo)) != 0) goto end;
     if((err = add_command(commands, "exit", c_exit)) != 0) goto end;
     if((err = add_command(commands, "call", call)) != 0) goto end;
+    if((err = add_command(commands, "login", login)) != 0) goto end;
 
-    while(login(&pass));
+    while(login(&pass, 0, NULL));
 
     char n[120];
     char ** _argv, * argvbuf;

@@ -81,6 +81,8 @@ p67_hashcntl_add(p67_hashcntl_t * ctx, p67_hashcntl_entry_t * item)
         }
     }
 
+    item->next = NULL;
+
     *prev_entry = item;
 
     ctx->count++;

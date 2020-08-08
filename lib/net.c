@@ -13,9 +13,6 @@
 #include "log.h"
 #include "net.h"
 
-#define P67_NET_SLOCK_STATE_FREE   0
-#define P67_NET_SLOCK_STATE_LOCKED 1
-#define P67_NET_SLOCK_STATE_TERM   2
 
 #define P67_DEFAULT_TIMEOUT_MS 200
 
@@ -36,22 +33,6 @@ struct p67_net_config __config = {
 struct p67_liitem {
     p67_liitem_t * next;
     p67_addr_t key;
-};
-
-/*
-    Structure representing physical established connections.
-    All connections are kept in conn_cache hash table.
-*/
-struct p67_conn {
-    p67_conn_t * next;
-    p67_addr_t addr_remote;
-    p67_addr_t addr_local;
-    p67_async_t ssl_lock;
-    SSL * ssl;
-    p67_conn_callback_t callback;
-    void * args;
-    p67_conn_free_args_cb free_args;
-    p67_thread_sm_t hread;
 };
 
 #define DAYS_TO_SEC(day) ((long)(60*60*24*day))
@@ -187,7 +168,7 @@ p67_conn_free(void * ptr, int also_free_ptr)
             if(p67_atomic_set_state(
                     &conn->ssl_lock, &state, P67_NET_SLOCK_STATE_TERM))
             // give some time for everyone interested to terminate ops
-            p67_cmn_sleep_ms(20);
+            p67_cmn_sleep_ms(P67_CONN_TERM_PERIOD_MS);
             break;
         } else {
             return;
