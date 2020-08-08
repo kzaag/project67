@@ -7,6 +7,8 @@
 #define P67_DML_STP_PDP_URG 1
 /* udp packet with retransmission response */
 #define P67_DML_STP_PDP_ACK 2
+/* pre-ack */
+#define P67_DML_STP_PDP_PACK 3
 
 #define __p67_dml_hdr_common(prefix) \
     uint8_t prefix##stp; \

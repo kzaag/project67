@@ -1,6 +1,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "tlv.h"
 
@@ -62,6 +63,62 @@ p67_tlv_next(
     *msg += (__vlength + P67_TLV_HEADER_LENGTH);
     *msgl -= (__vlength + P67_TLV_HEADER_LENGTH);
     
+    return 0;
+}
+
+p67_err
+p67_tlv_pretty_print_fragment(
+    const p67_tlv_header_t * header, const unsigned char * value)
+{
+    const int buffl = 120;
+    char buff[buffl];
+    int buffix = 0, i, is_printable = 1;
+    buffix += snprintf(
+        buff+buffix, buffl-buffix, 
+        "tlv: key=%u ", header->key[0]);
+    if(buffl-buffix < 0) return p67_err_enomem;
+
+    #define is_byte_printable(x) ((x) >= 33 && (x) <= 126)
+
+    if(is_byte_printable(header->key[0])) {
+        buffix += snprintf(
+            buff+buffix, buffl-buffix, 
+            "\"%c\" ", header->key[0]);
+        if(buffl-buffix < 0) return p67_err_enomem;
+    }
+    buffix += snprintf(
+        buff+buffix, buffl-buffix, 
+        "vlength=%u", header->vlength);
+    if(buffl-buffix < 0) return p67_err_enomem;
+    if(header->vlength > 0) {
+        buffix += snprintf(buff+buffix, buffl-buffix, " value=\"");
+        if(buffl-buffix < 0) return p67_err_enomem;
+        if(header->vlength > 10) {
+            i = 10;
+        } else {
+            i = header->vlength;
+        }
+        while(i-->0) {
+            buffix += snprintf(
+                buff+buffix, buffl-buffix, 
+                "%02hhx ", *value);
+            if(buffl-buffix < 0) return p67_err_enomem;
+            if(!is_byte_printable(*value))
+                is_printable = 0;
+            value++;
+        }
+        buff[buffix-1] = '"';
+    }
+
+    if(is_printable) {
+        buffix += snprintf(
+            buff+buffix, buffl-buffix, 
+            "\"%*.s\"", header->vlength, value);
+        if(buffl-buffix < 0) return p67_err_enomem;
+    }
+
+    printf("%.*s\n", buffix, buff);
+
     return 0;
 }
 

@@ -9,6 +9,7 @@
 #include <p67/dml/pdp.h>
 #include <p67/dml/base.h>
 #include <p67/hash.h>
+#include <p67/hashcntl.h>
 #include <p67/audio.h>
 //#include <p67/stream.h>
 #include <p67/tlv.h>

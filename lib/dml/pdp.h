@@ -131,6 +131,14 @@ p67_pdp_write_ack_for_urg(
 
 p67_err
 p67_pdp_urg_remove(
-    uint16_t id, unsigned char * msg, int msgl);
+    uint16_t id, unsigned char * msg, int msgl, int preack);
+
+typedef struct p67_pdp_keepalive_ctx {
+    p67_thread_sm_t th;
+    p67_conn_pass_t * pass;
+} p67_pdp_keepalive_ctx_t;
+
+p67_err
+p67_pdp_start_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx);
 
 #endif

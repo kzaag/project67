@@ -44,13 +44,21 @@ init_server(p67rs_server_t * server)
     //     return err;
 
     // p67rs_db_user_t user;
-    // user.u_name = "test";
-    // user.pass_cstr = "test";
+    // user.u_name = "alice";
+    // user.pass_cstr = "alice";
 
     // if((err = p67rs_db_user_create(server->db_ctx, &user)) != 0)
     //     return err;
 
-    if((err = p67rs_usermap_create(&server->usermap, -1)) != 0)
+    // user.u_name = "bob";
+    // user.pass_cstr = "bob";
+
+    // if((err = p67rs_db_user_create(server->db_ctx, &user)) != 0)
+    //     return err;
+
+    // exit(0);
+
+    if((err = p67rs_usermap_create(&server->usermap, 0)) != 0)
         return err;
 
     return 0;

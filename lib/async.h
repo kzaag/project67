@@ -6,6 +6,7 @@
 */
 
 #include <stdatomic.h>
+#include <stdio.h>
 
 #include "cmn.h"
 #include "err.h"

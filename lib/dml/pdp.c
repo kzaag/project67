@@ -1,5 +1,6 @@
 #include "../net.h"
 #include "../log.h"
+#include "../async.h"
 #include "pdp.h"
 #include "dml.h"
 
@@ -13,20 +14,25 @@
 typedef struct p67_pdp_inode {
     /* index in the underlying hash table */
     size_t index; 
-    /* id of this message. */
-    uint16_t iid;
-    unsigned int size; /* size of the pudp_data chunk */
-    unsigned int ttl;  /* inode timeout ( in miliseconds ) */
     unsigned long long lt; /* time when inode was initialized */
     int * termsig; /* notify user about termination with error code (EVT) */
-    
+
     void ** res;
     int * resl;
 
     p67_addr_t * addr;
+
     /* callback used to notify user about state changes and errors such as timeouts */
     /* p67_pdp_callback_t cb; */
+
     int istate; /* occupation of this inode */
+    unsigned int size; /* size of the pudp_data chunk */
+    unsigned int ttl;  /* inode timeout ( in miliseconds ) */
+
+    /* id of this message. */
+    uint16_t iid;
+    uint16_t 
+        preacked: 1;
 } p67_pdp_inode_t;
 
 static uint8_t pudp_data[P67_PUDP_INODE_LEN][P67_PUDP_CHUNK_LEN];
@@ -43,6 +49,12 @@ static __thread uint16_t __mid = 0;
 
 static void *
 pdp_loop(void * args);
+
+void *
+__p67_pdp_run_keepalive_loop(void * args);
+
+p67_err
+p67_pdp_run_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx);
 
 /****END PRIVATE PROTOTYPES****/
 
@@ -133,6 +145,7 @@ p67_pdp_write_urg(
 
         pudp_inodes[i].index = i;
         pudp_inodes[i].iid = mid;
+        pudp_inodes[i].preacked = 0;
         if(ttl <= 0)
             pudp_inodes[i].ttl = P67_PDP_TTL_DEF;
         else
@@ -195,7 +208,8 @@ p67_pdp_start_loop(void)
 p67_err
 p67_pdp_urg_remove(
     uint16_t id, 
-    unsigned char * msg, int msgl)
+    unsigned char * msg, int msgl,
+    int preack)
 {
     int state;
     size_t hash, i;
@@ -220,6 +234,17 @@ p67_pdp_urg_remove(
         }
 
         state = P67_PDP_ISTATE_PASS;
+
+        if(preack) {
+
+            pudp_inodes[i].preacked = 1;
+
+            if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PDP_ISTATE_ACTV)) {
+                return p67_err_easync;
+            }
+
+            return 0;
+        }
 
         if(pudp_inodes[i].res != NULL && pudp_inodes[i].resl != NULL) {
             if((*pudp_inodes[i].res = malloc(msgl)) == NULL)
@@ -284,7 +309,11 @@ pdp_loop(void * args)
                         P67_PDP_EVT_NONE, 
                         P67_PDP_EVT_TIMEOUT);
 
-            } else {
+            } else if(!pudp_inodes[i].preacked) {
+
+                // if(pudp_inodes[i]._no > 1) {
+                //     printf("retransmission\n");
+                // }
 
                 wr = pudp_inodes[i].size;
                 err = p67_net_write(pudp_inodes[i].addr, pudp_data[i], &wr);
@@ -394,4 +423,77 @@ p67_pdp_write_ack_for_urg(
         return err;
 
     return p67_net_must_write_conn(conn, &ack, sizeof(ack));
+}
+
+p67_err
+p67_pdp_run_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx)
+{
+    p67_err err;
+    p67_pdp_urg_hdr_t urg;
+    urg.urg_stp = P67_DML_STP_PDP_URG;
+    urg.urg_utp = 0;
+    p67_async_t evt = P67_ASYNC_INTIIALIZER;
+        
+    while(1) {
+        if(ctx->th.state != P67_THREAD_SM_STATE_RUNNING) {
+            break;
+        }
+        urg.urg_mid = p67_pdp_mid;    
+        err = p67_pdp_write_urg(
+                &ctx->pass->remote, 
+                (uint8_t *)&urg, 
+                sizeof(urg), 
+                1000, 
+                &evt, 
+                NULL, NULL);
+        if(err != 0)
+            return err;
+        
+        err = p67_mutex_wait_for_change(
+            &ctx->th.state, P67_THREAD_SM_STATE_RUNNING, 5000);
+        if(ctx->th.state != P67_THREAD_SM_STATE_RUNNING)
+            break;
+        if(err == p67_err_eerrno)
+            break;
+    }
+
+    ctx->th.state = P67_THREAD_SM_STATE_STOP;
+    return 0;
+}
+
+void *
+__p67_pdp_run_keepalive_loop(void * args)
+{
+    p67_pdp_keepalive_ctx_t * ctx = (p67_pdp_keepalive_ctx_t *)args;
+    if(!ctx) return NULL;
+    
+    p67_err err;
+
+    if((err = p67_pdp_run_keepalive_loop(ctx)) != 0) {
+        p67_err_print_err("run keepalive loop: ", err);
+    }
+    
+    return NULL;
+}
+
+p67_err
+p67_pdp_start_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx)
+{
+    if(ctx->th.state != P67_THREAD_SM_STATE_STOP)
+        return p67_err_eaconn;
+
+    if(p67_mutex_set_state(
+                &ctx->th.state, 
+                P67_THREAD_SM_STATE_STOP, 
+                P67_THREAD_SM_STATE_RUNNING) != 0)
+        return p67_err_eaconn;
+
+    p67_err err;
+
+    if((err = p67_cmn_thread_create(
+            &ctx->th.thr, __p67_pdp_run_keepalive_loop, ctx)) != 0) {
+        ctx->th.state = P67_THREAD_SM_STATE_STOP;
+    }
+
+    return err;
 }

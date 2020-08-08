@@ -11,199 +11,127 @@
 #define P67RS_SERVER_BWT_TAG (unsigned char *)"b"
 
 #define P67RS_SERVER_PATH_LOGIN 'l'
+#define P67RS_SERVER_PATH_CALL 'c'
 
 #define P67RS_SERVER_MAX_CREDENTIAL_LENGTH 128
 
 #define __UC (unsigned char *)
 #define __C (char *)
 
+typedef struct p67rs_session_fwcall {
+    p67_sockaddr_t * peer_saddr;
+    size_t peer_saddr_l;
+    char __padd[
+            sizeof(char *) + // value
+            sizeof(size_t) +  // value length
+            sizeof(p67_hashcntl_entry_t *) ]; // next
+} p67rs_session_fwcall_t;
+
+p67_cmn_static_assert(
+    sizeof(char *) == sizeof(p67_sockaddr_t *));
+p67_cmn_static_assert(
+    sizeof(p67rs_session_fwcall_t) == sizeof(p67_hashcntl_entry_t));
+
 typedef struct p67rs_server_session {
     uint64_t       sessid;
     p67rs_server_t * server;
     char           * username;
+    p67_hashcntl_t * fwcall;
 } p67rs_server_session_t;
 
-
-/*****/
-
-p67rs_err
-p67rs_usermap_add(
-    p67rs_usermap_t * usermap,
-    const char * username, size_t usernamel,
-     const p67_sockaddr_t * saddr);
-
-const p67rs_usermap_entry_t *
-p67rs_usermap_lookup(
-    p67rs_usermap_t * usermap,
-    const char * username);
-
-p67_err
-p67rs_usermap_remove(
-    p67rs_usermap_t * usermap,
-    char * username);
-
-p67rs_err
-p67rs_respond_with_err(
-    p67_conn_t * conn, p67rs_werr err,
-    const unsigned char * command,
-    const unsigned char * const msg, int msgl);
-    
-p67rs_err
-p67rs_server_handle_command(
-    p67_conn_t * conn, 
-    p67rs_server_t * server,
-    const unsigned char * const msg, const int msgl,
-    const unsigned char * payload, int payloadl);
-
-p67_err
-p67rs_server_cb(
-    p67_conn_t * conn, 
-    const char * const msg, const int msgl, 
-    void * args);
-
-/*****/
-
-p67_err
-p67rs_usermap_remove(
-    p67rs_usermap_t * usermap,
-    char * username)
+p67_err 
+p67rs_fwcall_add(
+    p67_hashcntl_t * ctx, p67_addr_t * addr)
 {
-    size_t usernamel = strlen(username);
-    p67_hash_t hash = p67_hash_fn(
-        (unsigned char *)username, usernamel, usermap->buffer_capacity);
-    p67rs_usermap_entry_t * prev_entry = NULL, * entry;
-
-    p67_spinlock_lock(&usermap->rwlock);
-
-    for(entry = usermap->buffer[hash]; entry != NULL; entry=entry->next) {
-        if(strlen(entry->username) == usernamel 
-                    && (memcmp(username, entry->username, usernamel) == 0))
-            break;
-        prev_entry = entry;
-    }
-
-    if(entry == NULL) {
-        p67_spinlock_unlock(&usermap->rwlock);
-        return p67_err_enconn;
-    }
-
-    if(prev_entry == NULL) {
-        usermap->buffer[hash] = NULL;
-    } else {
-        prev_entry->next = entry->next;
-    }
-
-    free(entry->username);
-    free(entry);
-
-    return 0;
-}
-
-const p67rs_usermap_entry_t *
-p67rs_usermap_lookup(
-    p67rs_usermap_t * usermap,
-    const char * username)
-{
-    size_t usernamel = strlen(username);
-    p67_hash_t hash = p67_hash_fn(
-        (unsigned char *)username, usernamel, usermap->buffer_capacity);
-    p67rs_usermap_entry_t ** prev_entry, * entry;
-
-    p67_spinlock_lock(&usermap->rwlock);
-
-    for(prev_entry = usermap->buffer + hash; (entry = *prev_entry); prev_entry=&entry->next) {
-        if(strlen(entry->username) == usernamel 
-                    && (memcmp(username, entry->username, usernamel) == 0)) {
-            p67_spinlock_unlock(&usermap->rwlock);
-            return entry;
-        }
-    }
-    
-    p67_spinlock_unlock(&usermap->rwlock);
-    return NULL;
-}
-
-p67rs_err
-p67rs_usermap_add(
-    p67rs_usermap_t * usermap,
-    const char * username, size_t usernamel,
-     const p67_sockaddr_t * saddr)
-{
-    if(usermap == NULL || usermap->buffer == NULL)
-        return p67_err_einval;
-    
-    p67rs_usermap_entry_t ** prev_entry, * entry;
-
-    p67_hash_t hash = p67_hash_fn(
-        (unsigned char *)username, usernamel, usermap->buffer_capacity);
-
-    p67_spinlock_lock(&usermap->rwlock);
-
-    for(prev_entry = usermap->buffer + hash; (entry = *prev_entry); prev_entry=&entry->next) {
-        if(strlen(entry->username) == usernamel 
-                    && (memcmp(username, entry->username, usernamel) == 0)) {
-            p67_spinlock_unlock(&usermap->rwlock);
-            return p67_err_eaconn;
-        }
-    }
-    
-    if((*prev_entry = calloc(1, sizeof(**prev_entry))) == NULL) {
-        p67_spinlock_unlock(&usermap->rwlock);
+    p67rs_session_fwcall_t * fc = malloc(
+        sizeof(p67rs_session_fwcall_t) + sizeof(p67_sockaddr_t));
+    if(!fc)
         return p67_err_eerrno;
-    }
-
-    entry = *prev_entry;
-
-    if((entry->username = strdup(username)) == NULL) {
-        free(*prev_entry);
-        *prev_entry = NULL;
-        p67_spinlock_unlock(&usermap->rwlock);
-        return p67_err_eerrno;
-    }
-
-    entry->saddr = *saddr;
-    entry->next = NULL;
-
-    p67_spinlock_unlock(&usermap->rwlock);
-    return 0;
+    p67_sockaddr_t * sa = (p67_sockaddr_t *)((char *)fc + sizeof(p67rs_session_fwcall_t));
+    *sa = addr->sock;
+    fc->peer_saddr_l = addr->socklen;
+    return p67_hashcntl_add(ctx, (p67_hashcntl_entry_t *)fc);
 }
 
 void
-p67rs_usermap_free(p67rs_usermap_t * usermap)
+p67rs_fwcall_remove_and_free(p67_hashcntl_t * ctx, p67_addr_t * saddr)
 {
-    if(usermap == NULL) return;
+    p67_hashcntl_entry_t * entry;
+    entry = p67_hashcntl_remove(ctx, __UC &saddr->sock, saddr->socklen);
+    free(entry);
+}
 
-    free(usermap->buffer);
-    free(usermap);
+void
+p67rs_fwcall_free(p67_hashcntl_entry_t * entry)
+{
+    free(entry);
+}
+
+p67_err
+p67rs_usermap_remove(
+    p67rs_usermap_t * usermap,
+    char * username,
+    size_t usernamel)
+{
+    return p67_hashcntl_remove_and_free(
+        usermap, __UC username, usernamel);
+}
+
+const p67rs_usermap_entry_t *
+p67rs_usermap_lookup(
+    p67rs_usermap_t * usermap,
+    const char * username,
+    size_t usernamel)
+{
+    const p67_hashcntl_entry_t * entry;
+    if((entry = p67_hashcntl_lookup(
+                usermap, __UC username, usernamel)) == NULL) {
+        return NULL;
+    }
+
+    p67rs_usermap_entry_t * ret = (p67rs_usermap_entry_t *)entry;
+
+    return ret;
+}
+
+p67rs_err
+p67rs_usermap_add(
+    p67rs_usermap_t * usermap,
+    const char * username, size_t usernamel,
+    const p67_sockaddr_t * saddr)
+{
+    unsigned char * block = malloc(sizeof(p67_hashcntl_entry_t)+usernamel+sizeof(*saddr));
+    if(!block) return p67_err_eerrno;
+    p67_hashcntl_entry_t * entry = (p67_hashcntl_entry_t *)block;
+    unsigned char * key = block + sizeof(p67_hashcntl_entry_t);
+    unsigned char * value = block + sizeof(p67_hashcntl_entry_t) + usernamel;
+    memcpy(key, username, usernamel);
+    memcpy(value, saddr, sizeof(*saddr));
+    entry->valuel = sizeof(*saddr);
+    entry->keyl = usernamel;
+    entry->value = value;
+    entry->key = key;
+    entry->next = NULL;
+    return p67_hashcntl_add(usermap, entry);
+}
+
+void
+p67rs_usermap_free_item(p67_hashcntl_entry_t * entry)
+{
+    free(entry);
 }
 
 p67rs_err
 p67rs_usermap_create(
     p67rs_usermap_t ** usermap,
-    int usermap_capacity)
+    size_t usermap_capacity)
 {
-    p67rs_usermap_t * up;
-
-    if(usermap == NULL)
-        return p67_err_einval;
-
-    if((up = calloc(1, sizeof(*up))) == NULL)
+    *usermap = p67_hashcntl_new(
+        (size_t)usermap_capacity, 
+        p67rs_usermap_free_item, 
+        NULL);
+    if(!*usermap)
         return p67_err_eerrno;
-
-    if(usermap_capacity <= 0)
-        usermap_capacity = P67RS_DEFAULT_USERMAP_CAPACITY;
-
-    up->buffer_capacity = usermap_capacity;
-
-    if((up->buffer = calloc(
-                usermap_capacity, 
-                sizeof(*up->buffer))) == NULL) {
-        free(up);
-        return p67_err_eerrno;
-    }
-
-    *usermap = up;
-
     return 0;
 }
 
@@ -272,11 +200,48 @@ p67rs_server_respond_with_err(
 //     return 0;
 // }
 
+typedef struct p67_handle_call_ctx {
+    p67_conn_t * conn;
+    p67rs_server_session_t * session;
+    unsigned char * msg;
+    int msgl;
+    unsigned char * payload;
+    int payloadl;
+} p67rs_handle_call_ctx_t;
+
+p67rs_handle_call_ctx_t * p67rs_handle_call_ctx_create(
+    p67_conn_t * conn, 
+    p67rs_server_session_t * session,
+    const unsigned char * const msg, int msgl,
+    const unsigned char * payload, int payload_len)
+{
+    (void)payload_len;
+    p67rs_handle_call_ctx_t * ctx = malloc(
+        sizeof(p67rs_handle_call_ctx_t) + msgl);
+    if(!ctx)
+        return NULL;
+    unsigned char * _msg = 
+        (unsigned char *)(((char *)ctx) + sizeof(p67rs_handle_call_ctx_t));
+    memcpy(_msg, msg, msgl);
+    int offset = payload - msg;
+    if(offset < 0) return NULL;
+    ctx->conn = conn;
+    ctx->msg = _msg;
+    ctx->msgl = msgl;
+    ctx->payload = _msg + offset;
+    if(offset > msgl)
+        return NULL;
+    ctx->payloadl = msgl - offset;
+    ctx->session = session;
+
+    return ctx;
+}
+
 
 p67rs_err
 p67rs_server_handle_call(
     p67_conn_t * conn, 
-    p67rs_server_t * server,
+    p67rs_server_session_t * session,
     const unsigned char * const msg, int msgl,
     const unsigned char * payload, int payload_len)
 {
@@ -285,6 +250,7 @@ p67rs_server_handle_call(
     */
 
     p67rs_err err = 0;
+    int added_fwcall = 0;
     uint16_t werr = 0;
     const p67rs_usermap_entry_t * entry;
 
@@ -293,15 +259,17 @@ p67rs_server_handle_call(
 
     struct {
         const char * username;
+        size_t usernamel;
         uint16_t port;
-        const char * name;
         p67_addr_t addr;
     } src_call_peer, dst_call_peer;
 
     const char * hint;
     unsigned char hintl;
-    const p67_addr_t * tmpaddr = p67_conn_get_addr(conn);
-    if(!tmpaddr) return p67_err_einval;
+    p67_addr_t * tmpaddr = (p67_addr_t*)p67_conn_get_addr(conn);
+    if(!tmpaddr)
+        return p67_err_einval;
+    src_call_peer.addr = *tmpaddr;
     
     int tlv_state = 0;
 
@@ -329,9 +297,11 @@ p67rs_server_handle_call(
             tlv_state |= 1;
             break;
         case 'N':
-            if(tlv_header->vlength == 0 || tlv_header->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH)
+            if(tlv_header->vlength == 0 || 
+                    tlv_header->vlength > P67RS_SERVER_MAX_CREDENTIAL_LENGTH)
                 break;
             dst_call_peer.username = (char *)tlv_value;
+            dst_call_peer.usernamel = tlv_header->vlength;
             tlv_state |= 2;
             break;
         case 'h':
@@ -356,23 +326,37 @@ p67rs_server_handle_call(
         goto end;
     }
 
-    if((entry = p67rs_usermap_lookup(server->usermap, dst_call_peer.username)) == NULL) {
+    if((entry = p67rs_usermap_lookup(
+            session->server->usermap, 
+            dst_call_peer.username, 
+            dst_call_peer.usernamel)) == NULL) {
         err = p67_err_enconn;
         werr = p67rs_werr_ecall;
         goto end;
     }
 
     if((err = p67_addr_set_sockaddr(
-                &dst_call_peer.addr, &entry->saddr, sizeof(entry->saddr))) != 0) {
+            &dst_call_peer.addr, 
+            entry->saddr, 
+            sizeof(entry->saddr))) != 0) {
         goto end;
     }
     
-    if((entry = p67rs_usermap_lookup(server->usermap, dst_call_peer.username)) == NULL) {
+    if((entry = p67rs_usermap_lookup(
+            session->server->usermap, 
+            session->username, 
+            strlen(session->username))) == NULL) {
         src_call_peer.username = NULL;
         // right now user is allowed to call someone even if not logged in.
         // err = p67_err_enconn;
         // goto end;
     }
+
+    if((err = p67rs_fwcall_add(session->fwcall, &dst_call_peer.addr)) != 0) {
+        werr = p67rs_werr_eacall;
+        goto end;
+    }
+    added_fwcall = 1;
 
     /*
         $2:
@@ -386,7 +370,8 @@ p67rs_server_handle_call(
     */
 
     if(p67_pdp_generate_urg_for_msg(
-            NULL, 0, (char *)fwdmsg+fwdmsgix, fwdmsgl-fwdmsgix, 'c') == NULL) {
+            NULL, 0, (char *)fwdmsg+fwdmsgix, fwdmsgl-fwdmsgix, 
+            P67RS_SERVER_PATH_CALL) == NULL) {
         err = p67_err_einval;
         werr = p67rs_werr_500;
     }
@@ -442,19 +427,43 @@ p67rs_server_handle_call(
     if((err = p67_pdp_write_urg(
             &dst_call_peer.addr, 
             fwdmsg, fwdmsgix, 
-            2000, 
+            0, 
             &fwdto, 
             (void **)&fwdres, &fwdresl)) != 0)
+        goto end;
+
+    p67_pdp_ack_hdr_t pack;
+    p67_pdp_urg_hdr_t * urg = (p67_pdp_urg_hdr_t *)p67_dml_parse_hdr(msg, msgl, NULL);
+    if(!urg || (urg->urg_stp != P67_DML_STP_PDP_URG)) {
+        err = p67_err_einval;
+        werr = p67rs_werr_500;
+        goto end;
+    }
+    pack.ack_stp = P67_DML_STP_PDP_PACK;
+    pack.ack_utp = urg->urg_utp;
+    pack.ack_mid = urg->urg_mid;
+
+    if((err = p67_net_must_write_conn(conn, &pack, sizeof(pack))) != 0)
         goto end;
 
     if((err = p67_mutex_wait_for_change(&fwdto, 0, -1)) != 0)
         goto end;
 
+    if(fwdto != P67_PDP_EVT_GOT_ACK) {
+        err = p67_err_einval;
+        werr = p67rs_werr_ecall;
+        goto end;
+    }
+
     tlv_state = 0;
 
     fwdresptr = fwdres;
 
-    while((err = p67_tlv_next((const unsigned char **)&fwdresptr, &fwdresl, &tlv_header, &tlv_value)) == 0) {
+    while((err = p67_tlv_next(
+            (const unsigned char **)&fwdresptr, 
+            &fwdresl, 
+            &tlv_header, 
+            &tlv_value)) == 0) {
         
         switch(tlv_header->key[0]) {
         case 's':
@@ -533,13 +542,42 @@ p67rs_server_handle_call(
     if((err = p67_net_must_write_conn(conn, fwdmsg, fwdmsgl)) != 0) 
         goto end;
 
+    err = -1;
+    werr = p67rs_werr_eacall;
+
 end:
+    if(added_fwcall)
+        p67rs_fwcall_remove_and_free(session->fwcall, &dst_call_peer.addr);
+    
     if(err == 0) {
         return 0;
     } else {
+        p67_err_print_err("error/s occured in server handle call: ", err);
         if(!werr) werr = p67rs_werr_400;
         return p67rs_server_respond_with_err(conn, werr, msg, msgl);
     }
+}
+
+void *
+p67rs_server_handle_call_wrapper(void * args)
+{
+    p67rs_handle_call_ctx_t * ctx = (p67rs_handle_call_ctx_t *)args;
+    if(!ctx) return NULL;
+    p67_err err;
+
+    if((err = p67rs_server_handle_call(
+                ctx->conn, 
+                ctx->session, 
+                ctx->msg, 
+                ctx->msgl, 
+                ctx->payload, 
+                ctx->payloadl)) != 0) {
+        p67rs_err_print_err("handle call returned error/s : ", err);
+    }
+
+    free(ctx);
+
+    return NULL;
 }
 
 p67rs_err
@@ -649,8 +687,10 @@ p67rs_server_cb(
     if(sess == NULL)
         return p67_err_einval;
     const p67_addr_t * peer = p67_conn_get_addr(conn);
-    p67rs_err err;
+    p67rs_err err = 0;
     const p67_dml_hdr_store_t * hdr;
+    p67rs_handle_call_ctx_t * cctx;
+    p67_thread_t thr;
     int handled = 0;
 
     if((hdr = p67_dml_parse_hdr((unsigned char *)msg, msgl, NULL)) == NULL) {
@@ -664,16 +704,37 @@ p67rs_server_cb(
     case P67_DML_STP_PDP_URG:
     
         switch(hdr->cmn.cmn_utp) {
+        case 0:
+            return p67_dml_handle_msg(conn, msg, msgl, NULL);
         case P67RS_SERVER_PATH_LOGIN:
-            if((err = p67rs_server_handle_login(
+            err = p67rs_server_handle_login(
                     conn, sess,
                     (const unsigned char *)msg, msgl, 
                     (unsigned char *)msg+sizeof(hdr->urg), 
-                    msgl-sizeof(hdr->urg))) != 0) {
-                p67rs_err_print_err("handle login returned error/s: ", err);
+                    msgl-sizeof(hdr->urg));
+            break;
+        case P67RS_SERVER_PATH_CALL:
+            handled = 1;
+            cctx = p67rs_handle_call_ctx_create(
+                conn, sess,
+                __UC msg, msgl, 
+                __UC msg + sizeof(hdr->urg),
+                msgl - sizeof(hdr->urg));
+            if(!cctx) {
+                err = p67_err_eerrno;
+                break;
             }
-            if(err != (p67rs_err)p67_err_eagain)
-                handled = 1;
+            err = p67_cmn_thread_create(
+                &thr, p67rs_server_handle_call_wrapper, cctx);
+            // if((err = p67rs_server_handle_call(
+            //         conn, sess,
+            //         (const unsigned char *)msg, msgl, 
+            //         (unsigned char *)msg+sizeof(hdr->urg), 
+            //         msgl-sizeof(hdr->urg))) != 0) {
+            //     p67rs_err_print_err("handle call returned error/s: ", err);
+            // }
+            // if(err != (p67rs_err)p67_err_eagain)
+            //     handled = 1;
             break;
         default:
             printf(
@@ -686,6 +747,11 @@ p67rs_server_cb(
     default:
         break;
     }
+
+    if(err != (p67rs_err)p67_err_eagain)
+        handled = 1;
+    if(err != 0)
+        p67rs_err_print_err("error/s in server cb: ", err);
 
     if(handled) {
         return 0;
@@ -712,6 +778,12 @@ void * p67rs_server_session_create(void * args)
         return NULL;
     }
 
+    p->fwcall = p67_hashcntl_new(10, p67rs_fwcall_free, NULL);
+    if(!p->fwcall) {
+        p67_err_print_err("ERR in create client session: ", p67_err_eerrno);
+        return NULL;
+    }
+
     p67_spinlock_lock(&sesslock);
     
     p->sessid=(sessid++);
@@ -726,9 +798,16 @@ void * p67rs_server_session_create(void * args)
 void p67rs_server_session_free(void * s)
 {
     if(!s) return;
-    p67rs_server_session_t * server = (p67rs_server_session_t *)s;
-    free(server->username);
-    free(server);
+    p67rs_server_session_t * sess = (p67rs_server_session_t *)s;
+    if(sess->username) {
+        p67rs_usermap_remove(
+            sess->server->usermap, 
+            sess->username, 
+            strlen(sess->username));
+        free(sess->username);
+    }
+    p67_hashcntl_free(sess->fwcall);
+    free(sess);
 }
 
 void

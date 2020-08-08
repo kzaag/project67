@@ -159,6 +159,12 @@ p67_conn_get_addr(p67_conn_t * conn)
     return &conn->addr_remote; 
 }
 
+void *
+p67_conn_get_args(p67_conn_t * conn)
+{
+    return &conn->args; 
+}
+
 void
 p67_conn_free(void * ptr, int also_free_ptr)
 {
@@ -1632,7 +1638,7 @@ p67_net_listen(p67_conn_pass_t * pass)
             if((err = p67_addr_dup(&conn->addr_local, &pass->local)) != 0) break;
             if((err = p67_addr_set_sockaddr(&conn->addr_remote, &remote, sizeof(remote))) != 0)
                 break;
-            DLOG("Accepting %s:%s...\n", conn->addr_remote.hostname, conn->addr_remote.service);
+            //DLOG("Accepting %s:%s...\n", conn->addr_remote.hostname, conn->addr_remote.service);
             conn->callback = pass->handler;
             if(pass->gen_args != NULL)
                 conn->args = pass->gen_args(pass->args);

@@ -60,10 +60,12 @@ p67_dml_handle_msg(
 
     switch(msg_hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
+    case P67_DML_STP_PDP_PACK:
         /* ACKs remove URG messages from pending queue */
         err = p67_pdp_urg_remove(
                 p67_cmn_ntohs(msg_hdr->ack.ack_mid), 
-                (unsigned char *)msg, msgl);
+                (unsigned char *)msg, msgl,
+                msg_hdr->cmn.cmn_stp == P67_DML_STP_PDP_PACK ? 1 : 0);
         if(err == 0) 
             wh = 1;
         else if(err == p67_err_eagain) 
@@ -103,25 +105,19 @@ p67_dml_pretty_print(const unsigned char * msg, int msgl)
 
     switch(hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
-        printf("ACK, utp: %d, payload (%d bytes): %.*s\n", 
+        printf("ACK, utp: %d, payload length: %d bytes\n", 
             hdr->cmn.cmn_utp,
-            msgl-(int)sizeof(p67_pdp_ack_hdr_t),
-            msgl-(int)sizeof(p67_pdp_ack_hdr_t),
-            msg+sizeof(p67_pdp_ack_hdr_t));
+            msgl-(int)sizeof(p67_pdp_ack_hdr_t));
         break;
     case P67_DML_STP_PDP_URG:
-        printf("URG, utp: %d, payload (%d bytes): %.*s\n", 
+        printf("URG, utp: %d, payload length: %d bytes\n", 
             hdr->cmn.cmn_utp,
-            msgl-(int)sizeof(p67_pdp_urg_hdr_t),
-            msgl-(int)sizeof(p67_pdp_urg_hdr_t),
-            msg+sizeof(p67_pdp_urg_hdr_t));
+            msgl-(int)sizeof(p67_pdp_urg_hdr_t));
         break;
     case P67_DML_STP_DAT:
-        printf("DAT, utp: %d, payload (%d bytes): %.*s\n", 
+        printf("DAT, utp: %d, payload length: %d bytes\n", 
             hdr->cmn.cmn_utp,
-            msgl-(int)sizeof(p67_dml_dat_hdr_t),
-            msgl-(int)sizeof(p67_dml_dat_hdr_t),
-            msg+sizeof(p67_dml_dat_hdr_t));
+            msgl-(int)sizeof(p67_dml_dat_hdr_t));
         break;
     default:
         err = p67_err_einval;

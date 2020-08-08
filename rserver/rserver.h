@@ -4,6 +4,7 @@
 #include <p67/tlv.h>
 #include <p67/sfd.h>
 #include <p67/net.h>
+#include <p67/hashcntl.h>
 
 #include "db.h"
 #include "err.h"
@@ -12,32 +13,29 @@
 
 typedef struct p67rs_usermap_entry p67rs_usermap_entry_t;
 
+typedef p67_hashcntl_t p67rs_usermap_t;
+
 struct p67rs_usermap_entry {
     char * username;
-    p67_sockaddr_t saddr;
-    p67rs_usermap_entry_t * next;
+    size_t usernamel;
+    p67_sockaddr_t * saddr;
+    char __padd[sizeof(size_t)+sizeof(p67_hashcntl_entry_t *)];
 };
 
-typedef struct p67rs_usermap {
-    size_t                buffer_capacity;
-    p67rs_usermap_entry_t ** buffer;
-    p67_async_t           rwlock;
-} p67rs_usermap_t;
+p67_cmn_static_assert(
+    sizeof(p67rs_usermap_entry_t) == sizeof(p67_hashcntl_entry_t));
 
 typedef struct p67rs_server {
-    p67rs_usermap_t  * usermap;
-    p67rs_db_ctx_t   * db_ctx;
+    p67rs_usermap_t * usermap;
+    p67rs_db_ctx_t * db_ctx;
 } p67rs_server_t;
+
+void
+p67rs_server_setup_pass(p67_conn_pass_t * pass, p67rs_server_t * server);
 
 p67rs_err
 p67rs_usermap_create(
     p67rs_usermap_t ** usermap,
-    int usermap_capacity);
-
-void
-p67rs_usermap_free(p67rs_usermap_t * usermap);
-
-void
-p67rs_server_setup_pass(p67_conn_pass_t * pass, p67rs_server_t * server);
+    size_t usermap_capacity);
 
 #endif

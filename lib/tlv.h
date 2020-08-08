@@ -69,4 +69,9 @@ p67_tlv_add_fragment(
             const unsigned char * value, 
             unsigned char vlength);
 
+p67_err
+p67_tlv_pretty_print_fragment(
+    const p67_tlv_header_t * header, 
+    const unsigned char * value);
+
 #endif

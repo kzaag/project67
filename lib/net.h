@@ -101,6 +101,9 @@ __nonnull((2));
 void
 p67_conn_remove_all(void);
 
+void *
+p67_conn_get_args(p67_conn_t * conn);
+
 void
 p67_net_free(void);
 
