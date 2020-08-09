@@ -42,6 +42,7 @@ typedef union p67_sockaddr p67_sockaddr_t;
 struct p67_addr {
     p67_sockaddr_t sock;
     socklen_t      socklen;
+    unsigned int   refcount;
     char           * hostname;
     char           * service;
     unsigned long  rdonly : 1;

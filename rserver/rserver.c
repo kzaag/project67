@@ -423,7 +423,6 @@ p67rs_server_handle_call(
             (void **)&fwdres, &fwdresl)) != 0)
         goto end;
 
-
     p67_pdp_ack_hdr_t pack;
     p67_pdp_urg_hdr_t * urg = (p67_pdp_urg_hdr_t *)p67_dml_parse_hdr(msg, msgl, NULL);
     if(!urg || (urg->urg_stp != P67_DML_STP_PDP_URG)) {
@@ -435,20 +434,12 @@ p67rs_server_handle_call(
     pack.ack_utp = urg->urg_utp;
     pack.ack_mid = urg->urg_mid;
 
-    p67_spinlock_unlock(&conn->ssl_lock);
 
     if((err = p67_net_must_write_conn(conn, &pack, sizeof(pack))) != 0)
         goto end;
         
-
-    while(fwdto == 0) {
-        if((err = p67_mutex_wait_for_change(&fwdto, 0, P67_CONN_TERM_PERIOD_MS/5)) != 0)
-            goto end;
-        if(conn->ssl_lock == P67_NET_SLOCK_STATE_TERM)
-            return p67_err_enconn;
-    }
-
-    p67_spinlock_lock(&conn->ssl_lock);
+    if((err = p67_mutex_wait_for_change(&fwdto, 0, P67_CONN_TERM_PERIOD_MS/5)) != 0)
+        goto end;
 
     if(fwdto != P67_PDP_EVT_GOT_ACK) {
         err = p67_err_einval;
@@ -539,8 +530,6 @@ p67rs_server_handle_call(
     } else {
         fwdmsgix+=err;
     }
-
-    p67_spinlock_unlock(&conn->ssl_lock);
 
     if((err = p67_net_must_write_conn(conn, fwdmsg, fwdmsgl)) != 0) 
         goto end;

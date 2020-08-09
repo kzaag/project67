@@ -14,6 +14,28 @@
 #include "net.h"
 
 
+#define P67_NET_SLOCK_STATE_FREE   0
+#define P67_NET_SLOCK_STATE_LOCKED 1
+#define P67_NET_SLOCK_STATE_TERM   2
+
+
+/*
+    Structure representing physical established connections.
+    All connections are kept in conn_cache hash table.
+*/
+struct p67_conn {
+    p67_conn_t * next;
+    p67_addr_t addr_remote;
+    p67_addr_t addr_local;
+    p67_async_t ssl_lock;
+    SSL * ssl;
+    p67_conn_callback_t callback;
+    void * args;
+    p67_conn_free_args_cb free_args;
+    p67_thread_sm_t hread;
+};
+
+
 #define P67_DEFAULT_TIMEOUT_MS 200
 
 /* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */

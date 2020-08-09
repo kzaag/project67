@@ -9,9 +9,6 @@
 #include "cmn.h"
 #include "async.h"
 
-#define P67_NET_SLOCK_STATE_FREE   0
-#define P67_NET_SLOCK_STATE_LOCKED 1
-#define P67_NET_SLOCK_STATE_TERM   2
 
 typedef struct p67_conn p67_conn_t;
 typedef struct p67_node p67_node_t;
@@ -39,22 +36,6 @@ typedef struct p67_conn_pass {
     p67_thread_sm_t hconnect;
     p67_thread_sm_t hlisten;
 } p67_conn_pass_t;
-
-/*
-    Structure representing physical established connections.
-    All connections are kept in conn_cache hash table.
-*/
-struct p67_conn {
-    p67_conn_t * next;
-    p67_addr_t addr_remote;
-    p67_addr_t addr_local;
-    p67_async_t ssl_lock;
-    SSL * ssl;
-    p67_conn_callback_t callback;
-    void * args;
-    p67_conn_free_args_cb free_args;
-    p67_thread_sm_t hread;
-};
 
 typedef __uint16_t p67_state_t;
 
