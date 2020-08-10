@@ -1,4 +1,5 @@
 #include "audio.h"
+
 #include <pulse/error.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -217,4 +218,126 @@ p67_audio_codecs_decode(
     }
 
     return 0;
+}
+
+p67_err
+p67_audio_write_qdp(
+    p67_addr_t * addr,
+    p67_audio_t * input, 
+    p67_audio_codecs_t * encoder, 
+    uint8_t utp)
+{
+    p67_qdp_hdr_t hdr;
+    p67_qdp_hdr_align_zero(hdr.__align);
+    hdr.qdp_utp = utp;
+    hdr.qdp_stp = P67_DML_STP_QDP_DAT;
+    p67_err err = 0;
+    unsigned char compressed_frame[sizeof(hdr)+P67_AUDIO_MAX_CFRAME_SZ];
+    unsigned char decompressed_frame[P67_AUDIO_BUFFER_SIZE(*input)];
+    int cb;
+    // it would take around 8 years of stereo streaming with 48k sampling to overflow this variable
+    // so we should be ok with using 32bits
+    // proof: 
+    // lseq/second = 400 (400 frames per second)
+    // uint32 limit = 4294967295
+    // amount of seconds to overflow = 4294967295 / 400
+    register uint32_t seq = 1;
+
+    if(input->__hw != NULL) {
+        // if hardware is already allocated, flush or drain buffer and reenter loop
+        return p67_err_einval;
+    } else {
+        if((err = p67_audio_create_io(input)) != 0)
+            goto end;
+    }
+
+    while(1) {
+        if((err = p67_audio_read(
+                input, decompressed_frame, sizeof(decompressed_frame))) != 0) 
+            goto end;
+
+        cb = P67_AUDIO_MAX_CFRAME_SZ;
+        
+        if((err = p67_audio_codecs_encode(
+                encoder, decompressed_frame, compressed_frame+sizeof(hdr), &cb)) != 0)
+           goto end;
+
+        hdr.qdp_seq = htonl(seq++);
+        memcpy(compressed_frame, &hdr, sizeof(hdr));
+
+        if((err = p67_conn_write_once(
+                addr, compressed_frame, cb+sizeof(hdr))) != 0) 
+            goto end;
+        if((err = p67_conn_write_once(
+                addr, compressed_frame, cb+sizeof(hdr))) != 0) 
+            goto end;
+    }
+
+end:
+    return err;
+}
+
+p67_err
+p67_audio_read_qdp(
+    p67_qdp_ctx_t * s,
+    p67_audio_t * output, 
+    p67_audio_codecs_t * decoder)
+{
+    p67_err err = 0;
+    unsigned char compressed_frame[P67_AUDIO_MAX_CFRAME_SZ];
+    int dsz = P67_AUDIO_BUFFER_SIZE(*output);
+    unsigned char decompressed_frame[dsz];
+    int st;
+
+    int interval = ((output->frame_size * 1e6) / output->rate) / 2;
+    int q_min_len = 20 * s->q_chunk_size;
+    int size;
+
+    if(output->__hw != NULL) {
+        // TODO: if hardware is already allocated, flush or drain buffer and reenter loop
+        return p67_err_einval;
+    } else {
+        if((err = p67_audio_create_io(output)) != 0)
+            goto end;
+    }
+
+    /*
+        wait up until stream arrives.
+        temp solution
+    */
+    while(1) {
+        st = p67_qdp_space_taken(s);
+        if(st >= q_min_len) {
+            break;
+        }
+        p67_cmn_sleep_micro(interval);
+    }
+    
+    while(1) {
+        st = p67_qdp_space_taken(s);
+        if(st < q_min_len) {
+            p67_cmn_sleep_micro(interval);
+            continue;
+        }
+
+        size = s->q_chunk_size;
+
+        err = p67_qdp_deque(s, compressed_frame, &size);
+        if(err != 0 && err != p67_err_eagain) {
+            p67_cmn_sleep_micro(interval);
+            continue;
+        }
+
+        if((err = p67_audio_codecs_decode(
+                decoder, 
+                err == p67_err_eagain ? NULL : compressed_frame, 
+                size,  
+                decompressed_frame)) != 0) goto end;
+
+        if((err = p67_audio_write(
+                output, decompressed_frame, dsz)) != 0) goto end;
+    }
+
+end:
+    return err;
 }

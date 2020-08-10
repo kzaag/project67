@@ -1,6 +1,9 @@
 #if !defined(P67_CONN_H)
 #define P67_CONN_H 1
 
+#include "err.h"
+#include "sfd.h"
+
 typedef struct p67_node p67_node_t;
 
 #define P67_NODE_STATE_NODE 0

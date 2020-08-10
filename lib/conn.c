@@ -188,13 +188,12 @@ __p67_conn_free(p67_hashcntl_entry_t * entry)
 
     conn->sig_term = 1;
     if(conn->ssl) SSL_shutdown(conn->ssl);
+    p67_thread_sm_terminate(&conn->hread, 500);
 
     p67_conn_unlock(conn);
 
     /* give everyone waiting some time to terminate */
     p67_cmn_sleep_ms(100);
-
-    p67_thread_sm_terminate(&conn->hread, P67_THREAD_SM_TIMEOUT_DEF);
 
     if(conn->ssl) {
         SSL_shutdown(conn->ssl);

@@ -1,4 +1,4 @@
-#include "net.h"
+#include "conn.h"
 
 void
 p67_lib_init(void);
@@ -9,11 +9,11 @@ p67_lib_free(void);
 void
 p67_lib_init(void)
 {
-    p67_net_init();
+    p67_conn_init();
 }
 
 void
 p67_lib_free(void)
 {
-    p67_net_free();
+    p67_conn_shutdown_all();
 }

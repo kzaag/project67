@@ -6,11 +6,18 @@
 #include "../conn.h"
 
 #include <string.h>
+#include <assert.h>
 
 #define P67_PUDP_INODE_LEN 101
 #define P67_PUDP_CHUNK_LEN 512
 
 #define pudp_hashin(ix) ((ix) % P67_PUDP_INODE_LEN)
+
+#define p67_pdp_set_state(inode, p, n) \
+    p67_atomic_set_state(&(inode).istate, PARG(p), n)
+
+#define p67_pdp_must_set_state(inode, p, n) \
+    p67_atomic_must_set_state(&(inode).istate, p, n)
 
 typedef struct p67_pdp_inode {
     /* index in the underlying hash table */
@@ -97,7 +104,6 @@ p67_pdp_write_urg(
     int * evt_termsig,
     void * res,
     int * resl)
-
 {
     p67_err err;
     size_t hash, i;
@@ -122,23 +128,21 @@ p67_pdp_write_urg(
     i = hash;
 
     while(1) {
+
         if(pudp_inodes[i].istate != P67_PDP_ISTATE_FREE)
             goto LOOPEND;
 
-        if((err = p67_mutex_set_state(
-                &pudp_inodes[i].istate, 
-                P67_PDP_ISTATE_FREE, 
-                P67_PDP_ISTATE_PASS)) != 0)
+        if(!p67_pdp_set_state(
+                pudp_inodes[i], P67_PDP_ISTATE_FREE, P67_PDP_ISTATE_PASS))
             goto LOOPEND;
 
         if((err = p67_cmn_time_ms(&pudp_inodes[i].lt)) != 0) {
-                p67_mutex_set_state(
-                    &pudp_inodes[i].istate, 
-                    P67_PDP_ISTATE_PASS, 
-                    P67_PDP_ISTATE_FREE);
-                return err;
+            p67_pdp_must_set_state(
+                pudp_inodes[i], P67_PDP_ISTATE_PASS, P67_PDP_ISTATE_FREE)
+            return err;
         }
-        pudp_inodes[i].addr = addr;
+
+        pudp_inodes[i].addr = p67_addr_ref_cpy(addr);
         pudp_inodes[i].size = msgl;
 
         pudp_inodes[i].res = res;
@@ -153,13 +157,8 @@ p67_pdp_write_urg(
             pudp_inodes[i].ttl = ttl;
         memcpy(pudp_data[i], msg, msgl);
 
-        if((err = p67_mutex_set_state(
-                    &pudp_inodes[i].istate, 
-                    P67_PDP_ISTATE_PASS, 
-                    P67_PDP_ISTATE_ACTV)) != 0) {
-            /* this really shouldnt happen */
-            return p67_err_easync;
-        }
+        p67_pdp_must_set_state(
+            pudp_inodes[i], P67_PDP_ISTATE_PASS, P67_PDP_ISTATE_ACTV);
 
         if(evt_termsig != NULL)
             pudp_inodes[i].termsig = evt_termsig;
@@ -185,25 +184,7 @@ LOOPEND:
 p67_err
 p67_pdp_start_loop(void)
 {
-    p67_err err;
-
-    if(pudp.state != P67_THREAD_SM_STATE_STOP)
-        return p67_err_eaconn;
-    
-    if((err = p67_mutex_set_state(
-            &pudp.state, 
-            P67_THREAD_SM_STATE_STOP, 
-            P67_THREAD_SM_STATE_RUNNING)) != 0)
-        return err;
-
-    if((err = p67_cmn_thread_create(&pudp.thr, pdp_loop, &pudp)) != 0) {
-        p67_mutex_set_state(
-            &pudp.state, 
-            P67_THREAD_SM_STATE_RUNNING, 
-            P67_THREAD_SM_STATE_STOP);
-    }
-
-    return err;
+    return p67_thread_sm_start(&pudp, pdp_loop, &pudp);
 }
 
 p67_err
@@ -212,9 +193,8 @@ p67_pdp_urg_remove(
     unsigned char * msg, int msgl,
     int preack)
 {
-    int state;
+    assert(msg);
     size_t hash, i;
-    int handled = 0;
 
     hash = pudp_hashin(id);
 
@@ -228,27 +208,24 @@ p67_pdp_urg_remove(
         if(pudp_inodes[i].iid != id)
             goto LOOPEND;
 
-        state = P67_PDP_ISTATE_ACTV;
+        if(!p67_pdp_set_state(
+                pudp_inodes[i], P67_PDP_ISTATE_ACTV, P67_PDP_ISTATE_PASS))
+            goto LOOPEND;
 
-        if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PDP_ISTATE_PASS)) {
-            return p67_err_easync;
-        }
-
-        state = P67_PDP_ISTATE_PASS;
+        if(pudp_inodes[i].iid != id)
+            goto LOOPEND;
 
         if(preack) {
-
             pudp_inodes[i].preacked = 1;
 
-            if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PDP_ISTATE_ACTV)) {
-                return p67_err_easync;
-            }
-
+            p67_pdp_must_set_state(
+                    pudp_inodes[i], P67_PDP_ISTATE_PASS, P67_PDP_ISTATE_ACTV);
+                
             return 0;
         }
 
         if(pudp_inodes[i].res != NULL && pudp_inodes[i].resl != NULL) {
-            memcpy(pudp_inodes[i].res, msg, pudp_inodes[i].resl);
+            memcpy(pudp_inodes[i].res, msg, *pudp_inodes[i].resl);
             if(*pudp_inodes[i].resl > msgl)
                 *pudp_inodes[i].resl = msgl;
         }
@@ -256,14 +233,10 @@ p67_pdp_urg_remove(
         if(pudp_inodes[i].termsig != NULL)
             p67_mutex_set_state(pudp_inodes[i].termsig, 0, P67_PDP_EVT_GOT_ACK);
 
-        if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PDP_ISTATE_FREE)) {
-            return p67_err_easync;
-        }
+        p67_addr_free(pudp_inodes[i].addr);
 
-        if(handled) 
-            return 0;
-        else 
-            return p67_err_eagain;
+        p67_pdp_must_set_state(
+            pudp_inodes[i], P67_PDP_ISTATE_PASS, P67_PDP_ISTATE_FREE);
 
         return 0;
 
@@ -278,29 +251,35 @@ void *
 pdp_loop(void * args)
 {
     p67_err err;
-    int i, state;
+    int i;
     unsigned long long t;
-    p67_thread_sm_t * _pudp = (p67_thread_sm_t *)args;
+    (void)args;
 
     while(1) {
         err = p67_mutex_wait_for_change(&pudp_wakeup, 0, P67_PDP_INTERV);
         if(err == p67_err_eerrno)
             goto end;
+
+        if(pudp.state != P67_THREAD_SM_STATE_RUNNING)
+            goto end;
         
         pudp_wakeup = 0;
 
         for(i = 0; i < P67_PUDP_INODE_LEN; i++) {
+
             if(pudp_inodes[i].istate != P67_PDP_ISTATE_ACTV)
                 continue;
+
+            if(!p67_pdp_set_state(
+                pudp_inodes[i], P67_PDP_ISTATE_ACTV, P67_PDP_ISTATE_PASS))
+            continue;
+
             if((err = p67_cmn_time_ms(&t)) != 0)
                 goto end;
 
             /* timeout */
             if((t - pudp_inodes[i].lt) > pudp_inodes[i].ttl) {
 
-                state = pudp_inodes[i].istate;
-                if(!p67_atomic_set_state(&pudp_inodes[i].istate, &state, P67_PDP_ISTATE_FREE))
-                    continue;
                 // if(pudp_inodes[i].cb != NULL)
                 //     pudp_inodes[i].cb(pudp_inodes[i].pass, P67_PDP_EVT_TIMEOUT, NULL);
                 if(pudp_inodes[i].termsig != NULL)
@@ -308,6 +287,13 @@ pdp_loop(void * args)
                         pudp_inodes[i].termsig, 
                         P67_PDP_EVT_NONE, 
                         P67_PDP_EVT_TIMEOUT);
+
+                p67_addr_free(pudp_inodes[i].addr);
+
+                p67_pdp_must_set_state(
+                    pudp_inodes[i], P67_PDP_ISTATE_PASS, P67_PDP_ISTATE_FREE);
+
+                continue;
 
             } else if(!pudp_inodes[i].preacked) {
 
@@ -327,14 +313,16 @@ pdp_loop(void * args)
                 // }
 
             }
+
+            p67_pdp_must_set_state(
+                pudp_inodes[i], P67_PDP_ISTATE_PASS, P67_PDP_ISTATE_ACTV);
         }
     }
 
 end:
     if(err != 0)
-        p67_err_print_err("error[s] occured in PDP loop: ", err);
-    p67_mutex_set_state(&_pudp->state, P67_THREAD_SM_STATE_SIG_STOP, P67_THREAD_SM_STATE_STOP);
-    p67_mutex_set_state(&_pudp->state, P67_THREAD_SM_STATE_RUNNING, P67_THREAD_SM_STATE_STOP);
+        p67_err_print_err("error/s occured in PDP loop: ", err);
+    pudp.state = P67_THREAD_SM_STATE_STOP;
     return NULL;
 }
 
@@ -481,21 +469,6 @@ __p67_pdp_run_keepalive_loop(void * args)
 p67_err
 p67_pdp_start_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx)
 {
-    if(ctx->th.state != P67_THREAD_SM_STATE_STOP)
-        return p67_err_eaconn;
-
-    if(p67_mutex_set_state(
-                &ctx->th.state, 
-                P67_THREAD_SM_STATE_STOP, 
-                P67_THREAD_SM_STATE_RUNNING) != 0)
-        return p67_err_eaconn;
-
-    p67_err err;
-
-    if((err = p67_cmn_thread_create(
-            &ctx->th.thr, __p67_pdp_run_keepalive_loop, ctx)) != 0) {
-        ctx->th.state = P67_THREAD_SM_STATE_STOP;
-    }
-
-    return err;
+    return p67_thread_sm_start(
+        &ctx->th, __p67_pdp_run_keepalive_loop, ctx);
 }

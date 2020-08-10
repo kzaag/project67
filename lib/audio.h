@@ -4,7 +4,10 @@
 #include <pulse/simple.h>
 #include <pulse/error.h>
 #include <opus/opus.h>
+
 #include "err.h"
+#include "sfd.h"
+#include "dml/qdp.h"
 
 /*
     using pulseaudio allows user to control hw in much more stable way than with alsa, 
@@ -162,5 +165,24 @@ p67_audio_codecs_decode(
             p67_audio_codecs_t * cptr, 
             const unsigned char * compressed_frame, int csize,
             unsigned char * decompressed_frame);
+
+/*
+    stream audio to the remote
+*/
+p67_err
+p67_audio_write_qdp(
+    p67_addr_t * addr,
+    p67_audio_t * input, 
+    p67_audio_codecs_t * encoder, 
+    uint8_t utp);
+
+/*
+    accept incoming stream and play it back
+*/
+p67_err
+p67_audio_read_qdp(
+    p67_qdp_ctx_t * s,
+    p67_audio_t * output, 
+    p67_audio_codecs_t * decoder);
 
 #endif
