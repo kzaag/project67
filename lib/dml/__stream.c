@@ -6,6 +6,8 @@
 #include "audio.h"
 #include "stream.h"
 
+#error finish it
+
 typedef struct q_inode {
     uint32_t seq;
     int      state;

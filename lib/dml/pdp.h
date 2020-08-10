@@ -89,7 +89,7 @@ p67_pdp_write_urg(
             */
             p67_async_t * termsig,
             
-            void ** res,
+            void * res,
             int * resl);
 
 p67_err

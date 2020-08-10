@@ -8,17 +8,17 @@
 #include <string.h>
 
 #define P67_PUDP_INODE_LEN 101
-#define P67_PUDP_CHUNK_LEN 256
+#define P67_PUDP_CHUNK_LEN 512
 
 #define pudp_hashin(ix) ((ix) % P67_PUDP_INODE_LEN)
 
 typedef struct p67_pdp_inode {
     /* index in the underlying hash table */
     size_t index; 
-    unsigned long long lt; /* time when inode was initialized */
+    p67_epoch_t lt; /* time when inode was initialized */
     int * termsig; /* notify user about termination with error code (EVT) */
 
-    void ** res;
+    void * res;
     int * resl;
 
     p67_addr_t * addr;
@@ -95,7 +95,7 @@ p67_pdp_write_urg(
     int msgl, 
     int ttl,
     int * evt_termsig,
-    void ** res,
+    void * res,
     int * resl)
 
 {
@@ -248,10 +248,9 @@ p67_pdp_urg_remove(
         }
 
         if(pudp_inodes[i].res != NULL && pudp_inodes[i].resl != NULL) {
-            if((*pudp_inodes[i].res = malloc(msgl)) == NULL)
-                return p67_err_eerrno;
-            memcpy(*pudp_inodes[i].res, msg, msgl);
-            *pudp_inodes[i].resl = msgl;
+            memcpy(pudp_inodes[i].res, msg, pudp_inodes[i].resl);
+            if(*pudp_inodes[i].resl > msgl)
+                *pudp_inodes[i].resl = msgl;
         }
 
         if(pudp_inodes[i].termsig != NULL)
