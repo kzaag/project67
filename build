@@ -71,7 +71,6 @@ sudo ldconfig;
 
 # build tests
 
-exit 0;
 
 echo "Building tests"
 
@@ -81,10 +80,11 @@ mkdir -p $WD/bin/test;
 
 echo "    async"
 gcc-8 $FP/async.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/async $LOPENSSL;
-echo "    net"
-gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/net $LOPENSSL;
 echo "    gencert"
 gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/gencert $LOPENSSL;
+exit 0;
+echo "    net"
+gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/net $LOPENSSL;
 echo "    pdp"
 gcc-8 $FP/pdp.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/pdp $LOPENSSL;
 #gcc-8 $FP/stream.c $DEBUG $FP/wav.c \
