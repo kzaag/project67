@@ -172,14 +172,17 @@ p67_addr_free(p67_addr_t * addr)
     }
 
     if(addr->refcount == 1) {
+        addr->refcount--;
+        p67_addr_unlock(addr);
+        p67_cmn_sleep_ms(10);
         free(addr->service);
         free(addr->hostname);
         free(addr);
     } else {
         addr->refcount--;
+        p67_addr_unlock(addr);
     }
 
-    p67_addr_unlock(addr);
 }
 
 p67_addr_t *

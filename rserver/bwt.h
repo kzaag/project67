@@ -19,7 +19,7 @@ typedef struct __attribute__((packed)) p67rs_bwt {
 
 p67rs_err
 p67rs_bwt_create_for_user(
-    const p67rs_db_user_t * user, p67_epoch_t valid_to, p67rs_bwt_t * bwt);
+    const p67rs_db_user_t * user, p67_cmn_epoch_t valid_to, p67rs_bwt_t * bwt);
 
 p67rs_err
 p67rs_bwt_create_for_user_days(

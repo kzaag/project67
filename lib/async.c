@@ -88,6 +88,10 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms)
         } else {
             err = futex(pptr, FUTEX_WAIT, state, NULL, NULL, 0);
         }
+        
+        if(*pptr != state)
+            break;
+        
         if(err != 0) {
             if(errno == EAGAIN) {
                 continue;
@@ -97,8 +101,6 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms)
                 return p67_err_eerrno;
         }
 
-        if(*pptr != state)
-            break;
     }
 
     return 0;
@@ -151,6 +153,7 @@ p67_thread_sm_start(
 {
     p67_err err;
 
+
     if(t->state != P67_THREAD_SM_STATE_STOP)
         return p67_err_eaconn;
 
@@ -162,6 +165,7 @@ p67_thread_sm_start(
     }
 
     t->state = P67_THREAD_SM_STATE_RUNNING;
+
 
     err = p67_cmn_thread_create(&t->thr, cb, arg);
 

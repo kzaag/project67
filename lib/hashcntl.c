@@ -25,7 +25,7 @@ p67_hashcntl_free(p67_hashcntl_t * ctx)
             ctx->free_entry(entry);
         } while((entry = next_entry));
     }
-
+    free(ctx->buffer);
     free(ctx);
 
     return;

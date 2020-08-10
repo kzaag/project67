@@ -1,65 +1,87 @@
 #include <p67/p67.h>
 #include <stdlib.h>
 #include <alloca.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 /*
     core networking integration testing
 */
 
 p67_err
-process_message(p67_conn_t * conn, const char * msg, int msgl, void * args)
+process_message(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 {
-    const p67_addr_t * addr = p67_conn_get_addr(conn);
-    printf("%s:%s says: %*.*s\n", addr->hostname, addr->service, msgl, msgl, msg);
+    printf("%s:%s says: %.*s\n", addr->hostname, addr->service, msgl, msg);
     return 0;
+}
+
+p67_conn_ctx_t ctx = {
+    .cb = process_message,
+    .keypath = "p2pcert",
+    .certpath = "p2pcert.cert",
+    .local_addr = NULL,
+    .remote_addr = NULL
+};
+
+void
+finish(int a)
+{
+    p67_thread_sm_terminate(&ctx.listen_tsm, 500);
+    p67_thread_sm_terminate(&ctx.connect_tsm, 500);
+    p67_addr_free(ctx.local_addr);
+    p67_addr_free(ctx.remote_addr);
+    p67_lib_free();
+    raise(a);
 }
 
 int
 main(int argc, char ** argv)
 {
-    p67_conn_pass_t pass = P67_CONN_PASS_INITIALIZER;
+    p67_lib_init();
+    signal(SIGINT, finish);
+
     p67_err err;
-    int len = 5;
     
-    const char * keypath = "p2pcert";
-    const char * certpath = "p2pcert.cert";
-    const char * remote_ip = IP4_LO1;
-
-    pass.local.rdonly = 1;
-    pass.remote.rdonly = 1;
-    pass.certpath = (char *)certpath;
-    pass.keypath = (char *)keypath;
-    pass.handler = process_message;
-
     if(argc < 3) {
         printf("Usage: ./p67corenet [source port] [dest port]\n");
         return 2;
     }
 
-    p67_lib_init();
+    const char * remote_ip = IP4_LO1;
 
-    if((err = p67_addr_set_localhost4_udp(&pass.local, argv[1])) != 0)
+    ctx.local_addr = p67_addr_new();
+    ctx.remote_addr = p67_addr_new();
+
+    if(!ctx.local_addr || !ctx.remote_addr)
+        return 2;
+
+    if((err = p67_addr_set_localhost4_udp(ctx.local_addr, argv[1])) != 0)
         goto end;
 
-    if((err = p67_addr_set_host_udp(&pass.remote, remote_ip, argv[2])))
+    if((err = p67_addr_set_host_udp(ctx.remote_addr, remote_ip, argv[2])))
         goto end;
 
-    if((err = p67_net_seq_connect_listen(&pass)) != 0)
+    if((err = p67_conn_ctx_start_listen(&ctx)) != 0)
         goto end;
-
-    // if((err = p67_net_start_connect_and_listen(&pass)) != 0)
-    //     goto end;
+    if((err = p67_conn_ctx_start_persist_connect(&ctx)) != 0)
+        goto end;
 
     getchar();
 
-    if((err = p67_net_write_connect(&pass, "hello", &len)) != 0) goto end;
+    char buff[64];
+    int ix = 0;
+    while(1) {
+        do {
+            write(1, "$: ", 3);
+        } while((ix = read(0, buff, sizeof(buff))) <= 1);
+
+        if((err = p67_conn_write_once(ctx.remote_addr, buff, ix-1)) != 0)
+            p67_err_print_err("couldnt write: ", err);
+    }
 
     getchar();
-
-    err = p67_net_async_terminate(&pass);
 
 end:
     if(err != 0) p67_err_print_err("Main: ", err);
-    p67_lib_free();
-    if(err == 0) return 0; else return 2;
+    finish(SIGINT);
 }

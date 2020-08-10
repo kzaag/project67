@@ -28,7 +28,7 @@ P67_CMN_NO_PROTO_EXIT
         &ctx->listen_tsm.state);
 
     if(err != 0) {
-        p67_err_print_err("error/s occured in listen context", err);
+        p67_err_print_err("error/s occured in __p67_conn_ctx_listen: ", err);
     }
 
     return NULL;

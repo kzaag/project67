@@ -30,7 +30,7 @@ sudo apt install libasound2-dev=1.1.8-1 -y;
 # OpenSSL #
 ###########
 
-#   1.1.1d is __mandatory__ dont use 1.1.1
+#   1.1.1d is supported
 # debian
 #   sudo apt install openssl=1.1.1d-0+deb10u3 -y;
 # ubuntu

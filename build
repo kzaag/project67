@@ -82,11 +82,11 @@ echo "    async"
 gcc-8 $FP/async.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/async $LOPENSSL;
 echo "    gencert"
 gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/gencert $LOPENSSL;
-exit 0;
 echo "    net"
 gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/net $LOPENSSL;
 echo "    pdp"
 gcc-8 $FP/pdp.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/pdp $LOPENSSL;
+exit 0;
 #gcc-8 $FP/stream.c $DEBUG $FP/wav.c \
 #    -std=c99 -lp67 -o $WD/bin/p67stream $LOPENSSL $OPUS $PULSEAUDIO;
 echo "    rserver"

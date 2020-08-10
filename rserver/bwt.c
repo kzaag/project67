@@ -19,7 +19,7 @@ static unsigned char p67rs_bwt_hmac_key[] = {
 
 p67rs_err
 p67rs_bwt_create_for_user(
-    const p67rs_db_user_t * user, p67_epoch_t exp, p67rs_bwt_t * bwt)
+    const p67rs_db_user_t * user, p67_cmn_epoch_t exp, p67rs_bwt_t * bwt)
 {
     if(bwt == NULL) return p67_err_einval;
 
@@ -45,9 +45,9 @@ p67rs_bwt_create_for_user_days(
     const p67rs_db_user_t * user, int days, p67rs_bwt_t * bwt)
 {
     p67rs_err err;
-    p67_epoch_t exp;
+    p67_cmn_epoch_t exp;
     
-    if((err = p67_cmn_time_ms(&exp)) != 0) return err;
+    if((err = p67_cmn_epoch_ms(&exp)) != 0) return err;
 
     exp+=(days * 24 * 60 * 60 * 1000);
 
@@ -76,9 +76,9 @@ p67rs_bwt_validate(p67rs_bwt_t * bwt)
     if(memcmp(sig, bwt->sig, mdlen) != 0)
         return p67rs_err_bwt_sig;
 
-    p67_epoch_t now;
+    p67_cmn_epoch_t now;
 
-    if((err = p67_cmn_time_ms(&now)) != 0)
+    if((err = p67_cmn_epoch_ms(&now)) != 0)
         return err;
 
     if(now > bwt->payload.exp)  

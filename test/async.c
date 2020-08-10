@@ -46,7 +46,7 @@ main()
 
     printf("Testing mutex\n");
 
-    if((err = p67_cmn_time_ms(&start)) != 0) {
+    if((err = p67_cmn_epoch_ms(&start)) != 0) {
         p67_err_print_err("mutex get start time: ", err);
         return 2;
     }
@@ -61,7 +61,7 @@ main()
         return 2;
     }
 
-    if((err = p67_cmn_time_ms(&end)) != 0) {
+    if((err = p67_cmn_epoch_ms(&end)) != 0) {
         p67_err_print_err("mutex get start time: ", err);
         return 2;
     }

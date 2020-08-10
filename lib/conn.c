@@ -225,9 +225,10 @@ P67_CMN_NO_PROTO_EXIT
     const p67_addr_t * addr)
 {
     p67_hashcntl_entry_t * entry = p67_hashcntl_lookup(
-        node_cache(), 
+        conn_cache(), 
         (unsigned char *)&addr->sock,
         addr->socklen);
+    if(!entry) return NULL;
     return (p67_conn_t *)entry->value;
 }
 
@@ -239,6 +240,7 @@ p67_node_lookup(p67_addr_t * addr)
         node_cache(), 
         (unsigned char *)&addr->sock,
         addr->socklen);
+    if(!entry) return NULL;
     return (p67_node_t *)entry->value;
 }
 
@@ -298,16 +300,13 @@ P67_CMN_NO_PROTO_EXIT
     entry->valuel = sizeof(p67_conn_t);
 
     ret = (p67_conn_t *)entry->value;
+    memset(ret, 0, sizeof(p67_conn_t));
     ret->addr_local = localcpy;
     ret->addr_remote = remotecpy;
     ret->args = args;
     ret->callback = cb;
     ret->free_args = free_args_cb;
-    ret->heap_alloc = 0;
-    ret->hread.state = P67_THREAD_SM_STATE_STOP;
-    ret->hread.thr = 0;
     ret->lock = lock;
-    ret->sig_term = 0;
     ret->ssl = ssl;
 
     memcpy(entry->key, &remotecpy->sock, remotecpy->socklen);
@@ -473,8 +472,6 @@ P67_CMN_NO_PROTO_EXIT
         goto end;
 
     max_timeouts = max_rcvto_ms / rcvto_ms;
-
-    //p67_log_debug("Entering read loop\n");
 
     while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) && num_timeouts < max_timeouts) {
         sslr = 1;
@@ -1216,6 +1213,10 @@ p67_conn_listen(
     if((err = p67_sfd_set_reuseaddr(sfd)) != 0) goto end;
     
     if((err = p67_sfd_bind(sfd, laddr)) != 0) goto end;
+
+    if((err = p67_sfd_set_timeouts(
+            sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS)) != 0)
+        goto end;
 
     //if((err = p67_sfd_set_noblocking(sfd)) != 0) goto end;
 

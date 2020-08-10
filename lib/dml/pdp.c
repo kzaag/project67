@@ -22,7 +22,7 @@
 typedef struct p67_pdp_inode {
     /* index in the underlying hash table */
     size_t index; 
-    p67_epoch_t lt; /* time when inode was initialized */
+    p67_cmn_epoch_t lt; /* time when inode was initialized */
     int * termsig; /* notify user about termination with error code (EVT) */
 
     void * res;
@@ -105,6 +105,8 @@ p67_pdp_write_urg(
     void * res,
     int * resl)
 {
+    if(!addr) return p67_err_einval;
+
     p67_err err;
     size_t hash, i;
     const p67_pdp_urg_hdr_t * hdr;
@@ -136,13 +138,14 @@ p67_pdp_write_urg(
                 pudp_inodes[i], P67_PDP_ISTATE_FREE, P67_PDP_ISTATE_PASS))
             goto LOOPEND;
 
-        if((err = p67_cmn_time_ms(&pudp_inodes[i].lt)) != 0) {
+        if((err = p67_cmn_epoch_ms(&pudp_inodes[i].lt)) != 0) {
             p67_pdp_must_set_state(
                 pudp_inodes[i], P67_PDP_ISTATE_PASS, P67_PDP_ISTATE_FREE)
             return err;
         }
 
         pudp_inodes[i].addr = p67_addr_ref_cpy(addr);
+        assert(pudp_inodes[i].addr);
         pudp_inodes[i].size = msgl;
 
         pudp_inodes[i].res = res;
@@ -231,7 +234,9 @@ p67_pdp_urg_remove(
         }
 
         if(pudp_inodes[i].termsig != NULL)
-            p67_mutex_set_state(pudp_inodes[i].termsig, 0, P67_PDP_EVT_GOT_ACK);
+            p67_mutex_set_state(
+                pudp_inodes[i].termsig, 
+                P67_PDP_EVT_NONE, P67_PDP_EVT_GOT_ACK);
 
         p67_addr_free(pudp_inodes[i].addr);
 
@@ -274,7 +279,7 @@ pdp_loop(void * args)
                 pudp_inodes[i], P67_PDP_ISTATE_ACTV, P67_PDP_ISTATE_PASS))
             continue;
 
-            if((err = p67_cmn_time_ms(&t)) != 0)
+            if((err = p67_cmn_epoch_ms(&t)) != 0)
                 goto end;
 
             /* timeout */

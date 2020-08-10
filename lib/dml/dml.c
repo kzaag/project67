@@ -51,7 +51,7 @@ p67_dml_handle_msg(
 {
     (void)args;
     p67_err err = 0;
-    int wh = 0;
+    //int wh = 0;
     const p67_dml_hdr_store_t * msg_hdr;
 
     if((msg_hdr = p67_dml_parse_hdr(
@@ -66,10 +66,10 @@ p67_dml_handle_msg(
                 p67_cmn_ntohs(msg_hdr->ack.ack_mid), 
                 (unsigned char *)msg, msgl,
                 msg_hdr->cmn.cmn_stp == P67_DML_STP_PDP_PACK ? 1 : 0);
-        if(err == 0) 
-            wh = 1;
-        else if(err == p67_err_eagain) 
-            err = 0;
+        // if(err == 0) 
+        //     wh = 1;
+        // else if(err == p67_err_eagain) 
+        //     err = 0;
         break;
     case P67_DML_STP_PDP_URG:
         err = p67_pdp_write_ack_for_urg(addr, &msg_hdr->urg);
@@ -87,35 +87,38 @@ p67_dml_handle_msg(
         return 0;
     }
 
-    if(wh == 1)
-        return 0;
-
-    // signal that message still needs to be processed.
-    return p67_err_eagain;
+    return 0;
 }
 
 p67_err
-p67_dml_pretty_print(const unsigned char * msg, int msgl)
+p67_dml_pretty_print(const char * msgh, const unsigned char * msg, int msgl)
 {
     const p67_dml_hdr_store_t * hdr;
     p67_err err;
+    const char empty = 0;
+    if(msgh == NULL) msgh = &empty;
 
-    if((hdr = p67_dml_parse_hdr(msg, msgl, &err)) == NULL)
+    if((hdr = p67_dml_parse_hdr(msg, msgl, &err)) == NULL) {
+        printf("%s:Unknown segment\n", msgh);
         return err;
+    }
 
     switch(hdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
-        printf("ACK, utp: %d, payload length: %d bytes\n", 
+        printf("%sACK, utp: %d, payload length: %d bytes\n", 
+            msgh,
             hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_pdp_ack_hdr_t));
         break;
     case P67_DML_STP_PDP_URG:
-        printf("URG, utp: %d, payload length: %d bytes\n", 
+        printf("%sURG, utp: %d, payload length: %d bytes\n",
+            msgh,
             hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_pdp_urg_hdr_t));
         break;
     case P67_DML_STP_DAT:
-        printf("DAT, utp: %d, payload length: %d bytes\n", 
+        printf("%sDAT, utp: %d, payload length: %d bytes\n", 
+            msgh,
             hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_dml_dat_hdr_t));
         break;

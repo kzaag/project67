@@ -4,6 +4,8 @@
 #include "err.h"
 #include "log.h"
 
+#define P67_CMN_MICROSEC "\u00b5s"
+
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <endian.h>
@@ -46,7 +48,7 @@ typedef pthread_mutex_t p67_mutex_t;
 
 typedef pthread_t p67_thread_t;
 
-typedef unsigned long long p67_epoch_t;
+typedef unsigned long long p67_cmn_epoch_t;
 
 typedef void * (* p67_thread_callback)(void *);
 
@@ -74,7 +76,10 @@ p67_err
 p67_cmn_sleep_micro(int micro);
 
 p67_err
-p67_cmn_time_ms(p67_epoch_t * t);
+p67_cmn_epoch_ms(p67_cmn_epoch_t * t);
+
+p67_err
+p67_cmn_epoch_micro(p67_cmn_epoch_t * t);
 
 p67_err
 p67_cmn_sleep_s(int s);
