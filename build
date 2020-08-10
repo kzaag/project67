@@ -8,7 +8,7 @@ WD=`realpath $0 | xargs dirname`/
 
 FP="$WD/lib"
 
-FILES=`find $FP -name "*.c" ! -name "__*"`;
+FILES=`find $FP -name "*.c" ! -wholename "*__*"`;
 
 #rm -fr $WD/bin
 mkdir -p $WD/bin
@@ -70,6 +70,8 @@ sudo cp $LIB /usr/local/lib/;
 sudo ldconfig;
 
 # build tests
+
+exit 0;
 
 echo "Building tests"
 

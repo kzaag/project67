@@ -1,8 +1,9 @@
-#include "../net.h"
+
 #include "../log.h"
-#include "../async.h"
+
 #include "pdp.h"
 #include "dml.h"
+#include "../conn.h"
 
 #include <string.h>
 
@@ -278,7 +279,7 @@ void *
 pdp_loop(void * args)
 {
     p67_err err;
-    int i, state, wr;
+    int i, state;
     unsigned long long t;
     p67_thread_sm_t * _pudp = (p67_thread_sm_t *)args;
 
@@ -315,8 +316,10 @@ pdp_loop(void * args)
                 //     printf("retransmission\n");
                 // }
 
-                wr = pudp_inodes[i].size;
-                err = p67_net_write(pudp_inodes[i].addr, pudp_data[i], &wr);
+                err = p67_conn_write_once(
+                        pudp_inodes[i].addr, 
+                        pudp_data[i], 
+                        pudp_inodes[i].size);
                 // if(err == 0 && pudp_inodes[i].size != (unsigned int)wr)
                 //     err = p67_err_eagain;
                 // if(err != 0) {
@@ -404,7 +407,7 @@ p67_pdp_generate_ack(
 
 p67_err
 p67_pdp_write_ack_for_urg(
-    p67_conn_t * conn, 
+    p67_addr_t * addr, 
     const p67_pdp_urg_hdr_t * urg_hdr)
 {
     p67_pdp_ack_hdr_t ack;
@@ -422,7 +425,7 @@ p67_pdp_write_ack_for_urg(
     if(err != 0)
         return err;
 
-    return p67_net_must_write_conn(conn, &ack, sizeof(ack));
+    return p67_conn_write_once(addr, (p67_pckt_t *)&ack, sizeof(ack));
 }
 
 p67_err
@@ -440,7 +443,7 @@ p67_pdp_run_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx)
         }
         urg.urg_mid = p67_pdp_mid;    
         err = p67_pdp_write_urg(
-                &ctx->pass->remote, 
+                ctx->addr, 
                 (uint8_t *)&urg, 
                 sizeof(urg), 
                 1000, 

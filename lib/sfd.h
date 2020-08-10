@@ -2,6 +2,7 @@
 #define SFD_H 1
 
 #include "err.h"
+#include "async.h"
 
 #if !defined(__USE_XOPEN2K)
 #define __USE_XOPEN2K
@@ -28,6 +29,8 @@
 
 #define p67_sfd_initialized(sfd) ((sfd) > 0)
 
+#define P67_ADDR_INITIALIZER {0}
+
 typedef int p67_sfd_t;
 
 union p67_sockaddr {
@@ -45,7 +48,7 @@ struct p67_addr {
     unsigned int   refcount;
     char           * hostname;
     char           * service;
-    unsigned long  rdonly : 1;
+    p67_async_t    spinlock;
 };
 
 typedef struct p67_addr p67_addr_t;
@@ -151,5 +154,14 @@ p67_sfd_set_timeouts(p67_sfd_t sfd, int sndto_ms, int rcvto_ms);
 
 p67_err
 p67_sfd_get_timeouts(p67_sfd_t sfd, int * sndto_ms, int * rcvto_ms);
+
+p67_addr_t *
+p67_addr_new(void);
+
+p67_addr_t *
+p67_addr_ref_cpy(p67_addr_t * src);
+
+char *
+p67_addr_str(p67_addr_t * addr, char * b, int bl);
 
 #endif

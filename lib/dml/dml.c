@@ -45,7 +45,7 @@ end:
 
 p67_err
 p67_dml_handle_msg(
-    p67_conn_t * conn, 
+    p67_addr_t * addr, 
     const char * msg, int msgl, 
     void * args)
 {
@@ -72,7 +72,7 @@ p67_dml_handle_msg(
             err = 0;
         break;
     case P67_DML_STP_PDP_URG:
-        err = p67_pdp_write_ack_for_urg(conn, &msg_hdr->urg);
+        err = p67_pdp_write_ack_for_urg(addr, &msg_hdr->urg);
         break;
     case P67_DML_STP_DAT:
         /* DATs are effectively NOOPs on DML */

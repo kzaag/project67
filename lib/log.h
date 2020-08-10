@@ -3,14 +3,14 @@
 
 #if defined(DEBUG) 
 
-#define DLOG(...) printf(__VA_ARGS__)
+#define p67_log_debug(...) printf(__VA_ARGS__)
 
 #else
 
-#define DLOG(...) (void)0
+#define p67_log_debug(...) (void)0
 
 #endif
 
-#define LOG(...) printf(__VA_ARGS__)
+#define p67_log(...) printf(__VA_ARGS__)
 
 #endif

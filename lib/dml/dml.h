@@ -2,9 +2,10 @@
 #define P67_DMP_H
 
 #include <stdint.h>
-#include "../cmn.h"
-#include "base.h"
 
+#include "../cmn.h"
+
+#include "base.h"
 #include "pdp.h"
 
 /*
@@ -53,7 +54,7 @@ p67_dml_parse_hdr(
 
 p67_err
 p67_dml_handle_msg(
-        p67_conn_t * conn, 
+        p67_addr_t * addr, 
         const char * msg, 
         int msgl, 
         void * args);

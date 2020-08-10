@@ -2,8 +2,13 @@
 #define CMN_H 1
 
 #include "err.h"
+#include "log.h"
+
 #include <pthread.h>
 #include <arpa/inet.h>
+#include <endian.h>
+#include <stdint.h>
+#include <assert.h>
 
 #define p67_cmn_static_assert(test) typedef char __p67sa[( !!(test) )*2-1 ]
 
@@ -11,9 +16,6 @@
 #define p67_cmn_ntohl(x) ntohl(x)
 #define p67_cmn_htons(x) htons(x)
 #define p67_cmn_htonl(x) htonl(x)
-
-#include <endian.h>
-#include <stdint.h>
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 
@@ -27,9 +29,18 @@
 
 #endif
 
-/*
-    TODO: cross platform wrappers around common procedures
-*/
+#define p67_cmn_assert_abort(cnd, msg) \
+    if(cnd) { p67_log(msg); abort(); }
+
+#define p67_cmn_ejmp(err, verr, lbl) \
+    { err = verr; goto lbl; }
+
+#define P67_CMN_NO_PROTO_ENTER \
+    _Pragma("GCC diagnostic push") \
+    _Pragma("GCC diagnostic ignored \"-Wmissing-prototypes\"")
+
+#define P67_CMN_NO_PROTO_EXIT \
+    _Pragma("GCC diagnostic pop")
 
 typedef pthread_mutex_t p67_mutex_t;
 

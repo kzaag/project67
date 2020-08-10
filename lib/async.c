@@ -111,7 +111,7 @@ p67_thread_sm_terminate(p67_thread_sm_t * sm, int timeout)
     p67_async_t state;
 
     if(sm->state != P67_THREAD_SM_STATE_RUNNING)
-        return p67_err_einval;
+        return p67_err_enconn;
 
     if((err = p67_mutex_set_state(
                 &sm->state, 
@@ -142,5 +142,30 @@ p67_thread_sm_terminate(p67_thread_sm_t * sm, int timeout)
         return 0;
     }
     
+    return err;
+}
+
+p67_err
+p67_thread_sm_start(
+    p67_thread_sm_t * t, p67_thread_callback cb, void * arg)
+{
+    p67_err err;
+
+    if(t->state != P67_THREAD_SM_STATE_STOP)
+        return p67_err_eaconn;
+
+    p67_thread_sm_lock(t);
+
+    if(t->state != P67_THREAD_SM_STATE_STOP) {
+        p67_thread_sm_unlock(t);
+        return p67_err_eaconn;
+    }
+
+    t->state = P67_THREAD_SM_STATE_RUNNING;
+
+    err = p67_cmn_thread_create(&t->thr, cb, arg);
+
+    p67_thread_sm_unlock(t);
+
     return err;
 }

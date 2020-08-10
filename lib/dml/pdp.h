@@ -5,9 +5,12 @@
     persistent datagrams protocol (pdp) implementation
 */
 
-#include "../net.h"
 #include "../cmn.h"
+#include "../async.h"
+#include "../sfd.h"
+
 #include "base.h"
+
 #include <stdint.h>
 
 #define __p67_pdp_message_id(prefix) \
@@ -126,7 +129,7 @@ p67_pdp_evt_str(char * buff, int buffl, int evt);
 
 p67_err
 p67_pdp_write_ack_for_urg(
-    p67_conn_t * conn, 
+    p67_addr_t* addr, 
     const p67_pdp_urg_hdr_t * urg_hdr);
 
 p67_err
@@ -135,7 +138,7 @@ p67_pdp_urg_remove(
 
 typedef struct p67_pdp_keepalive_ctx {
     p67_thread_sm_t th;
-    p67_conn_pass_t * pass;
+    p67_addr_t * addr;
 } p67_pdp_keepalive_ctx_t;
 
 p67_err

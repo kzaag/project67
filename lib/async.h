@@ -7,6 +7,7 @@
 
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "cmn.h"
 #include "err.h"
@@ -81,11 +82,15 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms);
 #define p67_mutex_lock(lptr) \
     p67_mutex_wait_and_set(lptr, P67_XLOCK_STATE_UNLOCKED, P67_XLOCK_STATE_LOCKED)
 
+#define p67_mutex_must_lock(lptr) \
+    if(p67_mutex_lock((lptr)) != 0) {\
+        fprintf(stderr, "Couldnt lock mutex. Aborting.\n"); \
+        exit(2); }
+
 #define p67_mutex_unlock(lptr) \
     if(p67_mutex_set_state((lptr), P67_XLOCK_STATE_LOCKED, P67_XLOCK_STATE_UNLOCKED) != 0) {\
         fprintf(stderr, "XLOCK state changed unexpectedly. Aborting.\n"); \
         exit(2); }
-
 
 #define P67_THREAD_SM_STATE_STOP     0
 #define P67_THREAD_SM_STATE_RUNNING  1
@@ -95,12 +100,24 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms);
 
 #define P67_THREAD_SM_INITIALIZER {0}
 
+#define p67_thread_sm_lock(t) \
+    p67_mutex_must_lock(&(t)->mutex)
+
+#define p67_thread_sm_unlock(t) \
+    p67_mutex_unlock(&(t)->mutex)
+
 typedef struct p67_thread_sm {
-    p67_async_t  state;
+    p67_async_t mutex;
+    int state;
     p67_thread_t thr;
+    int __align;
 } p67_thread_sm_t;
 
 p67_err
 p67_thread_sm_terminate(p67_thread_sm_t * sm, int timeout);
+
+p67_err
+p67_thread_sm_start(
+    p67_thread_sm_t * t, p67_thread_callback cb, void * arg);
 
 #endif

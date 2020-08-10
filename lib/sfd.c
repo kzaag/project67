@@ -15,10 +15,14 @@
 #include <sys/time.h>
 
 #include "sfd.h"
+#include "log.h"
 
 #define AL 120
 
 #define ADDR_STR_LEN (INET6_ADDRSTRLEN+1+5)
+
+#define p67_addr_lock(addr) p67_spinlock_lock(&addr->spinlock)
+#define p67_addr_unlock(addr) p67_spinlock_unlock(&addr->spinlock)
 
 #define p67_sfd_fill_type_and_proto(tp, typeval, protoval) \
     { \
@@ -43,14 +47,11 @@ p67_addr_set_host(
                 const char * service,
                 int p67_sfd_tp)
 {
-    int ret, rdonly;
+    int ret;
     struct addrinfo hint, * info, *cp;
 
-    if(addr == NULL || hostname == NULL || service == NULL) return p67_err_einval;
-
-    rdonly = addr->rdonly;
-    bzero(addr, sizeof(*addr));
-    addr->rdonly = rdonly;
+    if(addr == NULL || hostname == NULL || service == NULL) 
+        return p67_err_einval;
 
     hint.ai_addr = NULL;
     hint.ai_addrlen = 0;
@@ -74,6 +75,8 @@ p67_addr_set_host(
 
     ret = 1;
 
+    p67_addr_lock(addr);
+
     for (cp = info; cp != NULL; cp = cp->ai_next) {
         switch(info->ai_family) {
         case AF_INET:
@@ -96,21 +99,57 @@ p67_addr_set_host(
 
     freeaddrinfo(info);
 
-    if(ret == 1)
+    if(ret == 1) {
+        p67_addr_unlock(addr);
         return p67_err_enetdb;
-
-    if(addr->rdonly) {
-        addr->hostname = (char *)hostname;
-        addr->service = (char *)service;    
-    } else {
-        if((addr->hostname = strdup(hostname)) == NULL) return p67_err_eerrno;
-        if((addr->service = strdup(service)) == NULL) {
-            free(addr->hostname);
-            return p67_err_eerrno;
-        }
     }
 
+    if((addr->hostname = strdup(hostname)) == NULL) {
+        p67_addr_unlock(addr);
+        return p67_err_eerrno;
+    }
+    if((addr->service = strdup(service)) == NULL) {
+        free(addr->hostname);
+        p67_addr_unlock(addr);
+        return p67_err_eerrno;
+    }
+
+    p67_addr_unlock(addr);
+
     return 0;
+}
+
+p67_addr_t *
+p67_addr_new(void)
+{
+    p67_addr_t * ret = calloc(1, sizeof(p67_addr_t));
+    if(!ret) return NULL;
+    ret->refcount = 1;
+    ret->spinlock = P67_XLOCK_STATE_UNLOCKED;
+
+    return ret;
+}
+
+char *
+p67_addr_str(p67_addr_t * addr, char * b, int bl)
+{
+    int ix = 0;
+
+    if(ix >= bl)
+        return b;
+
+    if(addr->hostname) {
+        ix = snprintf(b, bl, "%s:", addr->hostname);
+    }
+
+    if(ix >= bl)
+        return b;
+
+    if(addr->service) {
+        ix += snprintf(b, bl - ix, "%s", addr->service);
+    }
+
+    return b;
 }
 
 /*
@@ -119,9 +158,42 @@ p67_addr_set_host(
 void
 p67_addr_free(p67_addr_t * addr)
 {
-    if(addr == NULL || addr->rdonly) return;
-    free((addr)->hostname);
-    free((addr)->service);
+    if(!addr)
+        return;
+    
+    p67_addr_lock(addr);
+
+    if(addr->refcount < 1) {
+        p67_log(
+            "Warn: Tried to perform free on address with refcount = %u", 
+            addr->refcount);
+        p67_addr_unlock(addr);
+        return;
+    }
+
+    if(addr->refcount == 1) {
+        free(addr->service);
+        free(addr->hostname);
+        free(addr);
+    } else {
+        addr->refcount--;
+    }
+
+    p67_addr_unlock(addr);
+}
+
+p67_addr_t *
+p67_addr_ref_cpy(p67_addr_t * src)
+{
+    assert(src);
+    
+    p67_addr_lock(src);
+
+    src->refcount++;
+
+    p67_addr_unlock(src);
+
+    return src;
 }
 
 p67_err
@@ -134,9 +206,7 @@ p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src)
     if(dest == NULL || src == NULL)
         return p67_err_einval;
 
-    bzero(dest, sizeof(p67_addr_t));
-
-    dest->rdonly = 0;
+    p67_addr_lock(dest);
 
     if((dest->hostname = strdup(src->hostname)) == NULL)
         return p67_err_eerrno;
@@ -149,6 +219,8 @@ p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src)
 
     dest->socklen = src->socklen;
     dest->sock = src->sock;
+
+    p67_addr_unlock(dest);
 
 end:
     return err;
@@ -165,6 +237,8 @@ p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sa
     (void)sal;
 
     if(addr == NULL) return p67_err_einval;
+
+    p67_addr_lock(addr);
 
     switch(sa->sa.sa_family) {
     case AF_INET:
@@ -186,13 +260,17 @@ p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sa
         break;
     }
 
-    addr->rdonly = 0;
-    if((addr->hostname = strdup(cb)) == NULL) return p67_err_eerrno;
+    if((addr->hostname = strdup(cb)) == NULL) {
+        p67_addr_unlock(addr);
+        return p67_err_eerrno;
+    }
     if((addr->service = strdup(svc)) == NULL) {
         free(addr->hostname);
+        p67_addr_unlock(addr);
         return p67_err_eerrno;
     }
 
+    p67_addr_unlock(addr);
     return 0;
 }
 
@@ -458,7 +536,6 @@ p67_addr_parse_str(const char * str, p67_addr_t * addr, int p67_sfd_tp)
     memcpy(ip, ipstr, ipstrl);
     ip[ipstrl] = 0;
 
-    addr->rdonly = 0;
     return p67_addr_set_host(addr, ip, portstr, p67_sfd_tp);
 }
 
