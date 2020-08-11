@@ -152,7 +152,7 @@ P67_CMN_NO_PROTO_EXIT
 
     while(1) {
         if(ctx->connect_tsm.state != P67_THREAD_SM_STATE_RUNNING) {
-            err |= p67_err_eint;
+            err = 0; //err |= p67_err_eint;
             break;
         }
 
@@ -169,7 +169,7 @@ P67_CMN_NO_PROTO_EXIT
         }
 
         if(ctx->connect_tsm.state != P67_THREAD_SM_STATE_RUNNING) {
-            err |= p67_err_eint;
+            err = 0; //err |= p67_err_eint;
             break;
         }
 
@@ -186,7 +186,10 @@ P67_CMN_NO_PROTO_EXIT
     }
 
     if(err != 0) p67_err_print_err("Background connect: ", err);
-    ctx->connect_tsm.state = P67_THREAD_SM_STATE_STOP;
+    err |= p67_mutex_set_state(
+        &ctx->connect_tsm.state, 
+        ctx->connect_tsm.state, 
+        P67_THREAD_SM_STATE_STOP);
     return NULL;
 }
 

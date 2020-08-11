@@ -20,18 +20,22 @@ p67_conn_ctx_t ctx = {
     .keypath = "p2pcert",
     .certpath = "p2pcert.cert",
     .local_addr = NULL,
-    .remote_addr = NULL
+    .remote_addr = NULL,
+    .listen_tsm = P67_THREAD_SM_INITIALIZER,
+    .connect_tsm = P67_THREAD_SM_INITIALIZER
 };
 
 void
 finish(int a)
 {
+    printf("Graceful exit\n");
     p67_thread_sm_terminate(&ctx.listen_tsm, 500);
     p67_thread_sm_terminate(&ctx.connect_tsm, 500);
     p67_addr_free(ctx.local_addr);
     p67_addr_free(ctx.remote_addr);
     p67_lib_free();
-    raise(a);
+    if(a == SIGINT) exit(0);
+    else raise(a);
 }
 
 int
@@ -61,10 +65,13 @@ main(int argc, char ** argv)
     if((err = p67_addr_set_host_udp(ctx.remote_addr, remote_ip, argv[2])))
         goto end;
 
-    if((err = p67_conn_ctx_start_listen(&ctx)) != 0)
-        goto end;
-    if((err = p67_conn_ctx_start_persist_connect(&ctx)) != 0)
-        goto end;
+    if(argc > 3) {
+        if((err = p67_conn_ctx_start_listen(&ctx)) != 0)
+            goto end;
+    } else {
+        if((err = p67_conn_ctx_start_persist_connect(&ctx)) != 0)
+            goto end;
+    }
 
     getchar();
 

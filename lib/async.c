@@ -128,7 +128,7 @@ p67_thread_sm_terminate(p67_thread_sm_t * sm, int timeout)
     
     state = sm->state;
 
-    switch(sm->state) {
+    switch(state) {
     case P67_THREAD_SM_STATE_STOP:
         return 0;
     case P67_THREAD_SM_STATE_RUNNING:
@@ -138,9 +138,9 @@ p67_thread_sm_terminate(p67_thread_sm_t * sm, int timeout)
 
     /* if timeout then just kill the thread */
     if((err & p67_err_etime)) {
+        p67_cmn_thread_kill(sm->thr);
         if(p67_mutex_set_state(&sm->state, state, P67_THREAD_SM_STATE_STOP) != 0)
             return p67_err_easync;
-        p67_cmn_thread_kill(sm->thr);
         return 0;
     }
     

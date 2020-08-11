@@ -15,12 +15,15 @@ p67_conn_ctx_t ctx = {
     .keypath = "p2pcert",
     .certpath = "p2pcert.cert",
     .local_addr = NULL,
-    .remote_addr = NULL
+    .remote_addr = NULL,
+    .connect_tsm = P67_THREAD_SM_INITIALIZER,
+    .listen_tsm = P67_THREAD_SM_INITIALIZER
 };
 
 void
 finish(int a)
 {
+    printf("Graceful exit\n");
     p67_thread_sm_terminate(&ctx.listen_tsm, 500);
     p67_thread_sm_terminate(&ctx.connect_tsm, 500);
     p67_addr_free(ctx.local_addr);

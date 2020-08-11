@@ -3,6 +3,7 @@
 #include "conn.h"
 #include "log.h"
 
+#include <sys/time.h>
 #include <assert.h>
 #include <string.h>
 #include <openssl/ssl.h>
@@ -524,7 +525,10 @@ P67_CMN_NO_PROTO_EXIT
     end:
     //p67_log_debug("Leaving read loop\n");
     
-    conn->hread.state = P67_THREAD_SM_STATE_STOP;
+    err |= p67_mutex_set_state(
+        &conn->hread.state, 
+        conn->hread.state, 
+        P67_THREAD_SM_STATE_STOP);
 
     if(err != 0) p67_conn_shutdown(remote);
     p67_addr_free(remote);
@@ -991,6 +995,7 @@ p67_conn_connect(
 
     if(p67_sfd_set_timeouts(sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS) != 0)
         goto end;
+
     //p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
 
     if ((sslerr = SSL_connect(ssl)) != 1) {
@@ -1149,13 +1154,31 @@ p67_conn_init(void)
     SSL_load_error_strings();
 }
 
+// P67_CMN_NO_PROTO_ENTER
+// p67_err
+// p67_conn_bio_set_timeout(
+// P67_CMN_NO_PROTO_EXIT
+//     BIO * bio, time_t msec)
+// {
+//     struct timeval tv;
+//     tv.tv_sec = msec / 1000;
+//     tv.tv_usec = (msec % 1000)*1000;
+//     if(BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_RECV_TIMEOUT, 0, &tv) != 1) {
+//         return p67_err_essl | p67_err_eerrno;
+//     }
+//     if(BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_SEND_TIMEOUT, 0, &tv) != 1) {
+//         return p67_err_essl | p67_err_eerrno;
+//     }
+//     return 0;
+// }
+
 p67_err
 p67_conn_listen(
     p67_addr_t * laddr,
     const char * certpath, const char * keypath,
     p67_conn_gen_args_cb gen_args, void * args, p67_conn_free_args_cb free_args,
     p67_conn_callback_t cb,
-    p67_async_t * thread_sm_state)
+    p67_async_t * state)
 {
     p67_sfd_t sfd;
     SSL_CTX * ctx;
@@ -1223,12 +1246,18 @@ p67_conn_listen(
     p67_log_debug("Listening @ %s:%s\n", laddr->hostname, laddr->service);
 
     while(1) {
+
+        if(state && *state != P67_THREAD_SM_STATE_RUNNING) {
+            err = 0; //p67_err_eint;
+            goto end;
+        }
+
         p67_err_mask_all(err);
         ssl = NULL;
 
         if((bio = BIO_new_dgram(sfd, BIO_NOCLOSE)) == NULL) goto end;
 
-        //p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
+        //p67_conn_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
 
         if((ssl = SSL_new(ctx)) == NULL) goto end;
 
@@ -1236,14 +1265,9 @@ p67_conn_listen(
         if(!(SSL_set_options(ssl, SSL_OP_COOKIE_EXCHANGE) & SSL_OP_COOKIE_EXCHANGE))
             goto end;
         
-        if(thread_sm_state != NULL && *thread_sm_state != P67_THREAD_SM_STATE_RUNNING) {
-            err = p67_err_eint;
-            goto end;
-        }
-
         while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote) <= 0) {
-            if(thread_sm_state != NULL && *thread_sm_state != P67_THREAD_SM_STATE_RUNNING) {
-                err = p67_err_eint;
+            if(state && *state != P67_THREAD_SM_STATE_RUNNING) {
+                err = 0; //p67_err_eint;
                 goto end;
             }
         }
@@ -1276,6 +1300,8 @@ end:
     if(ctx != NULL) SSL_CTX_free(ctx);
     p67_sfd_close(sfd);
     if(ssl != NULL) SSL_free(ssl);
-    *thread_sm_state = P67_THREAD_SM_STATE_STOP;
+    err |= p67_mutex_set_state(
+        state, *state, 
+        P67_THREAD_SM_STATE_STOP);
     return err;
 }
