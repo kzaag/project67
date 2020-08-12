@@ -12,7 +12,10 @@
 #include <stdint.h>
 #include <assert.h>
 
-#define p67_cmn_static_assert(test) typedef char __p67sa[( !!(test) )*2-1 ]
+#define p67_cmn_static_assert(name, test) typedef char __p67_static_assert__##name[( !!(test) )*2-1 ]
+
+#define p67_cmn_static_assert_size(s1, s2) \
+    p67_cmn_static_assert(s1##_v_##s2, sizeof(s1) == sizeof(s2))
 
 #define p67_cmn_ntohs(x) ntohs(x)
 #define p67_cmn_ntohl(x) ntohl(x)

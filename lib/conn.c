@@ -461,6 +461,9 @@ P67_CMN_NO_PROTO_EXIT
         err, callret, rcvto_ms;
     p67_conn_t * conn = (p67_conn_t *)args;
     p67_addr_t * remote = p67_addr_ref_cpy(conn->addr_remote);
+
+    assert(remote);
+
     p67_sfd_t sfd;
 
     p67_err_mask_all(err);
@@ -497,6 +500,7 @@ P67_CMN_NO_PROTO_EXIT
                 callret = (*conn->callback)(remote, rbuff, len, conn->args);
                 if(callret != 0) {
                     err = callret;
+                    p67_err_print_err("Terminating connection with error/s: ", callret);
                     goto end;
                 }
                 num_timeouts = 0;

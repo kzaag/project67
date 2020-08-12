@@ -25,7 +25,7 @@ typedef struct p67_dml_hdr {
 
 #define P67_DML_HDR_OFFSET (sizeof(p67_dml_hdr_t))
 
-p67_cmn_static_assert(sizeof(p67_dml_hdr_t) == (2));
+p67_cmn_static_assert(p67_dml_hdr_t, sizeof(p67_dml_hdr_t) == (2));
 
 /*
     DAT ( data ) message header.

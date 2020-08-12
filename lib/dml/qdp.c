@@ -1,7 +1,7 @@
 /*
     queued datagrams protocol
 
-    datagrams are being queued in ring (jitter) buffer.
+    datagrams are being queued in ring buffer.
 */
 
 #include <stdint.h>
@@ -124,7 +124,6 @@ p67_qdp_space_taken(
 
 p67_err
 p67_qdp_deque(
-P67_CMN_NO_PROTO_EXIT
     p67_qdp_ctx_t * s, p67_pckt_t * chunk, int * chunkl)
 {
     int t = s->q_tail;

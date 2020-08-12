@@ -79,7 +79,8 @@ main(int argc, char ** argv)
 
     char msg[sizeof(p67_pdp_urg_hdr_t) + sizeof(payload)];
 
-    int count = 10000;
+    const int ccount = 10000;
+    int count = ccount;
 
     p67_cmn_epoch_t start, end;
     p67_cmn_epoch_t tstart, tend;
@@ -145,7 +146,9 @@ main(int argc, char ** argv)
 
     p67_cmn_epoch_micro(&tend);
 
-    printf("All done in %llu %s\n", tend - tstart, P67_CMN_MICROSEC);
+    printf("All done in %llu %s avg is %llu %s per iteration.\n", 
+        tend - tstart, P67_CMN_MICROSEC,
+        (tend - tstart) / (ccount), P67_CMN_MICROSEC);
     
     getchar();
 

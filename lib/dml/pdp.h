@@ -98,17 +98,17 @@ p67_pdp_start_loop(void);
 p67_err
 p67_pdp_generate_ack_from_hdr(
         const p67_pdp_urg_hdr_t * srchdr,
-        const unsigned char * ackpayload, int ackpayloadl,
-        char * dstmsg, int dstmsgl);
+        const p67_pckt_t * ackpayload, int ackpayloadl,
+        p67_pckt_t * dstmsg, int dstmsgl);
 
 p67_err
 p67_pdp_generate_ack(
         /* URG message */
-        const unsigned char * srcmsg, int srcmsgl, 
+        const p67_pckt_t * srcmsg, int srcmsgl, 
         /* optional ACK message payload, pass NULL and 0 to ignore */
-        const unsigned char * ackpayload, int ackpayloadl,
+        const p67_pckt_t * ackpayload, int ackpayloadl,
         /* destination message */
-        char * dstmsg, int dstmsgl);
+        p67_pckt_t * dstmsg, int dstmsgl);
 
 /*
     return pointer pointing to header of the message, 
@@ -116,8 +116,8 @@ p67_pdp_generate_ack(
 */
 const p67_pdp_urg_hdr_t *
 p67_pdp_generate_urg_for_msg(
-    char * urg_payload, int urg_payload_l,
-    char * dst_msg, int dst_msg_l,
+    p67_pckt_t * urg_payload, int urg_payload_l,
+    p67_pckt_t * dst_msg, int dst_msg_l,
     uint8_t urg_utp);
 
 /*
@@ -134,7 +134,7 @@ p67_pdp_write_ack_for_urg(
 
 p67_err
 p67_pdp_urg_remove(
-    uint16_t id, unsigned char * msg, int msgl, int preack);
+    uint16_t id, p67_pckt_t * msg, int msgl, int preack);
 
 typedef struct p67_pdp_keepalive_ctx {
     p67_thread_sm_t th;

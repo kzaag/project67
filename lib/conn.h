@@ -12,8 +12,6 @@ typedef struct p67_node p67_node_t;
 
 #define P67_DEFAULT_TIMEOUT_MS 200
 
-typedef unsigned char p67_pckt_t;
-
 typedef struct p67_conn_globals p67_conn_globals_t;
 
 typedef p67_err (* p67_conn_callback_t)(

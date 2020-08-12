@@ -25,7 +25,7 @@ typedef struct p67_pdp_inode {
     p67_cmn_epoch_t lt; /* time when inode was initialized */
     int * termsig; /* notify user about termination with error code (EVT) */
 
-    void * res;
+    p67_pckt_t * res;
     int * resl;
 
     p67_addr_t * addr;
@@ -98,7 +98,7 @@ p67_pdp_evt_str(char * buff, int buffl, int evt)
 p67_err
 p67_pdp_write_urg(
     p67_addr_t * addr, 
-    const uint8_t * msg, 
+    const p67_pckt_t * msg, 
     int msgl, 
     int ttl,
     int * evt_termsig,
@@ -193,7 +193,7 @@ p67_pdp_start_loop(void)
 p67_err
 p67_pdp_urg_remove(
     uint16_t id, 
-    unsigned char * msg, int msgl,
+    p67_pckt_t * msg, int msgl,
     int preack)
 {
     assert(msg);
@@ -334,8 +334,8 @@ end:
 
 const p67_pdp_urg_hdr_t *
 p67_pdp_generate_urg_for_msg(
-    char * urg_payload, int urg_payload_l,
-    char * dst_msg, int dst_msg_l,
+    p67_pckt_t * urg_payload, int urg_payload_l,
+    p67_pckt_t * dst_msg, int dst_msg_l,
     uint8_t urg_utp)
 {
     p67_pdp_urg_hdr_t * urghdr;
@@ -357,8 +357,8 @@ p67_pdp_generate_urg_for_msg(
 p67_err
 p67_pdp_generate_ack_from_hdr(
         const p67_pdp_urg_hdr_t * srchdr,
-        const unsigned char * ackpayload, int ackpayloadl,
-        char * dstmsg, int dstmsgl)
+        const p67_pckt_t * ackpayload, int ackpayloadl,
+        p67_pckt_t * dstmsg, int dstmsgl)
 {
     p67_pdp_ack_hdr_t * dsthdr = (p67_pdp_ack_hdr_t *)dstmsg;
 
@@ -380,9 +380,9 @@ p67_pdp_generate_ack_from_hdr(
 
 p67_err
 p67_pdp_generate_ack(
-        const unsigned char * srcmsg, int srcmsgl,
-        const unsigned char * ackpayload, int ackpayloadl,
-        char * dstmsg, int dstmsgl)
+        const p67_pckt_t * srcmsg, int srcmsgl,
+        const p67_pckt_t * ackpayload, int ackpayloadl,
+        p67_pckt_t * dstmsg, int dstmsgl)
 {
     const p67_pdp_urg_hdr_t * srchdr = (const p67_pdp_urg_hdr_t *)srcmsg;
     
@@ -412,7 +412,7 @@ p67_pdp_write_ack_for_urg(
     err = p67_pdp_generate_ack_from_hdr(
         urg_hdr,
         NULL, 0,
-        (char *)&ack, sizeof(ack));
+        (p67_pckt_t *)&ack, sizeof(ack));
 
     if(err != 0)
         return err;

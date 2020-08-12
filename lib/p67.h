@@ -19,6 +19,9 @@
 #include <p67/dml/pdp.h>
 #include <p67/dml/qdp.h>
 
+#include <p67/web/status.h>
+#include <p67/web/tlv.h>
+
 void
 p67_lib_init(void);
 

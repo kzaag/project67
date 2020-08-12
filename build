@@ -54,6 +54,7 @@ gcc-8 \
     -Wstrict-prototypes \
     -Wold-style-definition \
     -Wno-nonnull-compare  \
+    -Werror \
     $LOPENSSL \
     $FILES \
     $DEBUG \
@@ -86,23 +87,23 @@ echo "    net"
 gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/net $LOPENSSL;
 echo "    pdp"
 gcc-8 $FP/pdp.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/pdp $LOPENSSL;
-exit 0;
+
 #gcc-8 $FP/stream.c $DEBUG $FP/wav.c \
 #    -std=c99 -lp67 -o $WD/bin/p67stream $LOPENSSL $OPUS $PULSEAUDIO;
-echo "    rserver"
-gcc-8 $FP/rserver.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/rserver $LOPENSSL;
+
+# echo "    rserver"
+# gcc-8 $FP/rserver.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/rserver $LOPENSSL;
 
 echo "Linking db files"
 
-FP="$WD/rserver"
+FP="$WD/webserver"
 FILES=`find $FP -name "*.c" ! -name "__*"`;
 LPQ=`pkg-config --libs libpq`;
-
 
 ln -sf $FP/ddl $WD/bin/;
 ln -sf $FP/main.conf.e $WD/bin/;
 
-echo "Building rserver"
+echo "Building webserver"
 
 gcc-8 \
     $FILES \
@@ -119,7 +120,9 @@ gcc-8 \
     $LOPENSSL \
     $LPQ \
     -lp67 \
-    -o $WD/bin/p67rserver;
+    -o $WD/bin/p67webserver;
+
+exit 0;
 
 echo "Generating certificates"
 

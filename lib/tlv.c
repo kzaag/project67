@@ -75,28 +75,28 @@ p67_tlv_pretty_print_fragment(
     int buffix = 0, i, is_printable = 1;
     buffix += snprintf(
         buff+buffix, buffl-buffix, 
-        "tlv: key=%u ", header->key[0]);
+        "tlv: key=%u ", header->tlv_key[0]);
     if(buffl-buffix < 0) return p67_err_enomem;
 
     #define is_byte_printable(x) ((x) >= 33 && (x) <= 126)
 
-    if(is_byte_printable(header->key[0])) {
+    if(is_byte_printable(header->tlv_key[0])) {
         buffix += snprintf(
             buff+buffix, buffl-buffix, 
-            "\"%c\" ", header->key[0]);
+            "\"%c\" ", header->tlv_key[0]);
         if(buffl-buffix < 0) return p67_err_enomem;
     }
     buffix += snprintf(
         buff+buffix, buffl-buffix, 
-        "vlength=%u", header->vlength);
+        "vlength=%u", header->tlv_vlength);
     if(buffl-buffix < 0) return p67_err_enomem;
-    if(header->vlength > 0) {
+    if(header->tlv_vlength > 0) {
         buffix += snprintf(buff+buffix, buffl-buffix, " value=\"");
         if(buffl-buffix < 0) return p67_err_enomem;
-        if(header->vlength > 10) {
+        if(header->tlv_vlength > 10) {
             i = 10;
         } else {
-            i = header->vlength;
+            i = header->tlv_vlength;
         }
         while(i-->0) {
             buffix += snprintf(
@@ -113,7 +113,7 @@ p67_tlv_pretty_print_fragment(
     if(is_printable) {
         buffix += snprintf(
             buff+buffix, buffl-buffix, 
-            "\"%*.s\"", header->vlength, value);
+            "\"%*.s\"", header->tlv_vlength, value);
         if(buffl-buffix < 0) return p67_err_enomem;
     }
 

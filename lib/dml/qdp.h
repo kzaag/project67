@@ -23,10 +23,9 @@ typedef struct p67_qdp_hdr {
     uint32_t qdp_seq;
 } p67_qdp_hdr_t;
 
-p67_cmn_static_assert(sizeof(p67_qdp_hdr_t) == 8);
+p67_cmn_static_assert(p67_qdp_hdr_t, sizeof(p67_qdp_hdr_t) == 8);
 
 typedef struct p67_qdp_ctx p67_qdp_ctx_t;
-
 
 typedef struct p67_qdp_inode {
     uint32_t seq;

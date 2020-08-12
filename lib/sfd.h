@@ -13,6 +13,8 @@
 #include <netdb.h>
 #include <sys/socket.h>
 
+typedef unsigned char p67_pckt_t;
+
 #define IP4_ANY "0.0.0.0"
 #define IP4_LO1 "127.0.0.1"
 #define IP6_LO1 "::1"
@@ -24,6 +26,7 @@
     proto is usualy defaulted to IPPROTO_IP (0) 
     type will be SOCK_STREAM unless specified by other parameters */
 #define P67_SFD_TP_DEF 0 
+
 #define P67_SFD_TP_STREAM_TCP 1 /* SOCK_STREAM with IPPROTO_TCP */
 #define P67_SFD_TP_DGRAM_UDP 2 /* SOCK_DGRAM with IPPRORO UDP */
 

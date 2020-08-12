@@ -29,12 +29,15 @@
 #define P67_TLV_KEY_LENGTH 1
 #define P67_TLV_VLENGTH_LENGTH 1
 
+#define p67_tlv_header_fields()        \
+    uint8_t tlv_key[P67_TLV_KEY_LENGTH]; \
+    uint8_t tlv_vlength;
+
 typedef struct p67_tlv_header {
-    uint8_t key[P67_TLV_KEY_LENGTH];
-    uint8_t vlength;
+    p67_tlv_header_fields()
 } p67_tlv_header_t;
 
-p67_cmn_static_assert(sizeof(p67_tlv_header_t) == 2);
+p67_cmn_static_assert(p67_tlv_header_t, sizeof(p67_tlv_header_t) == 2);
 
 #define P67_TLV_HEADER_LENGTH \
     (P67_TLV_VLENGTH_LENGTH + P67_TLV_KEY_LENGTH)
