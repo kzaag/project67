@@ -16,12 +16,12 @@ main_finish(int sig)
     if(sig == SIGINT) {
 
         if(main_initialized) {
-            p67_db_ctx_free(main_wsctx.db);
-            p67_hashcntl_free(main_wsctx.user_nchix);
-            p67_thread_sm_terminate(&main_connctx.listen_tsm, 1000);
             p67_addr_free(main_connctx.local_addr);
             p67_addr_free(main_connctx.remote_addr);
+            p67_thread_sm_terminate(&main_connctx.listen_tsm, 1000);
             p67_lib_free();
+            p67_db_ctx_free(main_wsctx.db);
+            p67_hashcntl_free(main_wsctx.user_nchix);
         }
 
         exit(0);
@@ -34,6 +34,9 @@ int
 main(void)
 {
     p67_lib_init();
+
+    signal(SIGINT, main_finish);
+
     p67_ws_err err;
 
     err = p67_db_ctx_create_from_dp_config(&main_wsctx.db, "main.conf");

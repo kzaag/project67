@@ -1,5 +1,5 @@
-#if !defined(P67_DMP_H)
-#define P67_DMP_H
+#if !defined(P67_DML_DML_H)
+#define P67_DML_DML_H
 
 #include <stdint.h>
 
@@ -62,7 +62,7 @@ p67_dml_parse_hdr(
 p67_err
 p67_dml_handle_msg(
         p67_addr_t * addr, 
-        const p67_pckt_t * msg, 
+        p67_pckt_t * msg, 
         int msgl, 
         void * args);
 

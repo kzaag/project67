@@ -135,6 +135,8 @@ p67_ws_user_nchix_add(
 void
 p67_ws_user_nchix_entry_free(p67_hashcntl_entry_t * e)
 {
+    p67_addr_t * addr = ((p67_ws_user_ncix_entry_t *)e)->addr;
+    p67_addr_free(addr);
     free(e);
 }
 
@@ -194,7 +196,7 @@ void p67_ws_session_free(void * arg)
         if(sess->username) {
             p67_hashcntl_remove_and_free(
                 sess->server_ctx->user_nchix, 
-                (unsigned char *)sess->username, sess->usernamel);
+                sess->username, sess->usernamel);
             free(sess->username);
         }
         p67_hashcntl_free(sess->fwc);
@@ -685,12 +687,16 @@ p67_ws_handle_login(
 
     if((err = p67_db_user_validate_pass(
             sess->server_ctx->db, username, usernamel, password, passwordl)) != 0) {
+        err = 0;
         goto end;
     }
 
     if((err = p67_ws_user_nchix_add(
                 sess->server_ctx->user_nchix, username, usernamel, addr)) != 0) {
-        if(err == p67_err_eaconn) status = p67_web_status_not_modified;
+        if(err == p67_err_eaconn) {
+            err = 0;
+            status = p67_web_status_not_modified;
+        }
         else status = p67_web_status_server_fault;
         goto end;
     }
@@ -708,7 +714,9 @@ p67_ws_handle_login(
         susername[usernamel] = 0;
 
         free(sess->username);
+
         sess->username = susername;
+        sess->usernamel = usernamel;
     }
 
     status = p67_web_status_ok;
@@ -747,8 +755,13 @@ p67_ws_cb(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
             err = p67_ws_handle_call_async(
                 addr, (p67_ws_session_t *)args, msg, msgl);
             return err;
+        case 0:
+            /* respond with empty ack */
+            return p67_dml_handle_msg(addr, msg, msgl, NULL);
         default:
-            return p67_err_einval;
+            /* respond with ack + p67_web_status_not_found */
+            return p67_web_tlv_respond_with_status(
+                &h->urg, addr, p67_web_status_not_found);
         }
     default:
         return p67_err_epdpf;

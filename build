@@ -116,12 +116,20 @@ gcc-8 \
     -Wstrict-prototypes \
     -Wold-style-definition \
     -Wno-nonnull-compare  \
+    -Werror \
     $DEBUG \
     $LOPENSSL \
     $LPQ \
     -lp67 \
     -o $WD/bin/p67webserver;
 
+echo "Building webclients"
+
+echo "    cli"
+
+FP="$WD/webclient/cli"
+
+gcc-8 $FP/*.c $DEBUG -std=c99 -lp67 -Werror -o $WD/bin/cli $LOPENSSL;
 
 echo "Generating certificates"
 

@@ -12,7 +12,7 @@ typedef uint16_t p67_web_status;
 #define p67_web_status_not_modified 16 /* 304 */
 
 
-#define P67_WEB_STATUS_STR_BUFFL 72
+#define P67_WEB_STATUS_STR_BUFFL 32
 
 void
 p67_web_status_str(p67_web_status werr, char * b, int bl);

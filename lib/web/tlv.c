@@ -73,30 +73,29 @@ p67_web_tlv_status_str(
 
     int wrote = 0;
 
-    wrote += snprintf(
-        buff, buffl, 
-        "Response: ");
-    if(wrote > buffl)
-        return p67_err_enomem;
-
     switch(pdphdr->cmn.cmn_stp) {
     case P67_DML_STP_PDP_ACK:
         wrote += snprintf(
             buff + wrote, buffl - wrote, 
-            "ACK/%u, ", pdphdr->ack.ack_utp);
+            "ACK/%u ", pdphdr->ack.ack_utp);
         break;
     case P67_DML_STP_PDP_URG:
         wrote += snprintf(
             buff + wrote, buffl - wrote, 
-            "URG/%u, ", pdphdr->ack.ack_utp);
+            "URG/%u ", pdphdr->ack.ack_utp);
         break;
     }
 
-    wrote += snprintf(
-        buff+wrote, buffl-wrote, 
-        "Status=");
     if(wrote > buffl)
-        return p67_err_enomem;
+        return 0;
+
+    if(pdphdr->ack.ack_utp >= 49 && pdphdr->ack.ack_utp <= 122) {
+        wrote += snprintf(
+            buff + wrote, buffl - wrote, 
+            "(%c) ", pdphdr->ack.ack_utp);
+        if(wrote > buffl)
+            return 0;
+    }
 
     p67_web_status_str(p67_cmn_ntohs(*status), buff+wrote, buffl-wrote);
 
