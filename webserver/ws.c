@@ -17,6 +17,8 @@
 
 #define P67_WS_MAX_CREDENTIAL_LENGTH 128
 
+#define __UC (unsigned char *)
+
 /*
     forward call cache entry.
     used in ws_session to keep track of user pending calls
@@ -56,7 +58,7 @@ typedef struct p67_ws_session {
 
     p67_hashcntl_t * fwc;
     p67_ws_ctx_t * server_ctx;
-    char * username;
+    p67_pckt_t * username;
 
     int usernamel;
     p67_async_t lock;
@@ -204,16 +206,50 @@ void p67_ws_session_free(void * arg)
 }
 
 typedef struct p67_handle_call_ctx {
-    p67_addr_t * addr;
+
+    /* fields forwarded from callback */
+    p67_addr_t * src_addr;
     p67_ws_session_t * session;
     p67_pckt_t * msg;
     int msgl;
+
+    /* fields deserialized from request */
+
+    p67_addr_t * dst_addr;
+
+    /* A call request ( see below ) */
+    const p67_pckt_t * dst_username;
+    const p67_pckt_t * src_message;
+
+    uint16_t src_port;
+
+    uint8_t dst_username_l;
+    uint8_t src_message_l;
+
 } p67_handle_call_ctx_t;
+
+p67_err
+p67_handle_call_ctx_free(p67_handle_call_ctx_t * ctx)
+{
+        p67_err err = 0;
+        err |= p67_hashcntl_remove_and_free(
+            ctx->session->fwc, 
+            (unsigned char *)&ctx->dst_addr->sock, 
+            ctx->dst_addr->socklen);
+        p67_addr_free(ctx->dst_addr);
+        p67_addr_free(ctx->src_addr);
+        p67_ws_session_free(ctx->session);
+        free(ctx);
+        return err;
+}
+
 
 /*
    call proxy specification:
    all structures are tlv-encoded and encapsulated in DML-PDP messages
+*/
 
+/*
     A                         WEBSERVER                        B
 
     --------------------------->
@@ -261,85 +297,29 @@ p67_ws_handle_call(void * args)
 {
     //p67_handle_call_ctx_t * ctx = (p67_handle_call_ctx_t *)args;
 
+    p67_pckt_t msgbuf[P67_DML_SAFE_PAYLOAD_SIZE];
     p67_handle_call_ctx_t * ctx = (p67_handle_call_ctx_t *)args;
-    p67_err err = 0;
-    p67_web_status status;
     const p67_tlv_header_t * tlv_hdr;
     const p67_pckt_t * tlv_value;
     const p67_pdp_urg_hdr_t * urg_hdr = (p67_pdp_urg_hdr_t *)args;
-    const p67_pckt_t * payload = ctx->msg + sizeof(p67_pdp_urg_hdr_t);
-    int payload_len = ctx->msgl - sizeof(p67_pdp_urg_hdr_t);
+    const uint16_t * port_ref;
+    p67_err err = 0;
+    p67_web_status status;
     int tlv_state;
+    const int msgbufl = P67_DML_SAFE_PAYLOAD_SIZE;
+    int msgbufix = 0;
 
-    uint16_t src_user_port, requested_user_port;
-    p67_pckt_t * src_user_message;
-    p67_hashcntl_entry_t * requested_user;
-    p67_addr_t * requested_user_address;
-    char * requested_username;
-    uint8_t requested_usernamel, src_user_message_l;
-
-    tlv_state = 0;
-    int moved_fwc_entry_address = 0;
-
-    status = p67_web_status_bad_request;
-
-    while((err = p67_tlv_next(
-                &payload, &payload_len, &tlv_hdr, &tlv_value)) == 0) {
-        switch(tlv_hdr->tlv_key[0]) {
-        case 'p':
-            if(tlv_hdr->tlv_vlength != 2)
-                break;
-            src_user_port = p67_cmn_ntohs(*(uint16_t *)tlv_value);
-            tlv_state |= 1;
-            break;
-        case 'U':
-            if(tlv_hdr->tlv_vlength == 0 || 
-                    tlv_hdr->tlv_vlength > P67_WS_MAX_CREDENTIAL_LENGTH)
-                break;
-            requested_username = (char *)tlv_value;
-            requested_usernamel = tlv_hdr->tlv_vlength;
-            tlv_state |= 2;
-            break;
-        case 'm':
-            src_user_message = tlv_value;
-            src_user_message_l = tlv_hdr->tlv_vlength;
-            tlv_state |= 4;
-            break;
-        }
-        if(tlv_state & (1 | 2 | 4))
-            break;
-    }
-
-    if(err != p67_err_eot)
-        goto end;
-
-    if(!(tlv_state  & 2)) {
-        goto end;
-    }
-
-    /* find requested username in logged in users */
-    requested_user = p67_hashcntl_lookup(
-        ctx->session->server_ctx->user_nchix, 
-        requested_username, 
-        requested_usernamel);
-    if(!requested_user) {
-        status = p67_web_status_not_found;
-        goto end;
-    }
+    const p67_pckt_t * msgbufptr;
+    int msgbufptrix = 0;
+    p67_web_status dst_status;
 
     status = p67_web_status_server_fault;
 
-    if(!(tlv_state & 1)) {
-        src_user_port = p67_addr_get_port(ctx->addr);
+    if(!ctx->src_port) {
+        port_ref = p67_addr_get_port_ref(ctx->src_addr);
     }
 
-    requested_user_address = (p67_addr_t *)requested_user->value;
-
     /* generate proxy request */
-
-    p67_pckt_t msgbuf[P67_DML_SAFE_PAYLOAD_SIZE];
-    const int msgbufl = P67_DML_SAFE_PAYLOAD_SIZE;
-    int msgbufix = 0;
 
     if(!p67_pdp_generate_urg_for_msg(
                 NULL, 0, msgbuf, msgbufl, urg_hdr->urg_utp)) {
@@ -351,9 +331,9 @@ p67_ws_handle_call(void * args)
     if((err = p67_tlv_add_fragment(
             msgbuf+msgbufix, 
             msgbufl-msgbufix, 
-            "p", 
-            (p67_pckt_t *)&src_user_port,
-            2)) < 0) {
+            __UC "p", 
+            (p67_pckt_t *)port_ref,
+            sizeof(*port_ref))) < 0) {
         err -=err;
         goto end;
     }
@@ -361,29 +341,29 @@ p67_ws_handle_call(void * args)
     msgbufix+=err;
 
 
-    if(ctx->addr->socklen > UINT8_MAX) {
+    if(ctx->src_addr->socklen > UINT8_MAX) {
         goto end;
     }
 
     if((err = p67_tlv_add_fragment(
             msgbuf+msgbufix, 
             msgbufl-msgbufix, 
-            "a", 
-            (p67_pckt_t *)&ctx->addr->sock,
-            ctx->addr->socklen)) < 0) {
+            __UC "a", 
+            (p67_pckt_t *)&ctx->src_addr->sock,
+            ctx->src_addr->socklen)) < 0) {
         err -=err;
         goto end;
     }
 
     msgbufix+=err;
 
-    if(tlv_state & 4) {
+    if(ctx->src_message != NULL && ctx->src_message_l > 0) {
         if((err = p67_tlv_add_fragment(
                 msgbuf+msgbufix, 
                 msgbufl-msgbufix, 
-                "m", 
-                src_user_message,
-                ctx->addr->socklen)) < 0) {
+                __UC "m",
+                ctx->src_message,
+                ctx->src_message_l)) < 0) {
             err -=err;
             goto end;
         }
@@ -394,7 +374,7 @@ p67_ws_handle_call(void * args)
         if((err = p67_tlv_add_fragment(
                 msgbuf+msgbufix, 
                 msgbufl-msgbufix, 
-                "n", 
+                __UC "n", 
                 ctx->session->username,
                 ctx->session->usernamel)) < 0) {
             err -=err;
@@ -410,7 +390,7 @@ p67_ws_handle_call(void * args)
     */
 
     if((err = p67_pdp_write_urg(
-            requested_user_address,
+            ctx->dst_addr,
             msgbuf, msgbufix, 30000, &flip, 
             msgbuf, &msgbufix)) != 0) {
         goto end;
@@ -426,7 +406,7 @@ p67_ws_handle_call(void * args)
     pack_hdr.ack_utp = urg_hdr->urg_utp;
 
     if((err = p67_conn_write_once(
-            ctx->addr, &pack_hdr, sizeof(pack_hdr))) != 0)
+            ctx->src_addr, (p67_pckt_t *)&pack_hdr, sizeof(pack_hdr))) != 0)
         goto end;
 
     /*
@@ -445,12 +425,9 @@ p67_ws_handle_call(void * args)
         deserialize B's response
     */
 
-    p67_pckt_t * msgbufptr = msgbuf;
-    int msgbufptrix = 0;
-    p67_web_status dst_status;
-
     tlv_state = 0;
     status = p67_web_status_not_found;
+    msgbufptr = msgbuf;
 
     while((err = p67_tlv_next(
             &msgbufptr, &msgbufptrix, &tlv_hdr, &tlv_value)) == 0) {
@@ -492,7 +469,7 @@ p67_ws_handle_call(void * args)
     if((err = p67_tlv_add_fragment(
             msgbuf+msgbufix,
             msgbufl-msgbufix,
-            "s", 
+            __UC "s", 
             (p67_pckt_t *)&dst_status,
             sizeof(dst_status))) < 0) {
         err=-err;
@@ -506,7 +483,7 @@ p67_ws_handle_call(void * args)
     */
     if(dst_status == p67_web_status_ok) {
 
-        if(requested_user_address->socklen > UINT8_MAX) {
+        if(ctx->dst_addr->socklen > UINT8_MAX) {
             status = p67_web_status_server_fault;
             goto end;
         }
@@ -514,23 +491,23 @@ p67_ws_handle_call(void * args)
         if((err = p67_tlv_add_fragment(
                 msgbuf+msgbufix,
                 msgbufl-msgbufix,
-                "A", 
-                (p67_pckt_t *)&requested_user_address->sock,
-                requested_user_address->socklen)) < 0) {
+                __UC "A", 
+                (p67_pckt_t *)&ctx->dst_addr->sock,
+                ctx->dst_addr->socklen)) < 0) {
             err=-err;
             goto end;
         }
 
         msgbufix+=err;
 
-        requested_user_port = p67_addr_get_port(requested_user_address);
+        port_ref = p67_addr_get_port_ref(ctx->dst_addr);
 
         if((err = p67_tlv_add_fragment(
                 msgbuf+msgbufix,
                 msgbufl-msgbufix,
-                "P", 
-                (p67_pckt_t *)&requested_user_port,
-                sizeof(requested_user_port))) != 0) {
+                __UC "P", 
+                (p67_pckt_t *)port_ref,
+                sizeof(*port_ref))) != 0) {
             err=-err;
             goto end;
         }
@@ -538,21 +515,18 @@ p67_ws_handle_call(void * args)
         msgbufix+=err;
     }
 
-    if((err = p67_conn_write_once(ctx->addr, msgbuf, msgbufix)) != 0)
+    if((err = p67_conn_write_once(ctx->src_addr, msgbuf, msgbufix)) != 0)
         goto end;
 
-    return 0;
-
 end:
-    err |= p67_hashcntl_remove_and_free(
-        ctx->session->fwc, 
-        (p67_pckt_t *)&requested_user_address->sock, 
-        requested_user_address->socklen);
-    if(err != 0) p67_err_print_err(
-        "Terminating call handler with error/s: ", err);
-    p67_ws_session_free(ctx->session);
-    p67_addr_free(ctx->addr);
-    free(ctx);
+    if(err != 0) {
+        err |= p67_web_tlv_respond_with_status(
+            urg_hdr, ctx->dst_addr, status);
+    }
+    err |= p67_handle_call_ctx_free(ctx);
+    if(err != 0) {
+        p67_err_print_err("Terminating call handler with error/s: ", err);
+    }
     return NULL;
 }
 
@@ -564,33 +538,92 @@ p67_ws_handle_call_async(
         return p67_err_einval;
 
     p67_thread_sm_t * callthr;
+    const p67_pckt_t * tlv_value;
+    const p67_tlv_header_t * tlv_hdr;
+    p67_hashcntl_entry_t * requested_user;
+    p67_handle_call_ctx_t * ctx;
+    const p67_pckt_t * payload;
+    int tlv_state = 0;
+    p67_err err = 0;
+    int payload_len;
 
-    if((callthr = p67_fwc_add(sess->fwc, addr)) == NULL) {
+    if(!(ctx = malloc(sizeof(p67_handle_call_ctx_t) + msgl))) {
+        return p67_web_tlv_respond_with_status(
+            (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_server_fault);
+    }
+
+    ctx->src_port = 0;
+    ctx->src_message_l = 0;
+    ctx->src_message = NULL;
+    ctx->msgl = msgl;
+    ctx->msg = (p67_pckt_t *)((char *)ctx + sizeof(p67_handle_call_ctx_t));
+    memcpy(ctx->msg, msg, msgl);
+    ctx->dst_username = NULL;
+    ctx->dst_username_l = 0;
+    ctx->dst_addr = NULL;
+
+    payload = ctx->msg + sizeof(p67_pdp_urg_hdr_t);
+    payload_len = msgl - sizeof(p67_pdp_urg_hdr_t);
+
+    while((err = p67_tlv_next(
+                &payload, &payload_len, &tlv_hdr, &tlv_value)) == 0) {
+        switch(tlv_hdr->tlv_key[0]) {
+        case 'p':
+            if(tlv_hdr->tlv_vlength != 2)
+                break;
+            ctx->src_port = p67_cmn_ntohs(*(uint16_t *)tlv_value);
+            tlv_state |= 1;
+            break;
+        case 'U':
+            if(tlv_hdr->tlv_vlength == 0 || 
+                    tlv_hdr->tlv_vlength > P67_WS_MAX_CREDENTIAL_LENGTH)
+                break;
+            ctx->dst_username = tlv_value;
+            ctx->dst_username_l = tlv_hdr->tlv_vlength;
+            tlv_state |= 2;
+            break;
+        case 'm':
+            if(tlv_hdr->tlv_vlength < 1)
+                break;
+            ctx->src_message = tlv_value;
+            ctx->src_message_l = tlv_hdr->tlv_vlength;
+            tlv_state |= 4;
+            break;
+        }
+        if(tlv_state & (1 | 2 | 4))
+            break;
+    }
+
+    if(err != p67_err_eot || !(tlv_state  & 2)) {
+        free(ctx);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_bad_request);
     }
 
-    p67_handle_call_ctx_t * ctx = malloc(sizeof(p67_handle_call_ctx_t) + msgl);
-    p67_addr_t * addrcpy = p67_addr_ref_cpy(addr);
-    p67_ws_session_t * sesscpy = p67_ws_session_refcpy(sess);
-    if(!addrcpy || !sesscpy)
-        return p67_err_einval;
-    ctx->addr = addrcpy;
-    ctx->session = sesscpy;
-    ctx->msgl = msgl;
-    ctx->msg = (p67_pckt_t *)((char *)ctx + sizeof(p67_handle_call_ctx_t));
-    memcpy(ctx->msg, msg, msgl);
+    /* find requested username amongst logged in users */
+    requested_user = p67_hashcntl_lookup(
+        sess->server_ctx->user_nchix, 
+        ctx->dst_username, 
+        ctx->dst_username_l);
+    if(!requested_user) {
+        return p67_web_tlv_respond_with_status(
+            (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_not_found);
+    }
 
-    p67_err err;
+    ctx->src_addr = p67_addr_ref_cpy(addr);
+    ctx->dst_addr = p67_addr_ref_cpy((p67_addr_t*)requested_user->value);
+    ctx->session = p67_ws_session_refcpy(sess);
+
+    if(!ctx->src_addr || !ctx->dst_addr || !ctx->session)
+        return p67_err_einval;
+
+    if((callthr = p67_fwc_add(sess->fwc, ctx->dst_addr)) == NULL) {
+        return p67_web_tlv_respond_with_status(
+            (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_bad_request);
+    }
 
     if((err = p67_cmn_thread_create(&callthr->thr, p67_ws_handle_call, ctx)) != 0) {
-        err |= p67_hashcntl_remove_and_free(
-            sesscpy->fwc, 
-            (unsigned char *)&addrcpy->sock, 
-            addrcpy->socklen);
-        p67_addr_free(addrcpy);
-        p67_ws_session_free(sesscpy);
-        free(ctx);
+        err |= p67_handle_call_ctx_free(ctx);
         return err;
     }
 
@@ -608,7 +641,7 @@ p67_ws_handle_login(
     const p67_pckt_t * tlv_value;
     p67_web_status status;
     char * username;
-    size_t usernamel, passwordl;
+    int usernamel, passwordl;
     unsigned char * password;
     int state;
 
@@ -663,9 +696,9 @@ p67_ws_handle_login(
     }
 
     if(sess->username == NULL || 
-            ( ( strlen(sess->username) != usernamel) && 
+            ( ( sess->usernamel != usernamel) && 
                 memcmp(sess->username, username, usernamel)) ) {
-        char * susername;
+        unsigned char * susername;
         if((susername = malloc(usernamel+1)) == NULL) {
             status = p67_web_status_server_fault;
             goto end;

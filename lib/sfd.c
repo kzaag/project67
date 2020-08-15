@@ -542,6 +542,21 @@ p67_addr_parse_str(const char * str, p67_addr_t * addr, int p67_sfd_tp)
     return p67_addr_set_host(addr, ip, portstr, p67_sfd_tp);
 }
 
+const uint16_t *
+p67_addr_get_port_ref(const p67_addr_t * addr)
+{
+    if(!addr) return 0;
+
+    switch(addr->sock.sa.sa_family) {
+    case AF_INET:
+        return &addr->sock.sin.sin_port;
+    case AF_INET6:
+        return &addr->sock.sin6.sin6_port;
+    default:
+        return 0;
+    }
+}
+
 uint16_t
 p67_addr_get_port(const p67_addr_t * addr)
 {

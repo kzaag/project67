@@ -170,4 +170,7 @@ p67_addr_str(p67_addr_t * addr, char * b, int bl);
 uint16_t
 p67_addr_get_port(const p67_addr_t * addr);
 
+const uint16_t *
+p67_addr_get_port_ref(const p67_addr_t * addr);
+
 #endif

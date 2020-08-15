@@ -52,7 +52,7 @@ p67_hashcntl_add(p67_hashcntl_t * ctx, p67_hashcntl_entry_t * item);
 p67_hashcntl_entry_t *
 p67_hashcntl_lookup(
     p67_hashcntl_t * ctx, 
-    unsigned char * key, size_t keyl);
+    const unsigned char * key, size_t keyl);
 
 p67_hashcntl_entry_t *
 p67_hashcntl_remove(
