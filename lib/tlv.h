@@ -6,6 +6,7 @@
 #include <limits.h>
 
 #include "cmn.h"
+#include "conn.h"
 
 /*
     p67 tlv fragment:
@@ -61,9 +62,9 @@ p67_cmn_static_assert(p67_tlv_header_t, sizeof(p67_tlv_header_t) == 2);
 
 p67_err
 p67_tlv_next(
-    const unsigned char ** msg, int * msgl,
+    const p67_pckt_t ** msg, int * msgl,
     const p67_tlv_header_t ** header, 
-    const unsigned char ** value);
+    const p67_pckt_t ** value);
 
 int
 p67_tlv_add_fragment(

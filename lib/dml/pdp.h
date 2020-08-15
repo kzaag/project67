@@ -47,6 +47,7 @@ extern uint16_t * p67_pdp_mid_location(void) __attribute_const__;
 #define P67_PDP_EVT_GOT_ACK 1
 #define P67_PDP_EVT_TIMEOUT 2
 #define P67_PDP_EVT_ERROR   3
+#define P67_PDP_EVT_ENOMEM  4
 
 /*
     pudp message queue inode statuses

@@ -9,6 +9,8 @@
 #define P67_CONN_CNT_ACT 2
 #define P67_CONN_CNT_PERSIST 3
 
+#define P67_CONN_CTX_INITIALIZER {0}
+
 typedef struct p67_conn_ctx {
 
     p67_addr_t * local_addr;

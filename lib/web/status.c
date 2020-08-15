@@ -34,6 +34,7 @@ p67_web_status_str(p67_web_status werr, char * b, int bl)
     handle_status(p67_web_status_unauthorized, "Unauthorized");
     handle_status(p67_web_status_not_found, "Not found");
     handle_status(p67_web_status_server_fault, "Server fault");
+    handle_status(p67_web_status_not_modified, "Not modified");
 
     if(ssnprintf(b, bl, wrote, " }")) return;
 }

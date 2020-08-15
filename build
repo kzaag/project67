@@ -122,7 +122,6 @@ gcc-8 \
     -lp67 \
     -o $WD/bin/p67webserver;
 
-exit 0;
 
 echo "Generating certificates"
 

@@ -15,6 +15,13 @@
       
 */
 
+/*
+    maxminum "safe" mtu for pdp payload.
+*/
+#define P67_DML_SAFE_PAYLOAD_SIZE 496
+
+int
+p67_dml_get_max_payload_size(void);
 
 /*
     generic message header. 
@@ -55,7 +62,7 @@ p67_dml_parse_hdr(
 p67_err
 p67_dml_handle_msg(
         p67_addr_t * addr, 
-        const char * msg, 
+        const p67_pckt_t * msg, 
         int msgl, 
         void * args);
 

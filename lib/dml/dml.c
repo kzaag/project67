@@ -46,7 +46,7 @@ end:
 p67_err
 p67_dml_handle_msg(
     p67_addr_t * addr, 
-    const char * msg, int msgl, 
+    const p67_pckt_t * msg, int msgl, 
     void * args)
 {
     (void)args;
@@ -128,4 +128,11 @@ p67_dml_pretty_print(const char * msgh, const unsigned char * msg, int msgl)
     }
 
     return 0;
+}
+
+int
+p67_dml_get_max_payload_size(void)
+{
+    /* TODO: dynamically evaluate MTU based on configs */
+    return P67_DML_SAFE_PAYLOAD_SIZE;
 }

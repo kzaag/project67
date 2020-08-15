@@ -9,7 +9,7 @@
 #include <assert.h>
 
 #define P67_PUDP_INODE_LEN 101
-#define P67_PUDP_CHUNK_LEN 512
+#define P67_PUDP_CHUNK_LEN P67_DML_SAFE_PAYLOAD_SIZE
 
 #define pudp_hashin(ix) ((ix) % P67_PUDP_INODE_LEN)
 
@@ -87,6 +87,9 @@ p67_pdp_evt_str(char * buff, int buffl, int evt)
         break;
     case P67_PDP_EVT_ERROR:
         snprintf(buff, buffl, "Error occurred");
+        break;
+    case P67_PDP_EVT_ENOMEM:
+        snprintf(buff, buffl, "Buffer is too small");
         break;
     default:
         snprintf(buff, buffl, "Unknown EVT code: %d\n", evt);
@@ -198,6 +201,7 @@ p67_pdp_urg_remove(
 {
     assert(msg);
     size_t hash, i;
+    int dst_state;
 
     hash = pudp_hashin(id);
 
@@ -227,16 +231,23 @@ p67_pdp_urg_remove(
             return 0;
         }
 
+        dst_state = P67_PDP_EVT_GOT_ACK;
+
         if(pudp_inodes[i].res != NULL && pudp_inodes[i].resl != NULL) {
-            memcpy(pudp_inodes[i].res, msg, *pudp_inodes[i].resl);
-            if(*pudp_inodes[i].resl > msgl)
+
+            if(msgl > *pudp_inodes[i].resl) {
+                dst_state = P67_PDP_EVT_ENOMEM;
+            } else {
+                memcpy(pudp_inodes[i].res, msg, *pudp_inodes[i].resl);
                 *pudp_inodes[i].resl = msgl;
+            }
+
         }
 
         if(pudp_inodes[i].termsig != NULL)
             p67_mutex_set_state(
                 pudp_inodes[i].termsig, 
-                P67_PDP_EVT_NONE, P67_PDP_EVT_GOT_ACK);
+                P67_PDP_EVT_NONE, dst_state);
 
         p67_addr_free(pudp_inodes[i].addr);
 

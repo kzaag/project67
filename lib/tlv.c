@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "conn.h"
 #include "tlv.h"
 
 /*
@@ -36,9 +37,9 @@ p67_tlv_add_fragment(
 */
 p67_err
 p67_tlv_next(
-    const unsigned char ** msg, int * msgl,
+    const p67_pckt_t ** msg, int * msgl,
     const p67_tlv_header_t ** header, 
-    const unsigned char ** value)
+    const p67_pckt_t ** value)
 {
     if(msg == NULL || *msg == NULL || msgl == NULL)
         return p67_err_einval;
