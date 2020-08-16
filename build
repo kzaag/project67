@@ -121,7 +121,7 @@ gcc-8 \
     $LOPENSSL \
     $LPQ \
     -lp67 \
-    -o $WD/bin/p67webserver;
+    -o $WD/bin/webserver;
 
 echo "Building webclients"
 

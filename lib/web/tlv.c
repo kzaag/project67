@@ -89,13 +89,13 @@ p67_web_tlv_status_str(
     if(wrote > buffl)
         return 0;
 
-    if(pdphdr->ack.ack_utp >= 49 && pdphdr->ack.ack_utp <= 122) {
-        wrote += snprintf(
-            buff + wrote, buffl - wrote, 
-            "(%c) ", pdphdr->ack.ack_utp);
-        if(wrote > buffl)
-            return 0;
-    }
+    // if(pdphdr->ack.ack_utp >= 49 && pdphdr->ack.ack_utp <= 122) {
+    //     wrote += snprintf(
+    //         buff + wrote, buffl - wrote, 
+    //         "(%c) ", pdphdr->ack.ack_utp);
+    //     if(wrote > buffl)
+    //         return 0;
+    // }
 
     p67_web_status_str(p67_cmn_ntohs(*status), buff+wrote, buffl-wrote);
 

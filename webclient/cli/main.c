@@ -9,10 +9,19 @@ p67_hashcntl_t * cmdbuf = NULL;
 p67_cmd_ctx_t cmdctx = {0};
 p67_pdp_keepalive_ctx_t kctx = {0};
 
+int
+log_cb(const char * fmt, va_list list)
+{
+    printf("\r");
+    vprintf(fmt, list);
+    printf("> ");
+    fflush(stdout);
+}
+
 void
 finish(int sig)
 {
-    printf("Graceful exit\n");
+    printf("Cleanup\n");
 
     p67_thread_sm_terminate(&kctx.th, 500);
     p67_hashcntl_free(cmdbuf);
@@ -33,6 +42,7 @@ main(int argc, char ** argv)
     }
 
     p67_lib_init();
+    p67_log_cb = log_cb;
 
     p67_err err;
     const char * keypath = "test/p2pcert";
