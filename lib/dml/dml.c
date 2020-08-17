@@ -20,6 +20,7 @@ p67_dml_parse_hdr(
     ejmp((long unsigned)msg_size < sizeof(hdr->cmn), p67_err_epdpf);
 
     switch(hdr->cmn.cmn_stp) {
+    case P67_DML_STP_PDP_PACK:
     case P67_DML_STP_PDP_ACK:
         ejmp((long unsigned)msg_size < sizeof(hdr->ack), p67_err_epdpf);
         break;
@@ -99,25 +100,31 @@ p67_dml_pretty_print(const char * msgh, const unsigned char * msg, int msgl)
     if(msgh == NULL) msgh = &empty;
 
     if((hdr = p67_dml_parse_hdr(msg, msgl, &err)) == NULL) {
-        printf("%s:Unknown segment\n", msgh);
+        p67_log("%s:Unknown segment\n", msgh);
         return err;
     }
 
     switch(hdr->cmn.cmn_stp) {
+    case P67_DML_STP_PDP_PACK:
+        p67_log("%sPACK, utp: %d, payload length: %d bytes\n", 
+            msgh,
+            hdr->cmn.cmn_utp,
+            msgl-(int)sizeof(p67_pdp_ack_hdr_t));
+        break;
     case P67_DML_STP_PDP_ACK:
-        printf("%sACK, utp: %d, payload length: %d bytes\n", 
+        p67_log("%sACK, utp: %d, payload length: %d bytes\n", 
             msgh,
             hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_pdp_ack_hdr_t));
         break;
     case P67_DML_STP_PDP_URG:
-        printf("%sURG, utp: %d, payload length: %d bytes\n",
+        p67_log("%sURG, utp: %d, payload length: %d bytes\n",
             msgh,
             hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_pdp_urg_hdr_t));
         break;
     case P67_DML_STP_DAT:
-        printf("%sDAT, utp: %d, payload length: %d bytes\n", 
+        p67_log("%sDAT, utp: %d, payload length: %d bytes\n", 
             msgh,
             hdr->cmn.cmn_utp,
             msgl-(int)sizeof(p67_dml_dat_hdr_t));

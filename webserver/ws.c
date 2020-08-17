@@ -44,17 +44,22 @@ p67_cmn_static_assert_size(p67_ws_session_fwc_entry_t, p67_hashcntl_entry_t);
         {user_addr: ssl_connection_ctx}
 */
 typedef struct p67_ws_user_nchix_entry {
-    char * username; /* it is null terminated */
+    char * username;
     size_t usernamel;
     p67_addr_t * addr;
     char __padd[sizeof(size_t)+sizeof(p67_hashcntl_entry_t *)];
 } p67_ws_user_ncix_entry_t;
 
 p67_cmn_static_assert_size(p67_ws_user_ncix_entry_t, p67_hashcntl_entry_t);
+p67_cmn_static_assert(
+    pointers_must_have_the_same_size, 
+    sizeof(p67_addr_t *) == sizeof(unsigned char *));
 
 #define P67_WS_DEFAULT_FWC_CAPACITY 11
 
 typedef struct p67_ws_session {
+
+    p67_db_ctx_t * db;
 
     p67_hashcntl_t * fwc;
     p67_ws_ctx_t * server_ctx;
@@ -148,14 +153,20 @@ void * p67_ws_session_create(void * args)
     
     p67_ws_session_t * p = calloc(1, sizeof(p67_ws_session_t));
     if(p == NULL) {
-        p67_err_print_err("ERR in create client session: ", p67_err_eerrno);
+        p67_err_print_err("Couldnt create client session: ", p67_err_eerrno);
         return NULL;
     }
-
+    p67_ws_err err;
+    if((err = p67_db_ctx_create_from_dp_config(&p->db, NULL)) != 0) {
+        p->db = NULL;
+        p67_err_print_err("Couldnt create db connection for client: ", p67_err_eerrno);
+        return NULL;
+    }
+    
     p->fwc = p67_hashcntl_new(
         P67_WS_DEFAULT_FWC_CAPACITY, p67_fwc_entry_free, NULL);
     if(!p->fwc) {
-        p67_err_print_err("ERR in create client session: ", p67_err_eerrno);
+        p67_err_print_err("Couldnt create client session: ", p67_err_eerrno);
         return NULL;
     }
 
@@ -193,6 +204,7 @@ void p67_ws_session_free(void * arg)
         sess->refcount--;
         p67_spinlock_unlock(&sess->lock);
         p67_cmn_sleep_ms(10);
+        p67_db_ctx_free(sess->db);
         if(sess->username) {
             p67_hashcntl_remove_and_free(
                 sess->server_ctx->user_nchix, 
@@ -303,17 +315,18 @@ p67_ws_handle_call(void * args)
     p67_handle_call_ctx_t * ctx = (p67_handle_call_ctx_t *)args;
     const p67_tlv_header_t * tlv_hdr;
     const p67_pckt_t * tlv_value;
-    const p67_pdp_urg_hdr_t * urg_hdr = (p67_pdp_urg_hdr_t *)args;
+    const p67_pdp_urg_hdr_t * urg_hdr = (p67_pdp_urg_hdr_t *)ctx->msg;
     const uint16_t * port_ref;
-    p67_err err = 0;
-    p67_web_status status;
+    const p67_pckt_t * msgbufptr;
+
     int tlv_state;
     const int msgbufl = P67_DML_SAFE_PAYLOAD_SIZE;
     int msgbufix = 0;
-
-    const p67_pckt_t * msgbufptr;
     int msgbufptrix = 0;
+    p67_err err = 0;
+
     p67_web_status dst_status;
+    p67_web_status status;
 
     status = p67_web_status_server_fault;
 
@@ -336,12 +349,11 @@ p67_ws_handle_call(void * args)
             __UC "p", 
             (p67_pckt_t *)port_ref,
             sizeof(*port_ref))) < 0) {
-        err -=err;
+        err-=err;
         goto end;
     }
 
     msgbufix+=err;
-
 
     if(ctx->src_addr->socklen > UINT8_MAX) {
         goto end;
@@ -353,7 +365,7 @@ p67_ws_handle_call(void * args)
             __UC "a", 
             (p67_pckt_t *)&ctx->src_addr->sock,
             ctx->src_addr->socklen)) < 0) {
-        err -=err;
+        err-=err;
         goto end;
     }
 
@@ -366,7 +378,7 @@ p67_ws_handle_call(void * args)
                 __UC "m",
                 ctx->src_message,
                 ctx->src_message_l)) < 0) {
-            err -=err;
+            err-=err;
             goto end;
         }
         msgbufix+=err;
@@ -376,10 +388,10 @@ p67_ws_handle_call(void * args)
         if((err = p67_tlv_add_fragment(
                 msgbuf+msgbufix, 
                 msgbufl-msgbufix, 
-                __UC "n", 
+                __UC "u", 
                 ctx->session->username,
                 ctx->session->usernamel)) < 0) {
-            err -=err;
+            err-=err;
             goto end;
         }
         msgbufix+=err;
@@ -415,8 +427,9 @@ p67_ws_handle_call(void * args)
         wait for response from B
     */
 
-    if((err = p67_mutex_wait_for_change(&flip, P67_PDP_EVT_NONE, -1)) != 0)
+    if((err = p67_mutex_wait_for_change(&flip, P67_PDP_EVT_NONE, -1)) != 0) {
         goto end;
+    }
 
     if(flip != P67_PDP_EVT_GOT_ACK) {
         status = p67_web_status_not_found;
@@ -429,7 +442,9 @@ p67_ws_handle_call(void * args)
 
     tlv_state = 0;
     status = p67_web_status_not_found;
-    msgbufptr = msgbuf;
+    msgbufptr = msgbuf + sizeof(p67_pdp_ack_hdr_t);
+    msgbufptrix = msgbufix - sizeof(p67_pdp_ack_hdr_t);
+
 
     while((err = p67_tlv_next(
             &msgbufptr, &msgbufptrix, &tlv_hdr, &tlv_value)) == 0) {
@@ -437,7 +452,7 @@ p67_ws_handle_call(void * args)
         case 's':
             if(tlv_hdr->tlv_vlength != sizeof(dst_status))
                 break;
-            dst_status = p67_cmn_ntohs(*(uint16_t *)tlv_value);
+            dst_status = *(uint16_t *)tlv_value;
             tlv_state |= 1;
             break;
         /*
@@ -452,13 +467,15 @@ p67_ws_handle_call(void * args)
         }
 
 
-        if(tlv_state & 1) {
+        if(tlv_state == 1) {
+            err = p67_err_eot;
             break;
         }
     }
 
-    if(err != p67_err_eot) goto end;
-    if((tlv_state & 1)) goto end;
+    if(err != p67_err_eot || tlv_state != 1) {
+        goto end;
+    }
 
     /* create ACK for A based on B's ACK */
     
@@ -479,6 +496,10 @@ p67_ws_handle_call(void * args)
     }
 
     msgbufix+=err;
+    err = 0;
+    // now endiannes can be reversed to host 
+    // since status hasbeen written into response.
+    dst_status = p67_cmn_ntohs(dst_status);
 
     /* 
         if remote said ok then append to their response address.
@@ -501,6 +522,7 @@ p67_ws_handle_call(void * args)
         }
 
         msgbufix+=err;
+        err = 0;
 
         port_ref = p67_addr_get_port_ref(ctx->dst_addr);
 
@@ -509,21 +531,24 @@ p67_ws_handle_call(void * args)
                 msgbufl-msgbufix,
                 __UC "P", 
                 (p67_pckt_t *)port_ref,
-                sizeof(*port_ref))) != 0) {
+                sizeof(*port_ref))) < 0) {
             err=-err;
             goto end;
         }
         
         msgbufix+=err;
+        err = 0;
     }
 
     if((err = p67_conn_write_once(ctx->src_addr, msgbuf, msgbufix)) != 0)
         goto end;
 
+    status = p67_web_status_ok;
+
 end:
-    if(err != 0) {
+    if(status != p67_web_status_ok) {
         err |= p67_web_tlv_respond_with_status(
-            urg_hdr, ctx->dst_addr, status);
+            urg_hdr, ctx->src_addr, status);
     }
     err |= p67_handle_call_ctx_free(ctx);
     if(err != 0) {
@@ -592,11 +617,11 @@ p67_ws_handle_call_async(
             tlv_state |= 4;
             break;
         }
-        if(tlv_state & (1 | 2 | 4))
+        if(tlv_state == (1 | 2 | 4)) 
             break;
     }
 
-    if(err != p67_err_eot || !(tlv_state  & 2)) {
+    if(err != p67_err_eot || !(tlv_state & 2)) {
         free(ctx);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_bad_request);
@@ -608,6 +633,7 @@ p67_ws_handle_call_async(
         ctx->dst_username, 
         ctx->dst_username_l);
     if(!requested_user) {
+        free(ctx);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_not_found);
     }
@@ -616,15 +642,25 @@ p67_ws_handle_call_async(
     ctx->dst_addr = p67_addr_ref_cpy((p67_addr_t*)requested_user->value);
     ctx->session = p67_ws_session_refcpy(sess);
 
-    if(!ctx->src_addr || !ctx->dst_addr || !ctx->session)
+    if(!ctx->src_addr || !ctx->dst_addr || !ctx->session) {
+        p67_addr_free(ctx->src_addr);
+        p67_addr_free(ctx->dst_addr);
+        p67_ws_session_free(ctx->session);
+        free(ctx);
         return p67_err_einval;
+    }
 
     if((callthr = p67_fwc_add(sess->fwc, ctx->dst_addr)) == NULL) {
+        p67_addr_free(ctx->src_addr);
+        p67_addr_free(ctx->dst_addr);
+        p67_ws_session_free(ctx->session);
+        free(ctx);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_bad_request);
     }
 
-    if((err = p67_cmn_thread_create(&callthr->thr, p67_ws_handle_call, ctx)) != 0) {
+    if((err = p67_cmn_thread_create(
+                &callthr->thr, p67_ws_handle_call, ctx)) != 0) {
         err |= p67_handle_call_ctx_free(ctx);
         return err;
     }
@@ -642,9 +678,8 @@ p67_ws_handle_login(
     int payload_len = msgl - sizeof(p67_pdp_urg_hdr_t);
     const p67_pckt_t * tlv_value;
     p67_web_status status;
-    char * username;
+    const unsigned char * username, * password;
     int usernamel, passwordl;
-    unsigned char * password;
     int state;
 
     status = p67_web_status_bad_request;
@@ -659,7 +694,7 @@ p67_ws_handle_login(
                         tlv_hdr->tlv_vlength > P67_WS_MAX_CREDENTIAL_LENGTH) {
                 goto end;
             }
-            username = (char *)tlv_value;
+            username = tlv_value;
             usernamel = tlv_hdr->tlv_vlength;
             state |= 1;
             break;
@@ -668,7 +703,7 @@ p67_ws_handle_login(
                         tlv_hdr->tlv_vlength > P67_WS_MAX_CREDENTIAL_LENGTH) {
                 goto end;
             }
-            password = (unsigned char *)tlv_value;
+            password = tlv_value;
             passwordl = tlv_hdr->tlv_vlength;
             state |= 2;
             break;
@@ -679,20 +714,39 @@ p67_ws_handle_login(
         goto end;
     }
 
-    if(state != (1 | 2)) {
+    if(!(state & (1 | 2))) {
         goto end;
     }
 
     status = p67_web_status_unauthorized;
 
     if((err = p67_db_user_validate_pass(
-            sess->server_ctx->db, username, usernamel, password, passwordl)) != 0) {
+            sess->db, (char *)username, usernamel, password, passwordl)) != 0) {
         err = 0;
         goto end;
     }
 
+    if(sess->username) {
+        if(sess->usernamel == usernamel && 
+                (memcmp(sess->username, username, usernamel) == 0)) {
+            status = p67_web_status_not_modified;
+            goto end;
+        }
+
+        err = p67_hashcntl_remove_and_free(
+                    sess->server_ctx->user_nchix, username, usernamel);
+
+        if(err) {
+            status = p67_web_status_server_fault;
+            goto end;
+        }
+
+        free(sess->username);
+    }
+
     if((err = p67_ws_user_nchix_add(
-                sess->server_ctx->user_nchix, username, usernamel, addr)) != 0) {
+                sess->server_ctx->user_nchix, 
+                (char *)username, usernamel, addr)) != 0) {
         if(err == p67_err_eaconn) {
             err = 0;
             status = p67_web_status_not_modified;
@@ -701,23 +755,15 @@ p67_ws_handle_login(
         goto end;
     }
 
-    if(sess->username == NULL || 
-            ( ( sess->usernamel != usernamel) && 
-                memcmp(sess->username, username, usernamel)) ) {
-        unsigned char * susername;
-        if((susername = malloc(usernamel+1)) == NULL) {
-            status = p67_web_status_server_fault;
-            goto end;
-        }
-
-        memcpy(susername, username, usernamel);
-        susername[usernamel] = 0;
-
-        free(sess->username);
-
-        sess->username = susername;
-        sess->usernamel = usernamel;
+    if(!(sess->username = malloc(usernamel + 1))) {
+        status = p67_web_status_server_fault;
+        goto end;
     }
+        
+    memcpy(sess->username, username, usernamel);
+    
+    sess->username[usernamel] = 0;
+    sess->usernamel = usernamel;
 
     status = p67_web_status_ok;
 

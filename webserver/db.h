@@ -14,12 +14,12 @@ typedef struct p67_db_user {
 } p67_db_user_t;
 
 typedef struct p67_db_user_hint {
-    unsigned char * u_id;
+    const unsigned char * u_id;
     
-    char * u_name;
+    const char * u_name;
     int u_name_l;
 
-    unsigned char * u_pwd_hash;
+    const unsigned char * u_pwd_hash;
 } p67_db_user_hint_t;
 
 typedef struct p67_db_ctx p67_db_ctx_t;
@@ -56,7 +56,7 @@ p67_db_user_read(
 p67_ws_err
 p67_db_user_validate_pass(
     p67_db_ctx_t * ctx,
-    char * username, int usernamel,
-    unsigned char * password, int passwordl);
+    const char * username, int usernamel,
+    const unsigned char * password, int passwordl);
 
 #endif

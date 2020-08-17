@@ -57,11 +57,11 @@ p67_hashcntl_lookup(
 p67_hashcntl_entry_t *
 p67_hashcntl_remove(
     p67_hashcntl_t * ctx, 
-    unsigned char * key, size_t keyl);
+    const unsigned char * key, size_t keyl);
 
 p67_err
 p67_hashcntl_remove_and_free(
     p67_hashcntl_t * ctx, 
-    unsigned char * key, size_t keyl);
+    const unsigned char * key, size_t keyl);
 
 #endif

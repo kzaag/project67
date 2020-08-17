@@ -162,6 +162,10 @@ p67_db_ctx_create_from_dp_config(p67_db_ctx_t ** ctx, const char * config_path)
     if((*ctx = calloc(1, sizeof(**ctx))) == NULL)
         return p67_err_eerrno;
 
+    if(!config_path) {
+        config_path = "main.conf";
+    }
+
     if((err = p67rs_parse_cs(config_path, &cs, NULL)) != 0)
         goto end;
 
@@ -380,8 +384,8 @@ end:
 p67_ws_err
 p67_db_user_validate_pass(
     p67_db_ctx_t * ctx,
-    char * username, int usernamel,
-    unsigned char * password, int passwordl)
+    const char * username, int usernamel,
+    const unsigned char * password, int passwordl)
 {
     unsigned char hash[P67_DB_PASS_HASH_SIZE];
     p67_ws_err err;

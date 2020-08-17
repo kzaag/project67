@@ -31,6 +31,9 @@ p67_web_status_str(p67_web_status s, char * b, int bl)
     case p67_web_status_not_modified:
         snprintf(b, bl, "Not modified");
         break;
+    case p67_web_status_forbidden:
+        snprintf(b, bl, "Forbidden");
+        break;
     default:
         snprintf(b, bl, "Unknown status code: %u", s);
     }

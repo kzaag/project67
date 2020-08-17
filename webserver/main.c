@@ -20,7 +20,6 @@ main_finish(int sig)
             p67_addr_free(main_connctx.remote_addr);
             p67_thread_sm_terminate(&main_connctx.listen_tsm, 1000);
             p67_lib_free();
-            p67_db_ctx_free(main_wsctx.db);
             p67_hashcntl_free(main_wsctx.user_nchix);
         }
 
@@ -39,11 +38,11 @@ main(void)
 
     p67_ws_err err;
 
-    err = p67_db_ctx_create_from_dp_config(&main_wsctx.db, "main.conf");
-    if(err != 0) {
-        p67_ws_err_print_err("Couldnt intiialize db_ctx. err was: ", err);
-        exit(2);
-    }
+    // err = p67_db_ctx_create_from_dp_config(&main_wsctx.db, "main.conf");
+    // if(err != 0) {
+    //     p67_ws_err_print_err("Couldnt intiialize db_ctx. err was: ", err);
+    //     exit(2);
+    // }
 
     err = p67_ws_user_nchix_create(&main_wsctx.user_nchix, 0);
     if(err != 0) {

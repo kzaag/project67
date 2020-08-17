@@ -941,16 +941,17 @@ p67_err
 p67_conn_connect(
     p67_addr_t * local, p67_addr_t * remote,
     char * certpath, char * keypath,
-    p67_conn_gen_args_cb gen_args, void * args, p67_conn_free_args_cb free_args,
+    p67_conn_gen_args_cb gen_args, void * const args, p67_conn_free_args_cb free_args,
     p67_conn_callback_t read_cb)
 {
-    int sfd, noclose;
-    p67_err err;
-    int sslerr;
+    void * generated_args;
     SSL * ssl = NULL;
     BIO * bio = NULL;
     SSL_CTX * ctx = NULL;
     p67_conn_t * conn;
+    int sfd, noclose;
+    int sslerr;
+    p67_err err;
     
     noclose = 0;
 
@@ -1006,18 +1007,21 @@ p67_conn_connect(
         goto end;
     }
 
-    if(gen_args != NULL)
-        args = gen_args(args);
+    generated_args = NULL;
+
+    if(gen_args)
+        generated_args = gen_args(args);
 
     if(!(conn = p67_conn_insert(
             local, 
             remote, 
             ssl, 
             read_cb, 
-            args, 
+            gen_args ? generated_args : args, 
             free_args,
-            P67_XLOCK_STATE_UNLOCKED)))
+            P67_XLOCK_STATE_UNLOCKED))) {
         p67_cmn_ejmp(err, p67_err_eerrno, end);
+    }
 
     p67_log_debug("Connected to %s:%s\n", remote->hostname, remote->service);
 
@@ -1037,6 +1041,9 @@ end:
             SSL_free(ssl);
         }
         if(sfd > 0) p67_sfd_close(sfd);
+        if(gen_args) {
+            free(generated_args);
+        }
     }
     if(ctx != NULL) SSL_CTX_free(ctx);
 
@@ -1180,10 +1187,13 @@ p67_err
 p67_conn_listen(
     p67_addr_t * laddr,
     const char * certpath, const char * keypath,
-    p67_conn_gen_args_cb gen_args, void * args, p67_conn_free_args_cb free_args,
+    p67_conn_gen_args_cb gen_args, 
+    void * const args,
+    p67_conn_free_args_cb free_args,
     p67_conn_callback_t cb,
     p67_async_t * state)
 {
+    void * generated_args;
     p67_sfd_t sfd;
     SSL_CTX * ctx;
     SSL * ssl;
@@ -1202,6 +1212,7 @@ p67_conn_listen(
 
     p67_err_mask_all(err);
 
+    generated_args = NULL;
     ctx = NULL;
     ssl = NULL;
     bio = NULL;
@@ -1276,21 +1287,30 @@ p67_conn_listen(
             }
         }
 
+        generated_args = NULL;
         do {
             if(!(raddr = p67_addr_new())) break;
             if((err = p67_addr_set_sockaddr(raddr, &remote, sizeof(remote))) != 0)
                 break;
-            if(gen_args != NULL)
-                args = gen_args(args);
+            if(gen_args)
+                generated_args = gen_args(args);
 
             conn = p67_conn_insert(
-                laddr, raddr, ssl, cb, args, free_args, P67_XLOCK_STATE_LOCKED);
-            if(!conn) break;
+                laddr, raddr, ssl, cb, 
+                gen_args ? generated_args : args, 
+                free_args, P67_XLOCK_STATE_LOCKED);
+            if(!conn) {
+                if(gen_args)
+                    free(generated_args);
+                break;
+            }
 
             if((err = p67_cmn_thread_create(&accept_thr, __p67_conn_accept, conn)) != 0) {
                 /* possible crash due to calling SSL_shutdown and SSL_Free without completing handshake */
                 p67_conn_shutdown(raddr);
                 err = 0;
+                if(gen_args)
+                    free(generated_args);
                 break;
             }
             //err = 0;

@@ -148,77 +148,56 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
 int 
 p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
+    unsigned char * msgp;
+    unsigned char msg[P67_DML_SAFE_PAYLOAD_SIZE];
+    p67_async_t sig = P67_ASYNC_INTIIALIZER;
+    const int msgl = 120;
+    int msgix = 0;
     p67_err err;
-    unsigned char msg[120];
-    int len = 120;
 
-    unsigned char * msgp = msg;
-    int ix = 0;
+    msgp = msg;
 
     if(argc < 2) {
         printf("must provide target\n");
         return 1;
     }
 
-    if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, len, 'c') == NULL)
+    if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, msgl, 'c') == NULL)
         return p67_err_einval;
 
     msgp += P67_PDP_URG_OFFSET;
-    ix += P67_PDP_URG_OFFSET;
+    msgix += P67_PDP_URG_OFFSET;
     
-    if(ix >= len)
+    if(msgix >= msgl)
         return p67_err_enomem;
 
-    printf("calling...\n");
+    //printf("calling...\n");
 
-    if((err = p67_tlv_add_fragment(msgp, len-ix, "N", argv[1], strlen(argv[1]))) < 0)
+    if((err = p67_tlv_add_fragment(
+                    msgp, msgl-msgix, "U", argv[1], strlen(argv[1]))) < 0)
         return -err;
-    ix += err;
+    msgix += err;
     msgp+=err;
 
     if((err = p67_tlv_add_fragment(
-            msgp, len-ix, "h", "some hint", sizeof("some hint")-1)) < 0)
+            msgp, msgl-msgix, "m", "i love you", sizeof("i love you")-1)) < 0)
         return -err;
-    ix += err;
+    msgix += err;
     msgp+=err;
 
-    p67_async_t sig = P67_ASYNC_INTIIALIZER;
-
-    // p67_epoch_t start, end;
-
-    // p67_cmn_time_ms(&start);
-
-    const unsigned char * res, * resptr;
-    int resl;
-
     if((err = p67_pdp_write_urg(
-            ctx->conn_ctx.remote_addr, msg, ix, -1, &sig, (void **)&res, &resl)) != 0)
+            ctx->conn_ctx.remote_addr, msg, msgix, 60000, &sig, msg, &msgix)) != 0)
         return err;
 
-    p67_mutex_wait_for_change(&sig, 0, 20000);
-
-    //p67_cmn_time_ms(&end);
+    p67_mutex_wait_for_change(&sig, 0, -1);
 
     if(sig == P67_PDP_EVT_GOT_ACK) {
-        //p67_dml_pretty_print(res, resl);
-        const p67_tlv_header_t * tlv_hdr;
-        const unsigned char * value;
-        resptr = res;
-        resptr += sizeof(p67_pdp_ack_hdr_t);
-        resl -= sizeof(p67_pdp_ack_hdr_t);
-        if((err = p67_tlv_next(
-                &resptr, &resl, 
-                &tlv_hdr, &value)) != 0)
+        char c[P67_WEB_TLV_STATUS_BUFFL];
+        if((err = p67_web_tlv_status_str(msg, msgix, c, sizeof(c))) != 0)
             return err;
-        if(tlv_hdr->tlv_key[0] != 's' || tlv_hdr->tlv_vlength != 2)
-            return p67_err_etlvf;
-        if((err = p67_tlv_pretty_print_fragment(tlv_hdr, value)) != 0)
-            return err;
-        uint16_t werr = p67_cmn_ntohs(*(uint16_t *)value);
-        if(werr != 0)
-            return p67_err_eagain;
+        printf("%s\n", c);
     } else {
-        char c[32];
+        char c[P67_PDP_EVT_STR_LEN];
         printf("%s\n", p67_pdp_evt_str(c, sizeof(c), sig));
     }
 

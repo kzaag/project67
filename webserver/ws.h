@@ -10,7 +10,11 @@
 */
 typedef struct p67_ws_ctx {
     p67_hashcntl_t * user_nchix;
-    p67_db_ctx_t * db;
+    /* 
+        apparently each client need his own connection object 
+        since libq connection is not multithreaded...
+    */
+    //p67_db_ctx_t * db;
 } p67_ws_ctx_t;
 
 void

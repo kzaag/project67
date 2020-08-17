@@ -49,6 +49,8 @@ extern uint16_t * p67_pdp_mid_location(void) __attribute_const__;
 #define P67_PDP_EVT_ERROR   3
 #define P67_PDP_EVT_ENOMEM  4
 
+#define P67_PDP_EVT_STR_LEN 32
+
 /*
     pudp message queue inode statuses
     message queue is used to keep URG messages and rretransmission them when needed.
