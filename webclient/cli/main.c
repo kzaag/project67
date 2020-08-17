@@ -84,6 +84,8 @@ p67_handle_call_request(
     if(!src_username)
         src_username = str_anon;
 
+    printf("%u\n", src_saddrl);
+
     if(!(src_addr = p67_addr_new())) return p67_err_eerrno;
     if((err = p67_addr_set_sockaddr(src_addr, src_saddr, src_saddrl)) != 0) {
         free(src_addr);
