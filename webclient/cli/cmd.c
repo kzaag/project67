@@ -183,7 +183,7 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     msgp+=err;
 
     if((err = p67_tlv_add_fragment(
-            msgp, msgl-msgix, "m", "i love you\0", 12)) < 0)
+            msgp, msgl-msgix, "m", "i love you", 11)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
