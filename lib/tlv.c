@@ -166,3 +166,34 @@ p67_tlv_pretty_print_fragment(
 //     return 0;
 // }
 
+
+/*
+    NULL on error ( p67_err_etlvf )
+*/
+const char *
+p67_tlv_get_cstr(
+    const p67_tlv_header_t * const hdr, 
+    const p67_pckt_t * const value)
+{
+    if(!hdr || !value || hdr->tlv_vlength == 0) return NULL;
+    /* check if only 1 nul terminator is present at the end of tlv-value */
+    if(value[hdr->tlv_vlength - 1] != 0 || 
+            strlen((char *)value) != (size_t)(hdr->tlv_vlength - 1))
+        return NULL;
+    return (char *)value;
+}
+
+const p67_pckt_t *
+p67_tlv_get_arr(
+    const p67_tlv_header_t * const hdr, 
+    const p67_pckt_t * const value, 
+    const int expected_length)
+{
+    if(!hdr || !value) return NULL;
+    if(expected_length > 0) {
+        if(hdr->tlv_vlength != expected_length)
+            return NULL;
+    }
+    return value;
+}
+

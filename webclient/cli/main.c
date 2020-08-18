@@ -44,39 +44,35 @@ p67_handle_call_request(
     const p67_pckt_t * msgp = msg + sizeof(p67_pdp_urg_hdr_t);
     const p67_tlv_header_t * tlv_hdr;
     const p67_pckt_t * tlv_value;
-
     p67_addr_t * src_addr;
+    const char * src_host, * src_svc;
     const char * src_message = NULL, * src_username = NULL;
-    const p67_sockaddr_t * src_saddr = NULL;
     int msgpl = msgl - sizeof(p67_pdp_urg_hdr_t);
     p67_err err;
-    uint16_t src_port = 0;
-    uint8_t src_usernamel = 0, src_messagel = 0, src_saddrl = 0;
     
 
     while((err = p67_tlv_next(&msgp, &msgpl, &tlv_hdr, &tlv_value)) == 0) {
         switch(tlv_hdr->tlv_key[0]) {
         case 'p':
-            if(tlv_hdr->tlv_vlength != sizeof(src_port))
-                return p67_err_etlvf;
-            src_port = p67_cmn_ntohs(*(uint16_t *)tlv_value);
+            src_svc = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!src_svc) return p67_err_etlvf;
             break;
         case 'a':
-            src_saddr = (p67_sockaddr_t *)tlv_value;
-            src_saddrl = tlv_hdr->tlv_vlength;
+            src_host = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!src_host) return p67_err_etlvf;
             break;
         case 'm':
-            src_message = (char *)tlv_value;
-            src_messagel = tlv_hdr->tlv_vlength;
+            src_message = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!src_message) return p67_err_etlvf;
             break;
         case 'u':
-            src_username = (char *)tlv_value;
-            src_usernamel = tlv_hdr->tlv_vlength;
+            src_username = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!src_username) return p67_err_etlvf;
             break;
         }
     }
 
-    if(err != p67_err_eot || src_port == 0 || src_saddr == NULL)
+    if(err != p67_err_eot || !src_svc || !src_host)
         err;
 
     if(!src_message)
@@ -85,17 +81,15 @@ p67_handle_call_request(
         src_username = str_anon;
 
     if(!(src_addr = p67_addr_new())) return p67_err_eerrno;
-    if((err = p67_addr_set_sockaddr(src_addr, src_saddr, src_saddrl)) != 0) {
+    if((err = p67_addr_set_host_udp(src_addr, src_host, src_svc)) != 0) {
         free(src_addr);
         return err;
     }
 
-    p67_log("Incoming call from: \"%.*s\" (%s:%s) with message: \"%.*s\"\n",
-        src_usernamel,
+    p67_log("Incoming call from: \"%s\" (%s:%s) with message: \"%s\"\n",
         src_username, 
         src_addr->hostname, 
         src_addr->service,
-        src_messagel,
         src_message);
 
     free(src_addr);
@@ -162,6 +156,10 @@ main(int argc, char ** argv)
 
     if((err = p67_addr_set_host_udp(
                 cmdctx.conn_ctx.remote_addr, remote_ip, argv[2])))
+        goto end;
+
+    if((err = p67_cert_trust_address_cert(
+            cmdctx.conn_ctx.remote_addr, certpath)) != 0)
         goto end;
 
     kctx.addr = cmdctx.conn_ctx.remote_addr;

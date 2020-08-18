@@ -71,22 +71,24 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
     if(ix >= len)
         return p67_err_enomem;
 
-    char buff[32];
+    const int buffl = 31;
+    char buff[buffl + 1];
     int bl = 0;
     char tmp;
 
     if(argc < 2) {
         printf("username: ");
         while((tmp = getchar()) != EOF && tmp != '\n') {
-            if(bl >= (sizeof(buff) - 1)) break;
+            if(bl >= (buffl - 1)) break;
             buff[bl++] = tmp;
         }
     }
+    buff[bl++] = 0;
 
     if((err = p67_tlv_add_fragment(
                 msgp, len-ix, "u\0", 
                 argc < 2 ? buff : argvs[1], 
-                argc < 2 ? bl : strlen(argvs[1]))) < 0)
+                argc < 2 ? bl : strlen(argvs[1]) + 1)) < 0)
         return -err;
     ix += err;
     msgp+=err;
@@ -95,15 +97,16 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
         printf("password: ");
         bl = 0;
         while((tmp = getchar()) != EOF && tmp != '\n') {
-            if(bl >= (sizeof(buff) - 1)) break;
+            if(bl >= (buffl - 1)) break;
             buff[bl++] = tmp;
         }
     }
+    buff[bl++] = 0;
 
     if((err = p67_tlv_add_fragment(
                 msgp, len-ix, "p\0", 
                 argc < 3 ? buff : argvs[2], 
-                argc < 3 ? bl : strlen(argvs[2]))) < 0)
+                argc < 3 ? bl : strlen(argvs[2]) + 1)) < 0)
         return -err;
     ix += err;
     msgp+=err;
@@ -174,13 +177,13 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     //printf("calling...\n");
 
     if((err = p67_tlv_add_fragment(
-                    msgp, msgl-msgix, "U", argv[1], strlen(argv[1]))) < 0)
+                    msgp, msgl-msgix, "U", argv[1], strlen(argv[1]) + 1)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
 
     if((err = p67_tlv_add_fragment(
-            msgp, msgl-msgix, "m", "i love you", sizeof("i love you")-1)) < 0)
+            msgp, msgl-msgix, "m", "i love you\0", 12)) < 0)
         return -err;
     msgix += err;
     msgp+=err;

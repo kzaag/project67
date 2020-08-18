@@ -1,5 +1,4 @@
 #include "sfd.h"
-#include "hashcntl.h"
 #include "conn.h"
 #include "log.h"
 
@@ -18,6 +17,7 @@ typedef struct p67_conn p67_conn_t;
     All connections are kept in conn_cache hash table.
 */
 struct p67_conn {
+    p67_timeout_t * timeout;
     p67_addr_t * addr_remote;
     p67_addr_t * addr_local;
     SSL * ssl;
@@ -47,29 +47,10 @@ P67_CMN_NO_PROTO_EXIT
 #define p67_conn_unlock(c) \
     p67_spinlock_unlock(&c->lock)
 
-
-typedef __uint16_t p67_node_state_t;
-
-/*
-    Structure representing known ( not nessesarily connected ) peers.
-    newly arrived requests are kept in the queue state until user accepts them.
-*/
-struct p67_node {
-    p67_addr_t * trusted_addr;
-    /* heap allocated null terminated string */
-    char * trusted_pub_key;
-    p67_node_state_t state;
-    unsigned int heap_alloc : 1;
-};
-
-#define P67_CONN_AUTH_DONT_TRUST_UNKOWN   1
-#define P67_CONN_AUTH_TRUST_UNKOWN 2
-#define P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN 3
-
 #define COOKIE_SECRET_LENGTH 32
 
 struct p67_conn_globals {
-    int conn_auth;
+    p67_conn_config_t config;
     p67_hashcntl_t * conn_cache;
     p67_async_t conn_cache_ini_lock;
     p67_hashcntl_t * node_cache;
@@ -84,7 +65,10 @@ struct p67_conn_globals {
 };
 
 struct p67_conn_globals __globals = {
-    .conn_auth = P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN,
+    .config = {
+        .conn_auth = P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN,
+        .timeout_duration_ms = 10*1000,
+    },
     .conn_cache_ini_lock = P67_ASYNC_INTIIALIZER,
     .node_cache_ini_lock = P67_ASYNC_INTIIALIZER,
     .cookie_secret_lock = P67_ASYNC_INTIIALIZER,
@@ -93,14 +77,14 @@ struct p67_conn_globals __globals = {
     .cookie_initialized = 0,
 };
 
+p67_conn_config_t *
+p67_conn_config_location(void)
+{
+    return &__globals.config;
+}
+
 #define CONN_CACHE_LEN 337
 #define NODE_CACHE_LEN 337
-
-p67_hashcntl_t *
-conn_cache(void);
-
-p67_hashcntl_t *
-node_cache(void);
 
 void
 __p67_conn_free(p67_hashcntl_entry_t * entry);
@@ -109,7 +93,7 @@ void
 __p67_node_free(p67_hashcntl_entry_t * entry);
 
 p67_hashcntl_t *
-conn_cache(void) {
+p67_conn_cache(void) {
     if(!__globals.conn_initialized) {
         p67_spinlock_lock(&__globals.conn_cache_ini_lock);
         if(!__globals.conn_initialized) {
@@ -127,7 +111,7 @@ conn_cache(void) {
 }
 
 p67_hashcntl_t *
-node_cache(void) {
+p67_conn_node_cache(void) {
     if(!__globals.nodes_initialized) {
         p67_spinlock_lock(&__globals.node_cache_ini_lock);
         if(!__globals.nodes_initialized) {
@@ -166,7 +150,7 @@ p67_conn_shutdown(p67_addr_t * addr)
 {
     if(!addr) return p67_err_einval;
     return p67_hashcntl_remove_and_free(
-        conn_cache(), 
+        p67_conn_cache(), 
         (unsigned char *)&addr->sock, addr->socklen);
 }
 
@@ -226,7 +210,7 @@ P67_CMN_NO_PROTO_EXIT
     const p67_addr_t * addr)
 {
     p67_hashcntl_entry_t * entry = p67_hashcntl_lookup(
-        conn_cache(), 
+        p67_conn_cache(), 
         (unsigned char *)&addr->sock,
         addr->socklen);
     if(!entry) return NULL;
@@ -238,7 +222,7 @@ p67_node_lookup(p67_addr_t * addr)
 {
     if(!addr) return NULL;
     p67_hashcntl_entry_t * entry = p67_hashcntl_lookup(
-        node_cache(), 
+        p67_conn_node_cache(), 
         (unsigned char *)&addr->sock,
         addr->socklen);
     if(!entry) return NULL;
@@ -272,7 +256,8 @@ P67_CMN_NO_PROTO_EXIT
     p67_conn_callback_t cb,
     void * args, 
     p67_conn_free_args_cb free_args_cb,
-    p67_async_t lock)
+    p67_async_t lock,
+    p67_timeout_t * timeout)
 {
 
     assert(addr_local);
@@ -309,10 +294,11 @@ P67_CMN_NO_PROTO_EXIT
     ret->free_args = free_args_cb;
     ret->lock = lock;
     ret->ssl = ssl;
+    ret->timeout = timeout;
 
     memcpy(entry->key, &remotecpy->sock, remotecpy->socklen);
 
-    if(p67_hashcntl_add(conn_cache(), entry) != 0)
+    if(p67_hashcntl_add(p67_conn_cache(), entry) != 0)
         goto end;
 
     return ret;
@@ -325,12 +311,11 @@ end:
     return NULL;
 }
 
-P67_CMN_NO_PROTO_ENTER
 p67_node_t *
-p67_node_insert(
-P67_CMN_NO_PROTO_EXIT
+p67_conn_node_insert(
     p67_addr_t * addr,
     const char * trusted_key,
+    int trusted_key_l,
     int node_state)
 {
     p67_hashcntl_entry_t * entry = NULL;
@@ -343,7 +328,7 @@ P67_CMN_NO_PROTO_EXIT
         sizeof(p67_hashcntl_entry_t) + 
         addr->socklen + 
         sizeof(p67_node_t) + 
-        strlen(trusted_key) + 1);
+        trusted_key_l + 1);
     
     if(!entry) goto end;
 
@@ -361,9 +346,10 @@ P67_CMN_NO_PROTO_EXIT
     node->trusted_addr = addrcpy;
     node->trusted_pub_key = (char *)(entry->value + entry->valuel);
 
-    memcpy(node->trusted_pub_key, trusted_key, strlen(trusted_key) + 1);
+    memcpy(node->trusted_pub_key, trusted_key, trusted_key_l + 1);
+    node->trusted_pub_key[trusted_key_l] = 0;
 
-    if(p67_hashcntl_add(node_cache(), entry) != 0)
+    if(p67_hashcntl_add(p67_conn_node_cache(), entry) != 0)
         goto end;
 
     return node;
@@ -442,7 +428,7 @@ P67_CMN_NO_PROTO_EXIT
 
 P67_CMN_NO_PROTO_ENTER
 void *
-__p67_net_enter_read_loop(
+p67_conn_run_read_loop(
 P67_CMN_NO_PROTO_EXIT
     void * args)
 {
@@ -500,7 +486,26 @@ P67_CMN_NO_PROTO_EXIT
                 callret = (*conn->callback)(remote, rbuff, len, conn->args);
                 if(callret != 0) {
                     err = callret;
-                    p67_err_print_err("Terminating connection with error/s: ", callret);
+                    if(conn->timeout) {
+                        if((callret = p67_timeout_addr_for_epoch(
+                                conn->timeout, 
+                                remote, 
+                                __globals.config.timeout_duration_ms,
+                                0)) != 0)
+                            p67_err_print_err("couldnt timeout peer, error was: ", callret);
+                        p67_log_debug(
+                            "Timeout %s:%s due to error/s for %d ms.\n", 
+                            remote->hostname, 
+                            remote->service, 
+                            __globals.config.timeout_duration_ms);
+                    } else {
+                        if((callret = p67_timeout_addr(remote, 0)) != 0)
+                            p67_err_print_err("couldnt timeout peer, error was: ", callret);
+                        p67_log_debug(
+                            "Timeout %s:%s due to error/s indefinitely.\n", 
+                            remote->hostname, remote->service);
+                    }
+                    p67_err_print_err("Terminating connection with error/s: ", err);
                     goto end;
                 }
                 num_timeouts = 0;
@@ -547,7 +552,7 @@ P67_CMN_NO_PROTO_EXIT
 {
     return p67_thread_sm_start(
         &conn->hread,
-        __p67_net_enter_read_loop,
+        p67_conn_run_read_loop,
         conn);
 }
 
@@ -660,7 +665,7 @@ p67_net_verify_ssl_callback(
 P67_CMN_NO_PROTO_EXIT
     int ok, X509_STORE_CTX *ctx) 
 {
-    p67_addr_t addr;
+    p67_addr_t addr = {0};
     X509 * x509 = NULL;
     char *pubk = NULL;
     int cnix, success = 0, asnl;
@@ -669,8 +674,6 @@ P67_CMN_NO_PROTO_EXIT
     ASN1_STRING * castr = NULL;
     EVP_PKEY * pkey = NULL;
     p67_node_t * node = NULL;
-
-    return 1;
 
     bzero(&addr, sizeof(p67_addr_t));
 
@@ -688,51 +691,57 @@ P67_CMN_NO_PROTO_EXIT
         }
     }
 
+    success = 0;
+
     if(p67_conn_get_addr_from_x509_store_ctx(ctx, &addr) != 0)
-        return 0;
+        goto end;
 
     /* 
         if remote was already queued and their ssl conn closed then block them 
     */
     if((node = p67_node_lookup(&addr)) != NULL 
-            && (node->state & P67_NODE_STATE_QUEUE) != 0) {
+            && (node->state & P67_NODE_STATE_QUEUE)) {
         X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_REVOKED);
-        return 0;
+        goto end;
     }
 
     if((x509 = X509_STORE_CTX_get_current_cert(ctx)) == NULL) {
-        return 0;
+        goto end;
     }
 
     if((pubk = p67_conn_get_pem_str(x509, P67_PEM_PUBKEY)) == NULL) {
-        return 0;
+        goto end;
     }
-
-    success = 0;
 
     /* 
         if remote is first timer then allow them to connect ( but queue them )
         we will warn user about new peer
     */
     if(node == NULL) {
-        switch(__globals.conn_auth) {
+        switch(__globals.config.conn_auth) {
         case P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN:
             p67_log_debug("Unknown host connecting from %s:%s with public key:\n%s", 
                 addr.hostname, addr.service, pubk);
-            if(p67_node_insert(&addr, pubk, P67_NODE_STATE_QUEUE) != 0)
+            if(!p67_conn_node_insert(&addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+                p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
+            }
             success = 1;
             break;
         case P67_CONN_AUTH_TRUST_UNKOWN:
-            if(p67_node_insert(&addr, pubk, P67_NODE_STATE_NODE) != 0) 
+            if(!p67_conn_node_insert(&addr, pubk, strlen(pubk), P67_NODE_STATE_NODE)) {
+                p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
+            }
             success = 1;
             break;
         case P67_CONN_AUTH_DONT_TRUST_UNKOWN:
-            p67_log_debug("Rejected Unknown Host ( %s:%s ) with public key:\n%s", 
-                addr.hostname, addr.service, pubk);
-            if(p67_node_insert(&addr, pubk, P67_NODE_STATE_QUEUE) != 0) 
+            p67_log_debug("Rejected Unknown Host ( %s:%s )\n", 
+                addr.hostname, addr.service);
+            if(!p67_conn_node_insert(&addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+                p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
+            }
             break;
         default:
             break;
@@ -799,7 +808,8 @@ P67_CMN_NO_PROTO_EXIT
 
 end:
     if(pubk != NULL) free(pubk);
-    p67_addr_free(&addr);
+    free(addr.hostname);
+    free(addr.service);
     //if(castr != NULL) ASN1_STRING_free(castr);
     //if(ne != NULL) X509_NAME_ENTRY_free(ne);
     //if(x509_name != NULL) X509_NAME_free(x509_name);
@@ -894,7 +904,9 @@ P67_CMN_NO_PROTO_EXIT
         ret = SSL_accept(pass->ssl);
     } while (ret == 0);
     
-    if(ret < 0) goto end;
+    if(ret < 0) {
+        goto end;
+    }
 
     p67_conn_unlock(pass);
 
@@ -942,7 +954,8 @@ p67_conn_connect(
     p67_addr_t * local, p67_addr_t * remote,
     char * certpath, char * keypath,
     p67_conn_gen_args_cb gen_args, void * const args, p67_conn_free_args_cb free_args,
-    p67_conn_callback_t read_cb)
+    p67_conn_callback_t read_cb,
+    p67_timeout_t * conn_timeout_ctx)
 {
     void * generated_args;
     SSL * ssl = NULL;
@@ -1019,7 +1032,8 @@ p67_conn_connect(
             read_cb, 
             gen_args ? generated_args : args, 
             free_args,
-            P67_XLOCK_STATE_UNLOCKED))) {
+            P67_XLOCK_STATE_UNLOCKED,
+            conn_timeout_ctx))) {
         p67_cmn_ejmp(err, p67_err_eerrno, end);
     }
 
@@ -1154,7 +1168,7 @@ p67_conn_write_once(
 void
 p67_conn_shutdown_all(void)
 {
-    p67_hashcntl_t * ctx = conn_cache();
+    p67_hashcntl_t * ctx = p67_conn_cache();
     p67_hashcntl_free(ctx);
 }
 
@@ -1191,7 +1205,8 @@ p67_conn_listen(
     void * const args,
     p67_conn_free_args_cb free_args,
     p67_conn_callback_t cb,
-    p67_async_t * state)
+    p67_async_t * state,
+    p67_timeout_t * conn_timeout_ctx)
 {
     void * generated_args;
     p67_sfd_t sfd;
@@ -1201,6 +1216,7 @@ p67_conn_listen(
     p67_sockaddr_t remote;
     p67_addr_t * raddr;
     p67_conn_t * conn;
+    p67_node_t * node;
     p67_err err;
     p67_thread_t accept_thr;
 
@@ -1292,13 +1308,23 @@ p67_conn_listen(
             if(!(raddr = p67_addr_new())) break;
             if((err = p67_addr_set_sockaddr(raddr, &remote, sizeof(remote))) != 0)
                 break;
+            /* 
+                moved from ssl verify cvallback due to memory leaks.
+                if remote was already queued and their ssl conn closed then block them 
+            */
+            if((node = p67_node_lookup(raddr)) != NULL 
+                    && (node->state & P67_NODE_STATE_QUEUE)) {
+                err = p67_err_essl;
+                break;
+            }
             if(gen_args)
                 generated_args = gen_args(args);
 
             conn = p67_conn_insert(
                 laddr, raddr, ssl, cb, 
                 gen_args ? generated_args : args, 
-                free_args, P67_XLOCK_STATE_LOCKED);
+                free_args, P67_XLOCK_STATE_LOCKED,
+                conn_timeout_ctx);
             if(!conn) {
                 if(gen_args)
                     free(generated_args);
@@ -1315,6 +1341,10 @@ p67_conn_listen(
             }
             //err = 0;
         } while(0);
+        
+        if(err != 0) {
+            SSL_free(ssl);
+        }
 
         p67_addr_free(raddr);
         raddr = NULL;

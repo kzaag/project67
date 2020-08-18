@@ -44,8 +44,8 @@ p67_cmn_static_assert_size(p67_ws_session_fwc_entry_t, p67_hashcntl_entry_t);
         {user_addr: ssl_connection_ctx}
 */
 typedef struct p67_ws_user_nchix_entry {
-    char * username;
-    size_t usernamel;
+    char * username; /* cstr */
+    size_t usernamel; /* = strlen(username) */
     p67_addr_t * addr;
     char __padd[sizeof(size_t)+sizeof(p67_hashcntl_entry_t *)];
 } p67_ws_user_ncix_entry_t;
@@ -235,8 +235,9 @@ typedef struct p67_handle_call_ctx {
     const p67_pckt_t * dst_username;
     const p67_pckt_t * src_message;
 
-    uint16_t src_port;
+    char * src_svc;
 
+    uint8_t src_svc_l;
     uint8_t dst_username_l;
     uint8_t src_message_l;
 
@@ -268,18 +269,18 @@ p67_handle_call_ctx_free(p67_handle_call_ctx_t * ctx)
 
     --------------------------->
     URG = { 
-        * p  uint16_t  A port
-          U  char[]    B username
-        * m  char[]    message to B
+        * p  cstr  A service
+          U  cstr  B username
+        * m  cstr  message to B
     }
 
 
-                                --------------------------->
-                                URG = {
-                                    p uint16_t A port
-                                    a char[]   A address
-                                  * m char[]   message to B
-                                  * u char[]   A username
+                                     --------------------------->
+                                     URG = {
+                                         p cstr  A service
+                                         a cstr  A ip
+                                       * m cstr  message to B
+                                       * u cstr  A username
                                 }
 
     <---------------------------
@@ -300,9 +301,9 @@ p67_handle_call_ctx_free(p67_handle_call_ctx_t * ctx)
 
     <----------------------------
     ACK = {
-        s  uint16_t  call response status
-        P  uint16_t  B port
-        A  char[]    B address
+        s  uint16_t response status
+      * P  cstr B service
+      * A  cstr B address
     }
 
 */
@@ -316,7 +317,6 @@ p67_ws_handle_call(void * args)
     const p67_tlv_header_t * tlv_hdr;
     const p67_pckt_t * tlv_value;
     const p67_pdp_urg_hdr_t * urg_hdr = (p67_pdp_urg_hdr_t *)ctx->msg;
-    const uint16_t * port_ref;
     const p67_pckt_t * msgbufptr;
 
     int tlv_state;
@@ -329,10 +329,6 @@ p67_ws_handle_call(void * args)
     p67_web_status status;
 
     status = p67_web_status_server_fault;
-
-    if(!ctx->src_port) {
-        port_ref = p67_addr_get_port_ref(ctx->src_addr);
-    }
 
     /* generate proxy request */
 
@@ -347,8 +343,12 @@ p67_ws_handle_call(void * args)
             msgbuf+msgbufix, 
             msgbufl-msgbufix, 
             __UC "p", 
-            (p67_pckt_t *)port_ref,
-            sizeof(*port_ref))) < 0) {
+            ctx->src_svc ? 
+                (p67_pckt_t *)ctx->src_svc : 
+                (p67_pckt_t *)ctx->src_addr->service,
+            ctx->src_svc ? 
+                (uint8_t)(ctx->src_svc_l + 1) : 
+                strlen(ctx->src_addr->service) + 1)) < 0) {
         err-=err;
         goto end;
     }
@@ -363,8 +363,8 @@ p67_ws_handle_call(void * args)
             msgbuf+msgbufix, 
             msgbufl-msgbufix, 
             __UC "a", 
-            (p67_pckt_t *)&ctx->src_addr->sock,
-            ctx->src_addr->socklen)) < 0) {
+            (p67_pckt_t *)ctx->src_addr->hostname,
+            strlen(ctx->src_addr->hostname) + 1)) < 0) {
         err-=err;
         goto end;
     }
@@ -377,7 +377,7 @@ p67_ws_handle_call(void * args)
                 msgbufl-msgbufix, 
                 __UC "m",
                 ctx->src_message,
-                ctx->src_message_l)) < 0) {
+                ctx->src_message_l + 1)) < 0) {
             err-=err;
             goto end;
         }
@@ -390,7 +390,7 @@ p67_ws_handle_call(void * args)
                 msgbufl-msgbufix, 
                 __UC "u", 
                 ctx->session->username,
-                ctx->session->usernamel)) < 0) {
+                ctx->session->usernamel + 1)) < 0) {
             err-=err;
             goto end;
         }
@@ -515,8 +515,8 @@ p67_ws_handle_call(void * args)
                 msgbuf+msgbufix,
                 msgbufl-msgbufix,
                 __UC "A", 
-                (p67_pckt_t *)&ctx->dst_addr->sock,
-                ctx->dst_addr->socklen)) < 0) {
+                (p67_pckt_t *)&ctx->dst_addr->hostname,
+                strlen(ctx->dst_addr->hostname) + 1)) < 0) {
             err=-err;
             goto end;
         }
@@ -524,14 +524,12 @@ p67_ws_handle_call(void * args)
         msgbufix+=err;
         err = 0;
 
-        port_ref = p67_addr_get_port_ref(ctx->dst_addr);
-
         if((err = p67_tlv_add_fragment(
                 msgbuf+msgbufix,
                 msgbufl-msgbufix,
                 __UC "P", 
-                (p67_pckt_t *)port_ref,
-                sizeof(*port_ref))) < 0) {
+                (p67_pckt_t *)ctx->dst_addr->service,
+                strlen(ctx->dst_addr->service) + 1)) < 0) {
             err=-err;
             goto end;
         }
@@ -570,7 +568,6 @@ p67_ws_handle_call_async(
     p67_hashcntl_entry_t * requested_user;
     p67_handle_call_ctx_t * ctx;
     const p67_pckt_t * payload;
-    int tlv_state = 0;
     p67_err err = 0;
     int payload_len;
 
@@ -579,7 +576,7 @@ p67_ws_handle_call_async(
             (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_server_fault);
     }
 
-    ctx->src_port = 0;
+    ctx->src_svc = NULL;
     ctx->src_message_l = 0;
     ctx->src_message = NULL;
     ctx->msgl = msgl;
@@ -596,32 +593,33 @@ p67_ws_handle_call_async(
                 &payload, &payload_len, &tlv_hdr, &tlv_value)) == 0) {
         switch(tlv_hdr->tlv_key[0]) {
         case 'p':
-            if(tlv_hdr->tlv_vlength != 2)
-                break;
-            ctx->src_port = p67_cmn_ntohs(*(uint16_t *)tlv_value);
-            tlv_state |= 1;
+            if(!(ctx->src_svc = (char *)p67_tlv_get_cstr(tlv_hdr, tlv_value))) {
+                free(ctx);
+                return p67_err_etlvf;
+            }
+            ctx->src_svc_l = tlv_hdr->tlv_vlength - 1;
             break;
         case 'U':
-            if(tlv_hdr->tlv_vlength == 0 || 
-                    tlv_hdr->tlv_vlength > P67_WS_MAX_CREDENTIAL_LENGTH)
-                break;
+            ctx->dst_username = (p67_pckt_t *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!ctx->dst_username){
+                free(ctx);
+                return p67_err_etlvf;
+            }
             ctx->dst_username = tlv_value;
-            ctx->dst_username_l = tlv_hdr->tlv_vlength;
-            tlv_state |= 2;
+            ctx->dst_username_l = tlv_hdr->tlv_vlength - 1;
             break;
         case 'm':
-            if(tlv_hdr->tlv_vlength < 1)
-                break;
-            ctx->src_message = tlv_value;
-            ctx->src_message_l = tlv_hdr->tlv_vlength;
-            tlv_state |= 4;
+            ctx->src_message = (p67_pckt_t *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!ctx->src_message){
+                free(ctx);
+                return p67_err_etlvf;
+            }
+            ctx->src_message_l = tlv_hdr->tlv_vlength - 1;
             break;
         }
-        if(tlv_state == (1 | 2 | 4)) 
-            break;
     }
 
-    if(err != p67_err_eot || !(tlv_state & 2)) {
+    if(err != p67_err_eot || !ctx->dst_username) {
         free(ctx);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_bad_request);
@@ -678,43 +676,29 @@ p67_ws_handle_login(
     int payload_len = msgl - sizeof(p67_pdp_urg_hdr_t);
     const p67_pckt_t * tlv_value;
     p67_web_status status;
-    const unsigned char * username, * password;
+    const p67_pckt_t * username = NULL, * password = NULL;
     int usernamel, passwordl;
-    int state;
 
     status = p67_web_status_bad_request;
-    state = 0;
 
     while((err = p67_tlv_next(
             &payload, &payload_len, &tlv_hdr, &tlv_value)) == 0) {
 
         switch(tlv_hdr->tlv_key[0]) {
         case P67_WS_TLV_TAG_USERNAME:
-            if(tlv_hdr->tlv_vlength < 1 || 
-                        tlv_hdr->tlv_vlength > P67_WS_MAX_CREDENTIAL_LENGTH) {
-                goto end;
-            }
-            username = tlv_value;
-            usernamel = tlv_hdr->tlv_vlength;
-            state |= 1;
+            username = (p67_pckt_t *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!username) goto end;
+            usernamel = tlv_hdr->tlv_vlength - 1;
             break;
         case P67_WS_TLV_TAG_PASSWORD:
-            if(tlv_hdr->tlv_vlength < 1 || 
-                        tlv_hdr->tlv_vlength > P67_WS_MAX_CREDENTIAL_LENGTH) {
-                goto end;
-            }
-            password = tlv_value;
-            passwordl = tlv_hdr->tlv_vlength;
-            state |= 2;
+            password = (p67_pckt_t *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!password) goto end;
+            passwordl = tlv_hdr->tlv_vlength - 1;
             break;
         }
     }
 
-    if(err != p67_err_eot) {
-        goto end;
-    }
-
-    if(!(state & (1 | 2))) {
+    if(err != p67_err_eot || !username || !password) {
         goto end;
     }
 

@@ -25,7 +25,8 @@ P67_CMN_NO_PROTO_EXIT
         ctx->args,
         ctx->free_args,
         ctx->cb,
-        &ctx->listen_tsm.state);
+        &ctx->listen_tsm.state,
+        ctx->conn_timeout_ctx);
 
     if(err != 0) {
         p67_err_print_err("error/s occured in __p67_conn_ctx_listen: ", err);
@@ -60,7 +61,8 @@ p67_conn_ctx_connect(p67_conn_ctx_t * ctx)
         ctx->gen_args,
         ctx->args,
         ctx->free_args,
-        ctx->cb);
+        ctx->cb,
+        ctx->conn_timeout_ctx);
 }
 
 p67_err
@@ -124,7 +126,7 @@ p67_conn_ctx_nat_connect(
     }
 
     if(err == 0) {
-        p67_log_debug("NAT Connect:%d Succeeded.\n", p67_conn_cn_t);
+       // p67_log_debug("NAT Connect:%d Succeeded.\n", p67_conn_cn_t);
     } else {
         //p67_log_debug("NAT Connect:%d Failed.\n", p67_conn_cn_t);
     }

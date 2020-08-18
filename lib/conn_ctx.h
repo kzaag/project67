@@ -13,6 +13,8 @@
 
 typedef struct p67_conn_ctx {
 
+    p67_timeout_t * conn_timeout_ctx;
+
     p67_addr_t * local_addr;
     p67_addr_t * remote_addr;
 

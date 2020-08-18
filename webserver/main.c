@@ -9,6 +9,7 @@
 static int main_initialized = 0;
 static p67_ws_ctx_t main_wsctx = {0};
 static p67_conn_ctx_t main_connctx = {0};
+static p67_timeout_t * tctx = NULL;
 
 void
 main_finish(int sig)
@@ -16,9 +17,10 @@ main_finish(int sig)
     if(sig == SIGINT) {
 
         if(main_initialized) {
+            p67_timeout_free(tctx);
+            p67_thread_sm_terminate(&main_connctx.listen_tsm, 1000);
             p67_addr_free(main_connctx.local_addr);
             p67_addr_free(main_connctx.remote_addr);
-            p67_thread_sm_terminate(&main_connctx.listen_tsm, 1000);
             p67_lib_free();
             p67_hashcntl_free(main_wsctx.user_nchix);
         }
@@ -38,6 +40,8 @@ main(void)
 
     p67_ws_err err;
 
+    p67_conn_config.conn_auth = P67_CONN_AUTH_TRUST_UNKOWN;
+    
     // err = p67_db_ctx_create_from_dp_config(&main_wsctx.db, "main.conf");
     // if(err != 0) {
     //     p67_ws_err_print_err("Couldnt intiialize db_ctx. err was: ", err);
@@ -61,7 +65,15 @@ main(void)
         exit(2);
     }
 
+    if(!(tctx = p67_timeout_create(0, (p67_err *)&err))) {
+        p67_err_print_err("Couldnt create timeout context. err was: ", err);
+        exit(2);
+    }
+
+    main_connctx.conn_timeout_ctx = tctx;
+
     p67_ws_setup_conn_ctx(&main_connctx, &main_wsctx);
+
 
     err = p67_conn_ctx_start_listen(&main_connctx);
     if(err != 0) {

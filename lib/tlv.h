@@ -78,4 +78,15 @@ p67_tlv_pretty_print_fragment(
     const p67_tlv_header_t * header, 
     const unsigned char * value);
 
+const p67_pckt_t *
+p67_tlv_get_arr(
+    const p67_tlv_header_t * __restrict__ const hdr, 
+    const p67_pckt_t * __restrict__ const value, 
+    const int expected_length);
+
+const char *
+p67_tlv_get_cstr(
+    const p67_tlv_header_t * __restrict__ const hdr, 
+    const p67_pckt_t * __restrict__ const value);
+
 #endif

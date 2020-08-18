@@ -9,6 +9,7 @@ void
 p67_hashcntl_free(p67_hashcntl_t * ctx)
 {
     if(!ctx) return;
+    
     size_t i;
     p67_hashcntl_entry_t * entry, * next_entry;
 
