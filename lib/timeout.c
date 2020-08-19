@@ -60,7 +60,16 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err;
 
     while(1) {
-        p67_cmn_sleep_s(1);
+        p67_mutex_wait_for_change(
+            &ctx->loophndl.state, P67_THREAD_SM_STATE_RUNNING, 1000);
+        if(ctx->loophndl.state != P67_THREAD_SM_STATE_RUNNING) {
+            p67_mutex_set_state(
+                &ctx->loophndl.state, ctx->loophndl.state, P67_THREAD_SM_STATE_STOP);
+            //ctx->loophndl.state = P67_THREAD_SM_STATE_STOP;
+            return NULL;
+        }
+        if(ctx->ix->count == 0)
+            continue;
         if((err = p67_cmn_epoch_ms(&now)) != 0) {
             p67_err_print_err(
                 "timeout_loop: couldnt read epoch. Error was: ", err);

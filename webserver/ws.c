@@ -515,7 +515,7 @@ p67_ws_handle_call(void * args)
                 msgbuf+msgbufix,
                 msgbufl-msgbufix,
                 __UC "A", 
-                (p67_pckt_t *)&ctx->dst_addr->hostname,
+                (p67_pckt_t *)ctx->dst_addr->hostname,
                 strlen(ctx->dst_addr->hostname) + 1)) < 0) {
             err=-err;
             goto end;

@@ -4,6 +4,7 @@
 #include <p67/p67.h>
 
 #include "cmd.h"
+#include "channel.h"
 
 p67_hashcntl_t * cmdbuf = NULL;
 p67_cmd_ctx_t cmdctx = {0};
@@ -92,11 +93,19 @@ p67_handle_call_request(
         src_addr->service,
         src_message);
 
-    free(src_addr);
+    if((err = p67_web_tlv_respond_with_status(
+            (p67_pdp_urg_hdr_t *)msg, server_addr, p67_web_status_ok)) != 0) {
+        p67_addr_free(src_addr);
+        return err;
+    }
 
-    /* right now always reject calls */
-    return p67_web_tlv_respond_with_status(
-        (p67_pdp_urg_hdr_t *)msg, server_addr, p67_web_status_forbidden);
+    if((err = p67_channel_open(src_addr)) != 0) {
+        p67_addr_free(src_addr);
+        return err;
+    }
+
+    p67_addr_free(src_addr);
+    return 0;
 
     //return p67_dml_handle_msg(server_addr, msg, msgl, NULL);
 }

@@ -7,6 +7,7 @@
 
 #include <signal.h>
 
+#include "channel.h"
 #include "cmd.h"
 
 typedef int (* p67_cmd_hndl)(
@@ -148,6 +149,87 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
     return 0;
 }
 
+void
+p67_cmd_process_call_res(
+    const p67_pckt_t * const msg, const int msgl)
+{
+    if(!p67_dml_parse_hdr(msg, msgl, NULL)) {
+        printf("Invalid dml format\n");
+        return;
+    }
+
+    const char * hostname, * service;
+    const p67_pckt_t * payload = msg + sizeof(p67_pdp_ack_hdr_t);
+    int payloadl = msgl - sizeof(p67_pdp_ack_hdr_t);
+    const p67_tlv_header_t * tlv_hdr;
+    const p67_pckt_t * tlv_value;
+    p67_addr_t * addr;
+    p67_err err;
+    p67_web_status res_status;
+    int tlv_status = 0;
+
+    while((err = p67_tlv_next(
+            &payload, &payloadl, &tlv_hdr, &tlv_value)) == 0) {
+        switch(*tlv_hdr->tlv_key) {
+        case 's':
+            tlv_value = p67_tlv_get_arr(tlv_hdr, tlv_value, 2);
+            if(!tlv_value)
+                break;
+            res_status = p67_cmn_ntohs(*(p67_web_status*)tlv_value);
+            tlv_status |= 1;
+            break;
+        case 'A':
+            hostname = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!hostname)
+                break;
+            tlv_status |= 2;
+            break;
+        case 'P':
+            service = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!service)
+                break;
+            tlv_status |= 4;
+            break;
+        }
+    }
+    
+    if(err != p67_err_eot || !(tlv_status & 1)) {
+        p67_err_print_err(NULL, err);
+        return;
+    }
+
+    if(res_status != p67_web_status_ok) {
+        char c[P67_WEB_TLV_STATUS_BUFFL];
+        p67_web_status_str(res_status, c, P67_WEB_TLV_STATUS_BUFFL);
+        printf("%s\n", c);
+        return;
+    }
+
+    if(tlv_status != 7) {
+        p67_err_print_err(NULL, p67_err_epdpf);
+        return;
+    }
+
+    if(!(addr = p67_addr_new())) {
+        p67_err_print_err(NULL, p67_err_eerrno);
+        return;
+    }
+
+    if((err = p67_addr_set_host_udp(addr, hostname, service)) != 0) {
+        p67_addr_free(addr);
+        p67_err_print_err("Invalid address returned from remote: ", err);
+        return;
+    }
+    
+    if((err = p67_channel_open(addr)) != 0) {
+        p67_addr_free(addr);
+        p67_err_print_err("Couldnt open channel, err was: ", err);
+        return;
+    }
+
+    p67_addr_free(addr);
+}
+
 int 
 p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
@@ -155,7 +237,7 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     unsigned char msg[P67_DML_SAFE_PAYLOAD_SIZE];
     p67_async_t sig = P67_ASYNC_INTIIALIZER;
     const int msgl = 120;
-    int msgix = 0;
+    int msgix = 0, tmpix = sizeof(msg);
     p67_err err;
 
     msgp = msg;
@@ -189,16 +271,19 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     msgp+=err;
 
     if((err = p67_pdp_write_urg(
-            ctx->conn_ctx.remote_addr, msg, msgix, 60000, &sig, msg, &msgix)) != 0)
+            ctx->conn_ctx.remote_addr, msg, msgix, 60000, &sig, msg, &tmpix)) != 0)
         return err;
 
     p67_mutex_wait_for_change(&sig, 0, -1);
 
+    msgix = tmpix;
+
     if(sig == P67_PDP_EVT_GOT_ACK) {
-        char c[P67_WEB_TLV_STATUS_BUFFL];
-        if((err = p67_web_tlv_status_str(msg, msgix, c, sizeof(c))) != 0)
-            return err;
-        printf("%s\n", c);
+        // char c[P67_WEB_TLV_STATUS_BUFFL];
+        // if((err = p67_web_tlv_status_str(msg, msgix, c, sizeof(c))) != 0)
+        //     return err;
+        // printf("%s\n", c);
+        p67_cmd_process_call_res(msg, msgix);
     } else {
         char c[P67_PDP_EVT_STR_LEN];
         printf("%s\n", p67_pdp_evt_str(c, sizeof(c), sig));
