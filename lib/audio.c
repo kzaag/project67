@@ -243,13 +243,13 @@ p67_audio_write_qdp(
     // amount of seconds to overflow = 4294967295 / 400
     register uint32_t seq = 1;
 
-    if(input->__hw != NULL) {
-        // if hardware is already allocated, flush or drain buffer and reenter loop
-        return p67_err_einval;
-    } else {
-        if((err = p67_audio_create_io(input)) != 0)
-            goto end;
-    }
+    // if(input->__hw != NULL) {
+    //     // if hardware is already allocated, flush or drain buffer and reenter loop
+    //     return p67_err_einval;
+    // } else {
+    //     if((err = p67_audio_create_io(input)) != 0)
+    //         goto end;
+    // }
 
     while(1) {
         if((err = p67_audio_read(
@@ -293,13 +293,13 @@ p67_audio_read_qdp(
     int q_min_len = 20 * s->q_chunk_size;
     int size;
 
-    if(output->__hw != NULL) {
-        // TODO: if hardware is already allocated, flush or drain buffer and reenter loop
-        return p67_err_einval;
-    } else {
-        if((err = p67_audio_create_io(output)) != 0)
-            goto end;
-    }
+    // if(output->__hw != NULL) {
+    //     // TODO: if hardware is already allocated, flush or drain buffer and reenter loop
+    //     return p67_err_einval;
+    // } else {
+    //     if((err = p67_audio_create_io(output)) != 0)
+    //         goto end;
+    // }
 
     /*
         wait up until stream arrives.

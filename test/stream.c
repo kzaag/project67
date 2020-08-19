@@ -5,67 +5,68 @@
 int main(int argc, char ** argv)
 {
     if(argc < 3) {
-        printf("Usage: ./p67corenet [source port] [dest port]\n");
+        printf("Usage: %s [source port] [dest port]\n", argv[0]);
         return 2;
     }
 
     int max_connect_retries = 3;
-    p67_conn_pass_t pass = P67_CONN_PASS_INITIALIZER;
+    p67_conn_ctx_t conn = P67_CONN_CTX_INITIALIZER;
+    p67_qdp_ctx_t * qdp;
     p67_err err;
-    p67_audio_stream_t * stream = NULL;
-    if((err = p67_audio_stream_create(&stream)) != 0) goto end;
 
     const char keypath[] = "p2pcert";
     const char certpath[] = "p2pcert.cert";
     const char remoteip[] = IP4_LO1;
+    
+    const uint8_t utp = 3;
+    
+    conn.certpath = (char *)certpath;
+    conn.keypath = (char *)keypath;
+    conn.local_addr = p67_addr_new();
+    conn.remote_addr = p67_addr_new();
 
-    pass.local.rdonly = 1;
-    pass.remote.rdonly = 1;
-    pass.certpath = (char *)certpath;
-    pass.keypath = (char *)keypath;
+    assert(conn.local_addr && conn.remote_addr);
 
     p67_lib_init();
 
-    if((err = p67_addr_set_localhost4_udp(&pass.local, argv[1])) != 0)
+    if((err = p67_addr_set_localhost4_udp(conn.local_addr, argv[1])))
         goto end;
 
-    if((err = p67_addr_set_host_udp(&pass.remote, remoteip, argv[2])))
+    if((err = p67_addr_set_host_udp(conn.remote_addr, remoteip, argv[2])))
         goto end;
 
-    pass.handler = stream_read_callback;
-    pass.args = stream;
-
-    if((err = p67_net_start_connect_and_listen(&pass)) != 0)
+    if((err = p67_qdp_create(&qdp)))
         goto end;
 
-    // if((err = p67_net_seq_connect_listen(&pass)) != 0)
-    //    goto end;
+    conn.cb = p67_qdp_handle_data;
+    conn.args = qdp;
 
-    // if((err = p67_net_write_connect(&pass, "1", PARG(1))))
-    //     goto end;
-    
-    // printf("connected\n");
-
-    // if((err = p67_net_async_terminate(&pass)) != 0)
-    //     goto end;
-
+    if((err = p67_conn_ctx_start_listen(&conn)) != 0)
+        goto end;
+    if((err = p67_conn_ctx_start_persist_connect(&conn)) != 0)
+        goto end;
 
     if(argc > 3) {
         getchar();
         // send stream
-        err = p67_audio_stream_write(stream, &pass);
+        p67_audio_t stream = P67_AUDIO_INITIALIZER_I;
+        if((err = p67_audio_create_io(&stream)) != 0) goto end;
+        p67_audio_codecs_t codecs = P67_AUDIO_CODECS_INITIALIZER_AUDIO(stream);
+        if((err = p67_audio_codecs_create(&codecs)) != 0) goto end;
+        err = p67_audio_write_qdp(conn.remote_addr, &stream, &codecs, utp);
     } else {
         // receive stream
-        err = p67_audio_stream_read(stream);
+        p67_audio_t stream = P67_AUDIO_INITIALIZER_O;
+        if((err = p67_audio_create_io(&stream)) != 0) goto end;
+        p67_audio_codecs_t codecs = P67_AUDIO_CODECS_INITIALIZER_AUDIO(stream);
+        if((err = p67_audio_codecs_create(&codecs)) != 0) goto end;
+        err = p67_audio_read_qdp(qdp, &stream, &codecs);
     }
 
 end:
     if(err != 0) p67_err_print_err("Terminating main thread with error: ", err);
     //p67_net_async_terminate(&pass);
-    p67_audio_stream_free(stream);
-    p67_lib_free();
-    if(err == 0) return 0; else return 2;
+    //p67_lib_free();
+    // if(err == 0) return 0; else return 2;
+    raise(SIGINT);
 }
-
-
-

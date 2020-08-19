@@ -65,6 +65,6 @@ p67_qdp_create(p67_qdp_ctx_t ** s);
 
 p67_err
 p67_qdp_handle_data(
-    p67_addr_t * addr, const p67_pckt_t * msg, int msgl, void * args);
+    p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args);
 
 #endif
