@@ -1331,6 +1331,8 @@ p67_conn_listen(
                 break;
             }
 
+            //__p67_conn_accept(conn);
+
             if((err = p67_cmn_thread_create(&accept_thr, __p67_conn_accept, conn)) != 0) {
                 /* possible crash due to calling SSL_shutdown and SSL_Free without completing handshake */
                 p67_conn_shutdown(raddr);

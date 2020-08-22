@@ -44,6 +44,7 @@ openssl x509 -req -days 100 -in .csr -CA chain.pem -CAkey ca_private_key \
 
 # ---- begin generate default certs ---- #
 
+./gencert p2pcert2 127.0.0.1 > /dev/null;
 ./gencert > /dev/null;
 
 # ---- end generate default certs ---- #

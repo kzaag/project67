@@ -74,7 +74,6 @@ main(void)
 
     p67_ws_setup_conn_ctx(&main_connctx, &main_wsctx);
 
-
     err = p67_conn_ctx_start_listen(&main_connctx);
     if(err != 0) {
         p67_err_print_err("Couldnt start listener. err was: ", err);

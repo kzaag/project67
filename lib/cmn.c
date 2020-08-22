@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <time.h>
+#include <string.h>
+#include <stdlib.h>
 
 #include "err.h"
 #include "cmn.h"
@@ -104,4 +106,14 @@ p67_cmn_epoch_micro(p67_cmn_epoch_t * t)
         return p67_err_eerrno;
     *t = ( tv.tv_sec * 1e6 ) + tv.tv_usec;
     return 0;
+}
+
+char *
+p67_cmn_strdup(const char * str)
+{
+    int strl = strlen(str);
+    char * ret = malloc(strl + 1);
+    if(!ret) return NULL;
+    memcpy(ret, str, strl + 1);
+    return ret;
 }

@@ -87,4 +87,7 @@ p67_cmn_epoch_micro(p67_cmn_epoch_t * t);
 p67_err
 p67_cmn_sleep_s(int s);
 
+char *
+p67_cmn_strdup(const char * str);
+
 #endif

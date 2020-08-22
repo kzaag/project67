@@ -14,6 +14,6 @@ p67_err
 p67_cert_new_cert(const char * path, const char * address);
 
 p67_err
-p67_cert_trust_address_cert(p67_addr_t * addr, const char * path);
+p67_cert_trust_address(p67_addr_t * addr, const char * path);
 
 #endif

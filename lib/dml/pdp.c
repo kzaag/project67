@@ -444,6 +444,9 @@ p67_pdp_run_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx)
         if(ctx->th.state != P67_THREAD_SM_STATE_RUNNING) {
             break;
         }
+        
+        //p67_log("ping %s:%s\n", ctx->addr->hostname, ctx->addr->service);
+
         urg.urg_mid = p67_pdp_mid;    
         err = p67_pdp_write_urg(
                 ctx->addr, 
@@ -452,8 +455,10 @@ p67_pdp_run_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx)
                 1000, 
                 &evt, 
                 NULL, NULL);
-        if(err != 0)
-            return err;
+        if(err != 0) {
+            p67_err_print_err("Error/s in keepalive loop: ", err);
+            //return err;
+        }
         
         err = p67_mutex_wait_for_change(
             &ctx->th.state, P67_THREAD_SM_STATE_RUNNING, 5000);

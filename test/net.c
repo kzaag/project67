@@ -47,11 +47,9 @@ main(int argc, char ** argv)
     p67_err err;
     
     if(argc < 3) {
-        printf("Usage: ./p67corenet [source port] [dest port]\n");
+        printf("Usage: ./%s [source port] [dest port]\n", argv[0]);
         return 2;
     }
-
-    const char * remote_ip = IP4_LO1;
 
     ctx.local_addr = p67_addr_new();
     ctx.remote_addr = p67_addr_new();
@@ -59,19 +57,23 @@ main(int argc, char ** argv)
     if(!ctx.local_addr || !ctx.remote_addr)
         return 2;
 
-    if((err = p67_addr_set_localhost4_udp(ctx.local_addr, argv[1])) != 0)
+    if((err = p67_addr_parse_str(argv[1], ctx.local_addr, P67_SFD_TP_DGRAM_UDP)) != 0)
+        goto end;
+    if((err = p67_addr_parse_str(argv[2], ctx.remote_addr, P67_SFD_TP_DGRAM_UDP)) != 0)
         goto end;
 
-    if((err = p67_addr_set_host_udp(ctx.remote_addr, remote_ip, argv[2])))
-        goto end;
+    // if(argc > 3) {
+    //     ctx.certpath = "p2pcert2.cert";
+    //     ctx.keypath = "p2pcert2";
+    // }
 
-    if(argc > 3) {
+//    if(argc > 3) {
+//     } else {
+//     }
         if((err = p67_conn_ctx_start_listen(&ctx)) != 0)
             goto end;
-    } else {
         if((err = p67_conn_ctx_start_persist_connect(&ctx)) != 0)
             goto end;
-    }
 
     getchar();
 

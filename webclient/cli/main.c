@@ -3,8 +3,8 @@
 
 #include <p67/p67.h>
 
+#include "p2p.h"
 #include "cmd.h"
-#include "channel.h"
 
 p67_hashcntl_t * cmdbuf = NULL;
 p67_cmd_ctx_t cmdctx = {0};
@@ -30,6 +30,7 @@ finish(int sig)
     p67_hashcntl_free(cmdbuf);
     p67_addr_free(cmdctx.conn_ctx.local_addr);
     p67_addr_free(cmdctx.conn_ctx.remote_addr);
+    p67_hashcntl_free(p2p_cache);
     p67_lib_free();
     raise(sig);
 }
@@ -51,7 +52,6 @@ p67_handle_call_request(
     int msgpl = msgl - sizeof(p67_pdp_urg_hdr_t);
     p67_err err;
     
-
     while((err = p67_tlv_next(&msgp, &msgpl, &tlv_hdr, &tlv_value)) == 0) {
         switch(tlv_hdr->tlv_key[0]) {
         case 'p':
@@ -99,7 +99,19 @@ p67_handle_call_request(
         return err;
     }
 
-    if((err = p67_channel_open(src_addr)) != 0) {
+    p67_conn_ctx_t peer_ctx = P67_CONN_CTX_INITIALIZER;
+    peer_ctx.local_addr = cmdctx.conn_ctx.local_addr;
+    peer_ctx.remote_addr = src_addr;
+    peer_ctx.keypath = cmdctx.conn_ctx.keypath;
+    peer_ctx.certpath = cmdctx.conn_ctx.certpath;
+
+    p67_p2p_ctx_t * pc = p67_p2p_cache_add(&peer_ctx);
+    if(!pc) {
+        p67_addr_free(src_addr);
+        return p67_err_eerrno;
+    }
+
+    if((err = p67_p2p_start_connect(pc)) != 0) {
         p67_addr_free(src_addr);
         return err;
     }
@@ -151,7 +163,7 @@ main(int argc, char ** argv)
     p67_err err;
     const char * keypath = "test/p2pcert";
     const char * certpath = "test/p2pcert.cert";
-    const char * remote_ip = IP4_LO1;
+    const char * remote_ip = "127.0.0.1";
 
     cmdctx.conn_ctx.certpath = (char *)certpath;
     cmdctx.conn_ctx.keypath = (char *)keypath;
@@ -167,13 +179,14 @@ main(int argc, char ** argv)
                 cmdctx.conn_ctx.remote_addr, remote_ip, argv[2])))
         goto end;
 
-    if((err = p67_cert_trust_address_cert(
+    if((err = p67_cert_trust_address(
             cmdctx.conn_ctx.remote_addr, certpath)) != 0)
         goto end;
 
     kctx.addr = cmdctx.conn_ctx.remote_addr;
 
     if((err = p67_conn_ctx_start_persist_connect(&cmdctx.conn_ctx)) != 0) goto end;
+    if((err = p67_conn_ctx_start_listen(&cmdctx.conn_ctx)) != 0) goto end;
 
     if((err = p67_pdp_start_keepalive_loop(&kctx)) != 0) goto end;
 

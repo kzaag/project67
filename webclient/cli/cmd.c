@@ -7,7 +7,7 @@
 
 #include <signal.h>
 
-#include "channel.h"
+#include "p2p.h"
 #include "cmd.h"
 
 typedef int (* p67_cmd_hndl)(
@@ -145,17 +145,16 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
         return p67_err_eagain;
     }
 
-
     return 0;
 }
 
-void
+p67_err
 p67_cmd_process_call_res(
+    const p67_conn_ctx_t * const ctx,
     const p67_pckt_t * const msg, const int msgl)
 {
     if(!p67_dml_parse_hdr(msg, msgl, NULL)) {
-        printf("Invalid dml format\n");
-        return;
+        return p67_err_epdpf;
     }
 
     const char * hostname, * service;
@@ -194,40 +193,47 @@ p67_cmd_process_call_res(
     }
     
     if(err != p67_err_eot || !(tlv_status & 1)) {
-        p67_err_print_err(NULL, err);
-        return;
+        return err;
     }
 
     if(res_status != p67_web_status_ok) {
         char c[P67_WEB_TLV_STATUS_BUFFL];
         p67_web_status_str(res_status, c, P67_WEB_TLV_STATUS_BUFFL);
         printf("%s\n", c);
-        return;
+        return 0;
     }
 
     if(tlv_status != 7) {
-        p67_err_print_err(NULL, p67_err_epdpf);
-        return;
+        return p67_err_epdpf;
     }
 
     if(!(addr = p67_addr_new())) {
-        p67_err_print_err(NULL, p67_err_eerrno);
-        return;
+        return p67_err_eerrno;
     }
 
     if((err = p67_addr_set_host_udp(addr, hostname, service)) != 0) {
         p67_addr_free(addr);
-        p67_err_print_err("Invalid address returned from remote: ", err);
-        return;
+        return err;
     }
     
-    if((err = p67_channel_open(addr)) != 0) {
+    p67_conn_ctx_t peer_ctx = P67_CONN_CTX_INITIALIZER;
+    peer_ctx.local_addr = ctx->local_addr;
+    peer_ctx.remote_addr = addr;
+    peer_ctx.keypath = ctx->keypath;
+    peer_ctx.certpath = ctx->certpath;
+
+    p67_p2p_ctx_t * pc = p67_p2p_cache_add(&peer_ctx);
+    if(!pc) {
         p67_addr_free(addr);
-        p67_err_print_err("Couldnt open channel, err was: ", err);
-        return;
+        return p67_err_eerrno;
     }
 
-    p67_addr_free(addr);
+    if((err = p67_p2p_start_connect(pc)) != 0) {
+        p67_addr_free(addr);
+        return err;
+    }
+
+    return 0;
 }
 
 int 
@@ -259,7 +265,7 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     //printf("calling...\n");
 
     if((err = p67_tlv_add_fragment(
-                    msgp, msgl-msgix, "U", argv[1], strlen(argv[1]) + 1)) < 0)
+            msgp, msgl-msgix, "U", argv[1], strlen(argv[1]) + 1)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
@@ -271,7 +277,8 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     msgp+=err;
 
     if((err = p67_pdp_write_urg(
-            ctx->conn_ctx.remote_addr, msg, msgix, 60000, &sig, msg, &tmpix)) != 0)
+            ctx->conn_ctx.remote_addr, 
+            msg, msgix, 60000, &sig, msg, &tmpix)) != 0)
         return err;
 
     p67_mutex_wait_for_change(&sig, 0, -1);
@@ -283,7 +290,9 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
         // if((err = p67_web_tlv_status_str(msg, msgix, c, sizeof(c))) != 0)
         //     return err;
         // printf("%s\n", c);
-        p67_cmd_process_call_res(msg, msgix);
+        if((err = p67_cmd_process_call_res(&ctx->conn_ctx, msg, msgix)) != 0) {
+            p67_err_print_err("Process call returned error/s: ", err);
+        }
     } else {
         char c[P67_PDP_EVT_STR_LEN];
         printf("%s\n", p67_pdp_evt_str(c, sizeof(c), sig));

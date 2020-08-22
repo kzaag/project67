@@ -18,7 +18,7 @@ main(int argc, const char ** argv)
     const char * dcp, * dap;
 
     if(argc > 2) {
-        printf("Warn: usage: ./gencert [path] [address].\n");
+        //printf("Warn: usage: ./gencert [path] [address].\n");
         dcp = argv[1];
         dap = argv[2]; 
     } else {
@@ -28,7 +28,7 @@ main(int argc, const char ** argv)
 
     printf("Generating certificates at %s, with CN set to %s\n", dcp, dap);
 
-    if((err = p67_cert_new_cert(dcert, daddr)) != 0) {
+    if((err = p67_cert_new_cert(dcp, dap)) != 0) {
         p67_err_print_err(NULL, err);
         return 2;
     }

@@ -237,7 +237,7 @@ end:
 }
 
 p67_err
-p67_cert_trust_address_cert(p67_addr_t * addr, const char * path)
+p67_cert_trust_address(p67_addr_t * addr, const char * path)
 {
     BIO * rbio, * mbio;
     STACK_OF(X509_INFO) * certificates;

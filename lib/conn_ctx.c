@@ -164,10 +164,10 @@ P67_CMN_NO_PROTO_EXIT
         if((err = p67_conn_ctx_nat_connect(ctx, P67_CONN_CNT_PASS)) != 0) {
                 // p67_err_print_err("Background connect ", err);
         } else {
-            p67_log_debug(
-                "Background connected to %s:%s\n", 
-                ctx->remote_addr->hostname, 
-                ctx->remote_addr->service);
+            // p67_log_debug(
+            //     "Background connected to %s:%s\n", 
+            //     ctx->remote_addr->hostname, 
+            //     ctx->remote_addr->service);
         }
 
         if(ctx->connect_tsm.state != P67_THREAD_SM_STATE_RUNNING) {
