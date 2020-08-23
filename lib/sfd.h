@@ -62,8 +62,14 @@ p67_addr_free(p67_addr_t * __restrict__ addr);
 #define p67_addr_set_host_udp(addr, host, svc) \
     p67_addr_set_host((addr), (host), (svc), P67_SFD_TP_DGRAM_UDP)
 
+#define p67_addr_new_host_udp(host, svc) \
+    p67_addr_new_host((host), (svc), P67_SFD_TP_DGRAM_UDP)
+
 #define p67_addr_set_localhost4_udp(addr, svc) \
     p67_addr_set_host_udp(addr, IP4_ANY, svc)
+
+#define p67_addr_new_localhost4_udp(svc) \
+    p67_addr_new_host_udp(IP4_ANY, (svc))
 
 p67_err
 p67_addr_set_host(
@@ -73,12 +79,24 @@ p67_addr_set_host(
                 int p67_sfd_tp)
     __nonnull((1, 2, 3));
 
+p67_addr_t *
+p67_addr_new_host(const char * __restrict__ hostname, 
+                const char * __restrict__ service,
+                int p67_sfd_tp)
+    __nonnull((1, 2));
+
 p67_err
 p67_addr_set_sockaddr(
                 p67_addr_t * __restrict__ addr,
                 const p67_sockaddr_t * sa,
                 socklen_t sal)
     __nonnull((1, 2));
+
+p67_addr_t *
+p67_addr_new_sockaddr(
+                const p67_sockaddr_t * __restrict__ sa, 
+                socklen_t sal)
+    __nonnull((1));
 
 #define P67_SFD_C_BIND    1
 #define P67_SFD_C_CONNECT 2
@@ -94,13 +112,28 @@ p67_sfd_create_from_hint(
     __nonnull((1, 3, 4));
 
 p67_err
-p67_addr_dup(p67_addr_t * __restrict__ dest, const p67_addr_t * __restrict__ src)
+p67_addr_dup(
+        p67_addr_t * __restrict__ dest, 
+        const p67_addr_t * __restrict__ src)
     __nonnull((1, 2));
 
+p67_addr_t *
+p67_addr_new_dup(
+        const p67_addr_t * __restrict__ src)
+    __nonnull((1));
+
 p67_err
-p67_addr_parse_str(const char * str, p67_addr_t * __restrict__ addr, int p67_sfd_tp)
+p67_addr_parse_str(
+        const char * str, 
+        p67_addr_t * __restrict__ addr, 
+        int p67_sfd_tp)
     __nonnull((2));
 
+p67_addr_t *
+p67_addr_new_parse_str(
+        const char * __restrict__ src, 
+        int p67_sfd_tp)
+    __nonnull((1));
 
 /*
     sfd  is socket to be created.

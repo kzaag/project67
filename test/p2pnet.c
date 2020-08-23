@@ -147,7 +147,7 @@ main(int argc, char ** argv)
                     conn_ctx[conn_ctx_ix].certpath = listen_ctx.certpath;
                     conn_ctx[conn_ctx_ix].keypath = listen_ctx.keypath;
                     
-                    err = p67_conn_ctx_start_persist_connect(&conn_ctx[conn_ctx_ix]);
+                    err = p67_conn_ctx_start_connect(&conn_ctx[conn_ctx_ix]);
                     if(err) {
                         p67_addr_free(conn_ctx[conn_ctx_ix].local_addr);
                         p67_addr_free(conn_ctx[conn_ctx_ix].remote_addr);

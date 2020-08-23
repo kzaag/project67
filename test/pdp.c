@@ -65,7 +65,7 @@ main(int argc, char ** argv)
 
     if((err = p67_conn_ctx_start_listen(&ctx)) != 0)
         goto end;
-    if((err = p67_conn_ctx_start_persist_connect(&ctx)) != 0)
+    if((err = p67_conn_ctx_start_connect(&ctx)) != 0)
         goto end;
 
     getchar();

@@ -43,7 +43,7 @@ int main(int argc, char ** argv)
 
     if((err = p67_conn_ctx_start_listen(&conn)) != 0)
         goto end;
-    if((err = p67_conn_ctx_start_persist_connect(&conn)) != 0)
+    if((err = p67_conn_ctx_start_connect(&conn)) != 0)
         goto end;
 
     if(argc > 3) {

@@ -953,7 +953,7 @@ end:
 p67_err
 p67_conn_connect(
     p67_addr_t * local, p67_addr_t * remote,
-    char * certpath, char * keypath,
+    const char * certpath, const char * keypath,
     p67_conn_gen_args_cb gen_args, void * const args, p67_conn_free_args_cb free_args,
     p67_conn_callback_t read_cb,
     p67_timeout_t * conn_timeout_ctx)

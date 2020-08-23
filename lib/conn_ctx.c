@@ -1,5 +1,6 @@
 #include "sfd.h"
 #include "conn_ctx.h"
+#include "buffer.h"
 
 #include <assert.h>
 #include <openssl/rand.h>
@@ -196,7 +197,7 @@ P67_CMN_NO_PROTO_EXIT
 }
 
 p67_err
-p67_conn_ctx_start_persist_connect(p67_conn_ctx_t * ctx)
+p67_conn_ctx_start_connect(p67_conn_ctx_t * ctx)
 {
     if(!ctx)
         return p67_err_einval;
@@ -208,59 +209,41 @@ p67_conn_ctx_start_persist_connect(p67_conn_ctx_t * ctx)
 }
 
 p67_err
-p67_net_async_terminate(p67_conn_ctx_t * ctx)
+p67_conn_ctx_start_connect_and_listen(p67_conn_ctx_t * ctx)
 {
-    if(!ctx)
-        return p67_err_einval;
-
     p67_err err = 0;
-
-    err |= p67_thread_sm_terminate(
-            &ctx->connect_tsm, P67_THREAD_SM_TIMEOUT_DEF);
-    err |= p67_thread_sm_terminate(
-            &ctx->listen_tsm, P67_THREAD_SM_TIMEOUT_DEF);
-
+    err |= p67_conn_ctx_start_connect(ctx);
+    err |= p67_conn_ctx_start_listen(ctx);
     return err;
 }
 
-/*
-    tries to connect to the peer and returns 0 when finished.
-*/
-// p67_err
-// p67_net_seq_connect_listen(p67_conn_ctx_t * ctx)
-// {
-//     p67_err err;
-//     unsigned int interval;
+void
+p67_conn_ctx_free_fields(p67_conn_ctx_t * ctx)
+{
+    if(!ctx) return;
+    p67_thread_sm_terminate(&ctx->keepalive_ctx.th, 100);
+    p67_timeout_free(ctx->conn_timeout_ctx);
+    p67_thread_sm_terminate(&ctx->listen_tsm, 500);
+    p67_thread_sm_terminate(&ctx->connect_tsm, 500);
+    free(ctx->certpath);
+    free(ctx->keypath);
+    p67_addr_free(ctx->local_addr);
+    p67_addr_free(ctx->remote_addr);
+}
 
-//     while(1) {
-//         if((err = p67_net_start_listen(pass)) != 0)
-//             return err;
-
-//         if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval)))
-//             return p67_err_essl;
-//         interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
-//         if((err = p67_cmn_sleep_ms(interval)) != 0)
-//             return err;
-
-//         if((err = p67_thread_sm_terminate(&pass->hlisten, -1)) != 0)
-//             return err;
-//         if(p67_conn_lookup(&pass->remote) != NULL)
-//             return 0;
-        
-//         if((err = p67_net_start_persist_connect(pass)) != 0)
-//             return err;
-            
-//         if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval)))
-//             return p67_err_essl;
-//         interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
-//         if((err = p67_cmn_sleep_ms(interval)) != 0)
-//             return err;
-
-//         if((err = p67_thread_sm_terminate(&pass->hconnect, -1)) != 0)
-//             return err;
-//         if(p67_conn_lookup(&pass->remote) != NULL)
-//             return 0;
-//     }
-
-//     return 0;
-// }
+p67_err
+p67_conn_ctx_set_credentials(
+    p67_conn_ctx_t * ctx, 
+    const char * certpath,
+    const char * keypath)
+{
+    if(!ctx) return p67_err_einval;
+    ctx->certpath = p67_cmn_strdup(certpath);
+    ctx->keypath = p67_cmn_strdup(keypath);
+    if(!ctx->certpath || !ctx->keypath) {
+        free(ctx->certpath);
+        free(ctx->keypath);
+        return p67_err_eerrno;
+    }
+    return 0;
+}

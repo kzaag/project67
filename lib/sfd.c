@@ -40,6 +40,20 @@
         } \
     }
 
+p67_addr_t *
+p67_addr_new_host(const char * hostname, 
+                const char * service,
+                int p67_sfd_tp)
+{
+    p67_addr_t * ret = p67_addr_new();
+    if(!ret) return NULL;
+    if(p67_addr_set_host(ret, hostname, service, p67_sfd_tp)) {
+        p67_addr_free(ret);
+        return NULL;
+    }
+    return ret;
+}
+
 p67_err
 p67_addr_set_host(
                 p67_addr_t * addr,
@@ -125,8 +139,6 @@ p67_addr_new(void)
     p67_addr_t * ret = calloc(1, sizeof(p67_addr_t));
     if(!ret) return NULL;
     ret->refcount = 1;
-    ret->spinlock = P67_XLOCK_STATE_UNLOCKED;
-
     return ret;
 }
 
@@ -152,9 +164,6 @@ p67_addr_str(p67_addr_t * addr, char * b, int bl)
     return b;
 }
 
-/*
-    free all deps from address, but WITHOUT addr pointer itself.
-*/
 void
 p67_addr_free(p67_addr_t * addr)
 {
@@ -199,6 +208,18 @@ p67_addr_ref_cpy(p67_addr_t * src)
     return src;
 }
 
+p67_addr_t *
+p67_addr_new_dup(const p67_addr_t * src)
+{
+    p67_addr_t * ret = p67_addr_new();
+    if(!ret) return NULL;
+    if(p67_addr_dup(ret, src)) {
+        p67_addr_free(ret);
+        return NULL;
+    }
+    return ret;
+}
+
 p67_err
 p67_addr_dup(p67_addr_t * dest, const p67_addr_t * src)
 {
@@ -229,12 +250,27 @@ end:
     return err;
 }
 
+p67_addr_t *
+p67_addr_new_sockaddr(const p67_sockaddr_t * sa, socklen_t sal)
+{
+    p67_addr_t * ret = p67_addr_new();
+    if(!ret) return NULL;
+    if(p67_addr_set_sockaddr(ret, sa, sal)) {
+        p67_addr_free(ret);
+        return NULL;
+    }
+    return ret;
+}
+
 /*
     Assign connected peer to connection using address
     function is not thread safe
 */
 p67_err
-p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sal)
+p67_addr_set_sockaddr(
+    p67_addr_t * addr, 
+    const p67_sockaddr_t * sa, 
+    socklen_t sal)
 {
     char cb[AL], svc[10];
     (void)sal;
@@ -280,7 +316,12 @@ p67_addr_set_sockaddr(p67_addr_t * addr, const p67_sockaddr_t * sa, socklen_t sa
 p67_err
 p67_sfd_set_keepalive(p67_sfd_t sfd)
 {
-    if(setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, &(int){1}, sizeof(int)) != 0) {
+    if(setsockopt(
+            sfd, 
+            SOL_SOCKET, 
+            SO_KEEPALIVE, 
+            &(int){1}, 
+            sizeof(int)) != 0) {
         return p67_err_eerrno;
     }
 
@@ -290,7 +331,12 @@ p67_sfd_set_keepalive(p67_sfd_t sfd)
 p67_err
 p67_sfd_set_reuseaddr(p67_sfd_t sfd)
 {
-    if(setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &(int){1}, sizeof(int)) != 0){
+    if(setsockopt(
+            sfd, 
+            SOL_SOCKET, 
+            SO_REUSEADDR | SO_REUSEPORT, 
+            &(int){1}, 
+            sizeof(int)) != 0){
         return p67_err_eerrno;
     }
 
@@ -415,7 +461,10 @@ p67_sfd_bind(p67_sfd_t sfd, const p67_addr_t * addr)
 }
 
 p67_err
-p67_sfd_create_from_addr(p67_sfd_t * sfd, const p67_addr_t * addr, int p67_sfd_tp)
+p67_sfd_create_from_addr(
+    p67_sfd_t * sfd, 
+    const p67_addr_t * addr, 
+    int p67_sfd_tp)
 {
     if(addr == NULL || sfd == NULL)
         return p67_err_einval;
@@ -510,7 +559,10 @@ p67_sfd_create_from_hint(
 }
 
 p67_err
-p67_addr_parse_str(const char * str, p67_addr_t * addr, int p67_sfd_tp) 
+p67_addr_parse_str(
+    const char * str, 
+    p67_addr_t * addr, 
+    int p67_sfd_tp) 
 {
     if(addr == NULL)
         return p67_err_einval;
@@ -540,6 +592,18 @@ p67_addr_parse_str(const char * str, p67_addr_t * addr, int p67_sfd_tp)
     ip[ipstrl] = 0;
 
     return p67_addr_set_host(addr, ip, portstr, p67_sfd_tp);
+}
+
+p67_addr_t *
+p67_addr_new_parse_str(const char * src, int p67_sfd_tp)
+{
+    p67_addr_t * ret = p67_addr_new();
+    if(!ret) return NULL;
+    if(p67_addr_parse_str(src, ret, p67_sfd_tp)) {
+        p67_addr_free(ret);
+        return NULL;
+    }
+    return ret;
 }
 
 const uint16_t *
@@ -611,13 +675,23 @@ p67_sfd_get_timeouts(p67_sfd_t sfd, int * sndto_ms, int * rcvto_ms)
     struct timeval tv;
 
     if(sndto_ms) {
-        if(getsockopt(sfd, SOL_SOCKET, SO_SNDTIMEO, &tv, &(socklen_t){sizeof(tv)}) < 0)
+        if(getsockopt(
+                sfd, 
+                SOL_SOCKET, 
+                SO_SNDTIMEO, 
+                &tv, 
+                &(socklen_t){sizeof(tv)}) < 0)
             return p67_err_eerrno;
         *sndto_ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
     }
 
     if(rcvto_ms) {
-        if(getsockopt(sfd, SOL_SOCKET, SO_RCVTIMEO, &tv, &(socklen_t){sizeof(tv)}) < 0)
+        if(getsockopt(
+                sfd, 
+                SOL_SOCKET, 
+                SO_RCVTIMEO, 
+                &tv, 
+                &(socklen_t){sizeof(tv)}) < 0)
             return p67_err_eerrno;
         *rcvto_ms = (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
     }

@@ -200,7 +200,7 @@ main(int argc, char ** argv)
 
     kctx.addr = cmdctx.ws_conn_ctx.remote_addr;
 
-    if((err = p67_conn_ctx_start_persist_connect(&cmdctx.ws_conn_ctx)) != 0) goto end;
+    if((err = p67_conn_ctx_start_connect(&cmdctx.ws_conn_ctx)) != 0) goto end;
     if((err = p67_conn_ctx_start_listen(&cmdctx.ws_conn_ctx)) != 0) goto end;
 
     if((err = p67_pdp_start_keepalive_loop(&kctx)) != 0) goto end;
