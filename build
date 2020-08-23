@@ -85,6 +85,8 @@ echo "    gencert"
 gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/gencert $LOPENSSL;
 echo "    net"
 gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/net $LOPENSSL;
+echo "    p2pnet"
+gcc-8 $FP/p2pnet.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/p2pnet $LOPENSSL;
 echo "    pdp"
 gcc-8 $FP/pdp.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/pdp $LOPENSSL;
 echo "    stream"
@@ -129,7 +131,7 @@ echo "    cli"
 
 FP="$WD/webclient/cli"
 
-gcc-8 $FP/*.c $DEBUG -std=c99 -lp67 -Werror -o $WD/bin/cli $LOPENSSL;
+#gcc-8 $FP/*.c $DEBUG -std=c99 -lp67 -Werror -o $WD/bin/cli $LOPENSSL;
 
 echo "Generating certificates"
 

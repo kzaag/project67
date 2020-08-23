@@ -26,11 +26,10 @@ finish(int sig)
 
     p67_thread_sm_terminate(&kctx.th, 500);
     p67_thread_sm_terminate(
-        &cmdctx.conn_ctx.connect_tsm, 500);
+        &cmdctx.ws_conn_ctx.connect_tsm, 500);
     p67_hashcntl_free(cmdbuf);
-    p67_addr_free(cmdctx.conn_ctx.local_addr);
-    p67_addr_free(cmdctx.conn_ctx.remote_addr);
-    p67_hashcntl_free(p2p_cache);
+    p67_addr_free(cmdctx.ws_conn_ctx.local_addr);
+    p67_addr_free(cmdctx.ws_conn_ctx.remote_addr);
     p67_lib_free();
     raise(sig);
 }
@@ -100,10 +99,10 @@ p67_handle_call_request(
     }
 
     p67_conn_ctx_t peer_ctx = P67_CONN_CTX_INITIALIZER;
-    peer_ctx.local_addr = cmdctx.conn_ctx.local_addr;
+    peer_ctx.local_addr = cmdctx.ws_conn_ctx.local_addr;
     peer_ctx.remote_addr = src_addr;
-    peer_ctx.keypath = cmdctx.conn_ctx.keypath;
-    peer_ctx.certpath = cmdctx.conn_ctx.certpath;
+    peer_ctx.keypath = cmdctx.ws_conn_ctx.keypath;
+    peer_ctx.certpath = cmdctx.ws_conn_ctx.certpath;
 
     p67_p2p_ctx_t * pc = p67_p2p_cache_add(&peer_ctx);
     if(!pc) {
@@ -120,6 +119,13 @@ p67_handle_call_request(
     return 0;
 
     //return p67_dml_handle_msg(server_addr, msg, msgl, NULL);
+}
+
+p67_err
+p2p_callback(
+    p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
+{
+
 }
 
 p67_err
@@ -165,28 +171,37 @@ main(int argc, char ** argv)
     const char * certpath = "test/p2pcert.cert";
     const char * remote_ip = "127.0.0.1";
 
-    cmdctx.conn_ctx.certpath = (char *)certpath;
-    cmdctx.conn_ctx.keypath = (char *)keypath;
-    cmdctx.conn_ctx.cb = webserver_callback;
-    cmdctx.conn_ctx.local_addr = p67_addr_new();
-    cmdctx.conn_ctx.remote_addr = p67_addr_new();
+
+    cmdctx.ws_conn_ctx.certpath = (char *)certpath;
+    cmdctx.ws_conn_ctx.keypath = (char *)keypath;
+    cmdctx.ws_conn_ctx.cb = webserver_callback;
+    cmdctx.ws_conn_ctx.local_addr = p67_addr_new();
+    cmdctx.ws_conn_ctx.remote_addr = p67_addr_new();
+
+
+    cmdctx.p2p_listener_ctx.certpath = (char *)certpath;
+    cmdctx.p2p_listener_ctx.keypath = (char *)keypath;
+    cmdctx.p2p_listener_ctx.cb = p2p_callback;
+    cmdctx.p2p_listener_ctx.local_addr 
+            = cmdctx.ws_conn_ctx.local_addr;
+
 
     if((err = p67_addr_set_localhost4_udp(
-                cmdctx.conn_ctx.local_addr, argv[1])) != 0)
+                cmdctx.ws_conn_ctx.local_addr, argv[1])) != 0)
         goto end;
 
     if((err = p67_addr_set_host_udp(
-                cmdctx.conn_ctx.remote_addr, remote_ip, argv[2])))
+                cmdctx.ws_conn_ctx.remote_addr, remote_ip, argv[2])))
         goto end;
 
     if((err = p67_cert_trust_address(
-            cmdctx.conn_ctx.remote_addr, certpath)) != 0)
+            cmdctx.ws_conn_ctx.remote_addr, certpath)) != 0)
         goto end;
 
-    kctx.addr = cmdctx.conn_ctx.remote_addr;
+    kctx.addr = cmdctx.ws_conn_ctx.remote_addr;
 
-    if((err = p67_conn_ctx_start_persist_connect(&cmdctx.conn_ctx)) != 0) goto end;
-    if((err = p67_conn_ctx_start_listen(&cmdctx.conn_ctx)) != 0) goto end;
+    if((err = p67_conn_ctx_start_persist_connect(&cmdctx.ws_conn_ctx)) != 0) goto end;
+    if((err = p67_conn_ctx_start_listen(&cmdctx.ws_conn_ctx)) != 0) goto end;
 
     if((err = p67_pdp_start_keepalive_loop(&kctx)) != 0) goto end;
 

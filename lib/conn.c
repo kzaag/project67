@@ -665,7 +665,7 @@ p67_net_verify_ssl_callback(
 P67_CMN_NO_PROTO_EXIT
     int ok, X509_STORE_CTX *ctx) 
 {
-    p67_addr_t addr = {0};
+    p67_addr_t * peer_addr = NULL;
     X509 * x509 = NULL;
     char *pubk = NULL;
     int cnix, success = 0, asnl;
@@ -674,8 +674,6 @@ P67_CMN_NO_PROTO_EXIT
     ASN1_STRING * castr = NULL;
     EVP_PKEY * pkey = NULL;
     p67_node_t * node = NULL;
-
-    bzero(&addr, sizeof(p67_addr_t));
 
     /* 
         this is neccessary because this callback will be called multiple times for one connection 
@@ -693,13 +691,17 @@ P67_CMN_NO_PROTO_EXIT
 
     success = 0;
 
-    if(p67_conn_get_addr_from_x509_store_ctx(ctx, &addr) != 0)
+    if(!(peer_addr = p67_addr_new())) {
+        goto end;
+    }
+
+    if(p67_conn_get_addr_from_x509_store_ctx(ctx, peer_addr) != 0)
         goto end;
 
     /* 
         if remote was already queued and their ssl conn closed then block them 
     */
-    if((node = p67_node_lookup(&addr)) != NULL 
+    if((node = p67_node_lookup(peer_addr)) != NULL 
             && (node->state & P67_NODE_STATE_QUEUE)) {
         X509_STORE_CTX_set_error(ctx, X509_V_ERR_CERT_REVOKED);
         goto end;
@@ -721,15 +723,15 @@ P67_CMN_NO_PROTO_EXIT
         switch(__globals.config.conn_auth) {
         case P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN:
             p67_log_debug("Unknown host connecting from %s:%s with public key:\n%s", 
-                addr.hostname, addr.service, pubk);
-            if(!p67_conn_node_insert(&addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+                peer_addr->hostname, peer_addr->service, pubk);
+            if(!p67_conn_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
             success = 1;
             break;
         case P67_CONN_AUTH_TRUST_UNKOWN:
-            if(!p67_conn_node_insert(&addr, pubk, strlen(pubk), P67_NODE_STATE_NODE)) {
+            if(!p67_conn_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_NODE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
@@ -737,8 +739,8 @@ P67_CMN_NO_PROTO_EXIT
             break;
         case P67_CONN_AUTH_DONT_TRUST_UNKOWN:
             p67_log_debug("Rejected Unknown Host ( %s:%s )\n", 
-                addr.hostname, addr.service);
-            if(!p67_conn_node_insert(&addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+                peer_addr->hostname, peer_addr->service);
+            if(!p67_conn_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
@@ -751,7 +753,7 @@ P67_CMN_NO_PROTO_EXIT
 
     if(node->trusted_pub_key == NULL) {
         p67_log_debug("Couldnt verify host ( %s:%s ) with public key:\n%sHost moved to queue\n", 
-            addr.hostname, addr.service, pubk);
+            peer_addr->hostname, peer_addr->service, pubk);
         node->state |= P67_NODE_STATE_QUEUE;
         success = 1;
         goto end;
@@ -764,7 +766,7 @@ P67_CMN_NO_PROTO_EXIT
 
     if(X509_verify(x509, pkey) != 1) {
         p67_log_debug("Invalid SSL certificate coming from host at %s:%s.\nInvalid signature.\n", 
-            addr.hostname, addr.service);
+            peer_addr->hostname, peer_addr->service);
         goto end;
     }
 
@@ -778,11 +780,11 @@ P67_CMN_NO_PROTO_EXIT
 
     asnl = ASN1_STRING_length(castr);
     
-    if((size_t)asnl != strlen(addr.hostname) 
-            || memcmp(addr.hostname, ASN1_STRING_get0_data(castr), asnl) != 0) {
+    if((size_t)asnl != strlen(peer_addr->hostname) 
+            || memcmp(peer_addr->hostname, ASN1_STRING_get0_data(castr), asnl) != 0) {
         p67_log_debug(
             "Invalid SSL certificate coming from host at %s:%s. CN is set to %s\n", 
-            addr.hostname, addr.service,
+            peer_addr->hostname, peer_addr->service,
             ASN1_STRING_get0_data(castr));
         success = 0;
         goto end;
@@ -792,7 +794,7 @@ P67_CMN_NO_PROTO_EXIT
                                 memcmp(node->trusted_pub_key, pubk, strlen(pubk)) != 0) {
         p67_log_debug("Invalid SSL certificate coming from host at address %s:%s.\n"
             "This can be potential mitm attack. Host moved to queue.\n", 
-                addr.hostname, addr.service);
+                peer_addr->hostname, peer_addr->service);
 
         p67_log_debug("Expected: \n%s\ngot:\n%s\n", node->trusted_pub_key, pubk);
 
@@ -808,8 +810,7 @@ P67_CMN_NO_PROTO_EXIT
 
 end:
     if(pubk != NULL) free(pubk);
-    free(addr.hostname);
-    free(addr.service);
+    p67_addr_free(peer_addr);
     //if(castr != NULL) ASN1_STRING_free(castr);
     //if(ne != NULL) X509_NAME_ENTRY_free(ne);
     //if(x509_name != NULL) X509_NAME_free(x509_name);

@@ -122,7 +122,7 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
     int resl = 80;
 
     if((err = p67_pdp_write_urg(
-            ctx->conn_ctx.remote_addr, msg, ix, -1, &sig, (void **)&res, &resl)) != 0)
+            ctx->ws_conn_ctx.remote_addr, msg, ix, -1, &sig, (void **)&res, &resl)) != 0)
         return err;
 
     p67_mutex_wait_for_change(&sig, 0, -1);
@@ -277,7 +277,7 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     msgp+=err;
 
     if((err = p67_pdp_write_urg(
-            ctx->conn_ctx.remote_addr, 
+            ctx->ws_conn_ctx.remote_addr, 
             msg, msgix, 60000, &sig, msg, &tmpix)) != 0)
         return err;
 
@@ -290,7 +290,7 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
         // if((err = p67_web_tlv_status_str(msg, msgix, c, sizeof(c))) != 0)
         //     return err;
         // printf("%s\n", c);
-        if((err = p67_cmd_process_call_res(&ctx->conn_ctx, msg, msgix)) != 0) {
+        if((err = p67_cmd_process_call_res(&ctx->ws_conn_ctx, msg, msgix)) != 0) {
             p67_err_print_err("Process call returned error/s: ", err);
         }
     } else {

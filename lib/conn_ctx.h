@@ -3,6 +3,7 @@
 
 #include "sfd.h"
 #include "conn.h"
+#include "dml.h"
 
 #define P67_CONN_CNT_DEF P67_CONN_CNT_PASS 
 #define P67_CONN_CNT_PASS 1
@@ -12,6 +13,8 @@
 #define P67_CONN_CTX_INITIALIZER {0}
 
 typedef struct p67_conn_ctx {
+
+    p67_pdp_keepalive_ctx_t keepalive_ctx;
 
     p67_timeout_t * conn_timeout_ctx;
 
