@@ -5,8 +5,7 @@
 #include <p67/audio.h>
 #include <p67/cert.h>
 #include <p67/cmn.h>
-#include <p67/conn.h>
-#include <p67/conn_ctx.h>
+#include <p67/net.h>
 #include <p67/err.h>
 #include <p67/hash.h>
 #include <p67/hashcntl.h>

@@ -265,10 +265,10 @@ p67_audio_write_qdp(
         hdr.qdp_seq = htonl(seq++);
         memcpy(compressed_frame, &hdr, sizeof(hdr));
 
-        if((err = p67_conn_write_once(
+        if((err = p67_net_write_msg(
                 addr, compressed_frame, cb+sizeof(hdr))) != 0) 
             goto end;
-        if((err = p67_conn_write_once(
+        if((err = p67_net_write_msg(
                 addr, compressed_frame, cb+sizeof(hdr))) != 0) 
             goto end;
     }

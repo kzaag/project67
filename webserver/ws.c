@@ -419,7 +419,7 @@ p67_ws_handle_call(void * args)
     pack_hdr.ack_stp = P67_DML_STP_PDP_PACK;
     pack_hdr.ack_utp = urg_hdr->urg_utp;
 
-    if((err = p67_conn_write_once(
+    if((err = p67_net_write_msg(
             ctx->src_addr, (p67_pckt_t *)&pack_hdr, sizeof(pack_hdr))) != 0)
         goto end;
 
@@ -538,7 +538,7 @@ p67_ws_handle_call(void * args)
         err = 0;
     }
 
-    if((err = p67_conn_write_once(ctx->src_addr, msgbuf, msgbufix)) != 0)
+    if((err = p67_net_write_msg(ctx->src_addr, msgbuf, msgbufix)) != 0)
         goto end;
 
     status = p67_web_status_ok;

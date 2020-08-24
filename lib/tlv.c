@@ -3,7 +3,6 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "conn.h"
 #include "tlv.h"
 
 /*

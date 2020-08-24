@@ -6,7 +6,7 @@
 #include <limits.h>
 
 #include "cmn.h"
-#include "conn.h"
+#include "net.h"
 
 /*
     p67 tlv fragment:

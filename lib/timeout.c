@@ -4,7 +4,7 @@
 
 #include <string.h>
 
-#include "conn.h"
+#include "net.h"
 #include "timeout.h"
 
 typedef struct p67_timeout_entry {
@@ -28,7 +28,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_hashcntl_entry_t * node_entry;
     p67_node_t * node;
     if(!(node_entry = p67_hashcntl_lookup(
-            p67_conn_node_cache(), 
+            p67_node_cache(), 
             (unsigned char *)&te->addr->sock, 
             te->addr->socklen))) {
         p67_addr_free(te->addr);
@@ -197,7 +197,7 @@ p67_timeout_addr(p67_addr_t * addr, int with_shutdown)
     p67_hashcntl_entry_t * entry;
     p67_node_t * node;
     if(!(entry = p67_hashcntl_lookup(
-            p67_conn_node_cache(), 
+            p67_node_cache(), 
             (unsigned char *)&addr->sock, 
             addr->socklen))) {
         return p67_err_enconn;

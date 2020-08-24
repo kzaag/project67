@@ -1,14 +1,19 @@
 #include "sfd.h"
-#include "conn.h"
+#include "net.h"
 #include "log.h"
 
 #include <sys/time.h>
 #include <assert.h>
 #include <string.h>
+#include <errno.h>
+
 #include <openssl/ssl.h>
 #include <openssl/rand.h>
 #include <openssl/err.h>
-#include <errno.h>
+
+/* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */
+#define P67_MOD_SLEEP_MS 500
+#define P67_MIN_SLEEP_MS 500
 
 typedef struct p67_conn p67_conn_t;
 
@@ -21,9 +26,9 @@ struct p67_conn {
     p67_addr_t * addr_remote;
     p67_addr_t * addr_local;
     SSL * ssl;
-    p67_conn_callback_t callback;
+    p67_net_callback_t callback;
     void * args;
-    p67_conn_free_args_cb free_args;
+    p67_net_free_args_cb free_args;
     p67_thread_sm_t hread;
     p67_async_t lock;
     unsigned int sig_term : 1,
@@ -49,8 +54,8 @@ P67_CMN_NO_PROTO_EXIT
 
 #define COOKIE_SECRET_LENGTH 32
 
-struct p67_conn_globals {
-    p67_conn_config_t config;
+struct p67_net_globals {
+    p67_net_config_t config;
     p67_hashcntl_t * conn_cache;
     p67_async_t conn_cache_ini_lock;
     p67_hashcntl_t * node_cache;
@@ -64,7 +69,7 @@ struct p67_conn_globals {
                  cookie_initialized : 1;
 };
 
-struct p67_conn_globals __globals = {
+struct p67_net_globals __globals = {
     .config = {
         .conn_auth = P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN,
         .timeout_duration_ms = 10*1000,
@@ -77,8 +82,8 @@ struct p67_conn_globals __globals = {
     .cookie_initialized = 0,
 };
 
-p67_conn_config_t *
-p67_conn_config_location(void)
+p67_net_config_t *
+p67_net_config_location(void)
 {
     return &__globals.config;
 }
@@ -111,7 +116,7 @@ p67_conn_cache(void) {
 }
 
 p67_hashcntl_t *
-p67_conn_node_cache(void) {
+p67_node_cache(void) {
     if(!__globals.nodes_initialized) {
         p67_spinlock_lock(&__globals.node_cache_ini_lock);
         if(!__globals.nodes_initialized) {
@@ -127,20 +132,13 @@ p67_conn_node_cache(void) {
     return __globals.node_cache;
 }
 
-struct p67_conn_globals * 
-p67_conn_globals_location(void)
+struct p67_net_globals * 
+p67_net_globals_location(void)
 {
     return &__globals;
 }
 
-#define p67_conn_globals_value (*p67_net_globals_location())
-
-
-#define P67_CONN_DEFAULT_TIMEOUT_MS 200
-
-/* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */
-#define P67_CONN_MIN_SLEEP_MS 500
-#define P67_CONN_MOD_SLEEP_MS 1000
+#define p67_net_globals_value (*p67_net_globals_location())
 
 #define CIPHER "ECDHE-ECDSA-AES256-GCM-SHA384"
 //#define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
@@ -222,7 +220,7 @@ p67_node_lookup(p67_addr_t * addr)
 {
     if(!addr) return NULL;
     p67_hashcntl_entry_t * entry = p67_hashcntl_lookup(
-        p67_conn_node_cache(), 
+        p67_node_cache(), 
         (unsigned char *)&addr->sock,
         addr->socklen);
     if(!entry) return NULL;
@@ -253,19 +251,17 @@ P67_CMN_NO_PROTO_EXIT
     p67_addr_t * addr_local,
     p67_addr_t * addr_remote,
     SSL * ssl,
-    p67_conn_callback_t cb,
-    void * args, 
-    p67_conn_free_args_cb free_args_cb,
+    p67_net_cb_ctx_t cb_ctx,
     p67_async_t lock,
     p67_timeout_t * timeout)
 {
-
     assert(addr_local);
     assert(addr_remote);
 
     p67_addr_t * localcpy = NULL, * remotecpy = NULL;
     p67_hashcntl_entry_t * entry = NULL;
     p67_conn_t * ret = NULL;
+    void * generated_args;
 
     localcpy = p67_addr_ref_cpy(addr_local);
     remotecpy = p67_addr_ref_cpy(addr_remote);
@@ -289,17 +285,25 @@ P67_CMN_NO_PROTO_EXIT
     memset(ret, 0, sizeof(p67_conn_t));
     ret->addr_local = localcpy;
     ret->addr_remote = remotecpy;
-    ret->args = args;
-    ret->callback = cb;
-    ret->free_args = free_args_cb;
+
+    generated_args = NULL;
+
+    if(cb_ctx.gen_args)
+        generated_args = cb_ctx.gen_args(cb_ctx.args);
+
+    ret->args = generated_args;
+    ret->callback = cb_ctx.cb;
+    ret->free_args = cb_ctx.free_args;
     ret->lock = lock;
     ret->ssl = ssl;
     ret->timeout = timeout;
 
     memcpy(entry->key, &remotecpy->sock, remotecpy->socklen);
 
-    if(p67_hashcntl_add(p67_conn_cache(), entry) != 0)
+    if(p67_hashcntl_add(p67_conn_cache(), entry) != 0) {
+        if(cb_ctx.free_args) cb_ctx.free_args(ret->args);
         goto end;
+    }
 
     return ret;
 
@@ -312,7 +316,7 @@ end:
 }
 
 p67_node_t *
-p67_conn_node_insert(
+p67_node_insert(
     p67_addr_t * addr,
     const char * trusted_key,
     int trusted_key_l,
@@ -349,7 +353,7 @@ p67_conn_node_insert(
     memcpy(node->trusted_pub_key, trusted_key, trusted_key_l + 1);
     node->trusted_pub_key[trusted_key_l] = 0;
 
-    if(p67_hashcntl_add(p67_conn_node_cache(), entry) != 0)
+    if(p67_hashcntl_add(p67_node_cache(), entry) != 0)
         goto end;
 
     return node;
@@ -428,7 +432,7 @@ P67_CMN_NO_PROTO_EXIT
 
 P67_CMN_NO_PROTO_ENTER
 void *
-p67_conn_run_read_loop(
+p67_net_run_read_loop(
 P67_CMN_NO_PROTO_EXIT
     void * args)
 {
@@ -546,19 +550,19 @@ P67_CMN_NO_PROTO_EXIT
 
 P67_CMN_NO_PROTO_ENTER
 p67_err
-p67_conn_start_read_loop(
+p67_net_start_read_loop(
 P67_CMN_NO_PROTO_EXIT
     p67_conn_t * conn)
 {
     return p67_thread_sm_start(
         &conn->hread,
-        p67_conn_run_read_loop,
+        p67_net_run_read_loop,
         conn);
 }
 
 P67_CMN_NO_PROTO_ENTER
 p67_err
-p67_conn_get_addr_from_x509_store_ctx(
+p67_net_get_addr_from_x509_store_ctx(
 P67_CMN_NO_PROTO_EXIT
     X509_STORE_CTX *ctx, p67_addr_t * addr) 
 {
@@ -585,11 +589,11 @@ P67_CMN_NO_PROTO_EXIT
     return 0;
 }
 
-#define P67_PEM_CERT   1
-#define P67_PEM_PUBKEY 2
+#define P67_NET_PEM_CERT   1
+#define P67_NET_PEM_PUBKEY 2
 
-#define p67_conn_get_cert_str(x509) \
-    p67_conn_get_pem_str(x509, P67_PEM_CERT);
+#define p67_net_get_cert_str(x509) \
+    p67_net_get_pem_str(x509, P67_NET_PEM_CERT);
 
 /*
     returned value must be freed after using
@@ -601,7 +605,7 @@ P67_CMN_NO_PROTO_EXIT
 */
 P67_CMN_NO_PROTO_ENTER
 char * 
-p67_conn_get_pem_str(
+p67_net_get_pem_str(
 P67_CMN_NO_PROTO_EXIT
     X509 * x509, int type)
 {
@@ -695,7 +699,7 @@ P67_CMN_NO_PROTO_EXIT
         goto end;
     }
 
-    if(p67_conn_get_addr_from_x509_store_ctx(ctx, peer_addr) != 0)
+    if(p67_net_get_addr_from_x509_store_ctx(ctx, peer_addr) != 0)
         goto end;
 
     /* 
@@ -711,7 +715,7 @@ P67_CMN_NO_PROTO_EXIT
         goto end;
     }
 
-    if((pubk = p67_conn_get_pem_str(x509, P67_PEM_PUBKEY)) == NULL) {
+    if((pubk = p67_net_get_pem_str(x509, P67_NET_PEM_PUBKEY)) == NULL) {
         goto end;
     }
 
@@ -724,14 +728,14 @@ P67_CMN_NO_PROTO_EXIT
         case P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN:
             p67_log_debug("Unknown host connecting from %s:%s with public key:\n%s", 
                 peer_addr->hostname, peer_addr->service, pubk);
-            if(!p67_conn_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
             success = 1;
             break;
         case P67_CONN_AUTH_TRUST_UNKOWN:
-            if(!p67_conn_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_NODE)) {
+            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_NODE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
@@ -740,7 +744,7 @@ P67_CMN_NO_PROTO_EXIT
         case P67_CONN_AUTH_DONT_TRUST_UNKOWN:
             p67_log_debug("Rejected Unknown Host ( %s:%s )\n", 
                 peer_addr->hostname, peer_addr->service);
-            if(!p67_conn_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
@@ -820,7 +824,7 @@ end:
 }
 
 p67_err
-p67_conn_get_peer_pk(p67_addr_t * addr, char ** pk) 
+p67_net_get_peer_pk(p67_addr_t * addr, char ** pk) 
 {
     p67_conn_t * conn;
     X509 * rcert;
@@ -842,7 +846,7 @@ p67_conn_get_peer_pk(p67_addr_t * addr, char ** pk)
         return p67_err_essl;
     }
 
-    if((*pk = p67_conn_get_pem_str(rcert, P67_PEM_PUBKEY)) == NULL)  {
+    if((*pk = p67_net_get_pem_str(rcert, P67_NET_PEM_PUBKEY)) == NULL)  {
         p67_conn_unlock(conn);
         return p67_err_essl | p67_err_eerrno;
     }
@@ -854,7 +858,7 @@ p67_conn_get_peer_pk(p67_addr_t * addr, char ** pk)
 
 P67_CMN_NO_PROTO_ENTER
 void * 
-__p67_conn_accept(
+__p67_net_accept(
 P67_CMN_NO_PROTO_EXIT
     void * args)
 {
@@ -934,7 +938,7 @@ P67_CMN_NO_PROTO_EXIT
         "Accepted %s:%s\n", 
         pass->addr_remote->hostname, pass->addr_remote->service);
 
-    if((err = p67_conn_start_read_loop(pass)) != 0) {
+    if((err = p67_net_start_read_loop(pass)) != 0) {
         goto end;
     } else {
         return NULL;
@@ -951,14 +955,12 @@ end:
 }
 
 p67_err
-p67_conn_connect(
+p67_net_connect(
     p67_addr_t * local, p67_addr_t * remote,
-    const char * certpath, const char * keypath,
-    p67_conn_gen_args_cb gen_args, void * const args, p67_conn_free_args_cb free_args,
-    p67_conn_callback_t read_cb,
+    p67_net_cred_t cred,
+    p67_net_cb_ctx_t cb_ctx,
     p67_timeout_t * conn_timeout_ctx)
 {
-    void * generated_args;
     SSL * ssl = NULL;
     BIO * bio = NULL;
     SSL_CTX * ctx = NULL;
@@ -989,9 +991,11 @@ p67_conn_connect(
     SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
     SSL_CTX_set_options(ctx, SSL_OP_NO_COMPRESSION);
 
-    if(SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM) != 1) goto end;
+    if(SSL_CTX_use_certificate_file(
+        ctx, cred.certpath, SSL_FILETYPE_PEM) != 1) goto end;
 
-    if(SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM) != 1) goto end;
+    if(SSL_CTX_use_PrivateKey_file(
+        ctx, cred.keypath, SSL_FILETYPE_PEM) != 1) goto end;
 
     if(SSL_CTX_check_private_key(ctx) != 1) goto end;
 
@@ -1012,7 +1016,8 @@ p67_conn_connect(
 
     SSL_set_bio(ssl, bio, bio);
 
-    if(p67_sfd_set_timeouts(sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS) != 0)
+    if(p67_sfd_set_timeouts(
+            sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS) != 0)
         goto end;
 
     //p67_net_bio_set_timeout(bio, P67_DEFAULT_TIMEOUT_MS);
@@ -1021,18 +1026,11 @@ p67_conn_connect(
         goto end;
     }
 
-    generated_args = NULL;
-
-    if(gen_args)
-        generated_args = gen_args(args);
-
     if(!(conn = p67_conn_insert(
             local, 
             remote, 
             ssl, 
-            read_cb, 
-            gen_args ? generated_args : args, 
-            free_args,
+            cb_ctx,
             P67_XLOCK_STATE_UNLOCKED,
             conn_timeout_ctx))) {
         p67_cmn_ejmp(err, p67_err_eerrno, end);
@@ -1046,7 +1044,7 @@ p67_conn_connect(
     */
     noclose = 1;
 
-    err = p67_conn_start_read_loop(conn);
+    err = p67_net_start_read_loop(conn);
 
 end:
     if(err != 0 && !noclose) {
@@ -1056,9 +1054,6 @@ end:
             SSL_free(ssl);
         }
         if(sfd > 0) p67_sfd_close(sfd);
-        if(gen_args) {
-            free(generated_args);
-        }
     }
     if(ctx != NULL) SSL_CTX_free(ctx);
 
@@ -1067,7 +1062,7 @@ end:
 
 P67_CMN_NO_PROTO_ENTER
 p67_err
-__p67_conn_write(
+__p67_net_write(
 P67_CMN_NO_PROTO_EXIT
     p67_conn_t * conn, const p67_pckt_t * msg, int * msgl)
 {
@@ -1104,7 +1099,7 @@ P67_CMN_NO_PROTO_EXIT
 }
 
 p67_err
-p67_conn_write_stream(
+p67_net_write_stream(
     const p67_addr_t * addr, const p67_pckt_t * msg, int msgl)
 {
     int wl = msgl;
@@ -1116,7 +1111,7 @@ p67_conn_write_stream(
         return p67_err_enconn;
 
     while(1) {
-        err = __p67_conn_write(conn, msgc, &wl);
+        err = __p67_net_write(conn, msgc, &wl);
 
         if(err != 0)
             return err;
@@ -1131,7 +1126,7 @@ p67_conn_write_stream(
 }
 
 p67_err
-p67_conn_write(
+p67_net_write(
     const p67_addr_t * addr, const void * msg, int * msgl)
 {
     p67_conn_t * conn;
@@ -1139,11 +1134,11 @@ p67_conn_write(
     if((conn = p67_conn_lookup(addr)) == NULL)
         return p67_err_enconn;
 
-    return __p67_conn_write(conn, msg, msgl);
+    return __p67_net_write(conn, msg, msgl);
 }
 
 p67_err
-p67_conn_write_once(
+p67_net_write_msg(
     const p67_addr_t * addr, const p67_pckt_t * msg, int msgl)
 {
     p67_conn_t * conn;
@@ -1154,7 +1149,7 @@ p67_conn_write_once(
     if((conn = p67_conn_lookup(addr)) == NULL) 
         return p67_err_enconn;
 
-    err = __p67_conn_write(conn, msgc, &wl);
+    err = __p67_net_write(conn, msgc, &wl);
 
     if(err != 0)
         return err;
@@ -1174,7 +1169,7 @@ p67_conn_shutdown_all(void)
 }
 
 void
-p67_conn_init(void)
+p67_net_init(void)
 {
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
@@ -1199,17 +1194,13 @@ p67_conn_init(void)
 // }
 
 p67_err
-p67_conn_listen(
-    p67_addr_t * laddr,
-    const char * certpath, const char * keypath,
-    p67_conn_gen_args_cb gen_args, 
-    void * const args,
-    p67_conn_free_args_cb free_args,
-    p67_conn_callback_t cb,
-    p67_async_t * state,
+p67_net_listen(
+    p67_thread_sm_t * thread_ctx,
+    p67_addr_t * local_addr,
+    p67_net_cred_t cred,
+    p67_net_cb_ctx_t cb_ctx,
     p67_timeout_t * conn_timeout_ctx)
 {
-    void * generated_args;
     p67_sfd_t sfd;
     SSL_CTX * ctx;
     SSL * ssl;
@@ -1229,7 +1220,6 @@ p67_conn_listen(
 
     p67_err_mask_all(err);
 
-    generated_args = NULL;
     ctx = NULL;
     ssl = NULL;
     bio = NULL;
@@ -1243,10 +1233,12 @@ p67_conn_listen(
 
     SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
 
-    if(SSL_CTX_use_certificate_file(ctx, certpath, SSL_FILETYPE_PEM) != 1)
+    if(SSL_CTX_use_certificate_file(
+            ctx, cred.certpath, SSL_FILETYPE_PEM) != 1)
         goto end;
 
-    if(SSL_CTX_use_PrivateKey_file(ctx, keypath, SSL_FILETYPE_PEM) != 1)
+    if(SSL_CTX_use_PrivateKey_file(
+            ctx, cred.keypath, SSL_FILETYPE_PEM) != 1)
         goto end;
 
     SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
@@ -1262,12 +1254,12 @@ p67_conn_listen(
 	SSL_CTX_set_cookie_generate_cb(ctx, p67_net_generate_cookie_callback);
 	SSL_CTX_set_cookie_verify_cb(ctx, p67_net_verify_cookie_callback);
 
-    if((err = p67_sfd_create_from_addr(&sfd, laddr, P67_SFD_TP_DGRAM_UDP)) != 0)
+    if((err = p67_sfd_create_from_addr(&sfd, local_addr, P67_SFD_TP_DGRAM_UDP)) != 0)
         goto end;
 
     if((err = p67_sfd_set_reuseaddr(sfd)) != 0) goto end;
     
-    if((err = p67_sfd_bind(sfd, laddr)) != 0) goto end;
+    if((err = p67_sfd_bind(sfd, local_addr)) != 0) goto end;
 
     if((err = p67_sfd_set_timeouts(
             sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS)) != 0)
@@ -1275,11 +1267,11 @@ p67_conn_listen(
 
     //if((err = p67_sfd_set_noblocking(sfd)) != 0) goto end;
 
-    p67_log_debug("Listening @ %s:%s\n", laddr->hostname, laddr->service);
+    p67_log_debug("Listening @ %s:%s\n", local_addr->hostname, local_addr->service);
 
     while(1) {
 
-        if(state && *state != P67_THREAD_SM_STATE_RUNNING) {
+        if(thread_ctx && thread_ctx->state != P67_THREAD_SM_STATE_RUNNING) {
             err = 0; //p67_err_eint;
             goto end;
         }
@@ -1298,13 +1290,12 @@ p67_conn_listen(
             goto end;
         
         while (DTLSv1_listen(ssl, (BIO_ADDR *)&remote) <= 0) {
-            if(state && *state != P67_THREAD_SM_STATE_RUNNING) {
+            if(thread_ctx && thread_ctx->state != P67_THREAD_SM_STATE_RUNNING) {
                 err = 0; //p67_err_eint;
                 goto end;
             }
         }
 
-        generated_args = NULL;
         do {
             if(!(raddr = p67_addr_new())) break;
             if((err = p67_addr_set_sockaddr(raddr, &remote, sizeof(remote))) != 0)
@@ -1318,28 +1309,21 @@ p67_conn_listen(
                 err = p67_err_essl;
                 break;
             }
-            if(gen_args)
-                generated_args = gen_args(args);
 
             conn = p67_conn_insert(
-                laddr, raddr, ssl, cb, 
-                gen_args ? generated_args : args, 
-                free_args, P67_XLOCK_STATE_LOCKED,
+                local_addr, raddr, ssl, cb_ctx,
+                P67_XLOCK_STATE_LOCKED,
                 conn_timeout_ctx);
             if(!conn) {
-                if(gen_args)
-                    free(generated_args);
                 break;
             }
 
             //__p67_conn_accept(conn);
 
-            if((err = p67_cmn_thread_create(&accept_thr, __p67_conn_accept, conn)) != 0) {
+            if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, conn)) != 0) {
                 /* possible crash due to calling SSL_shutdown and SSL_Free without completing handshake */
                 p67_conn_shutdown(raddr);
                 err = 0;
-                if(gen_args)
-                    free(generated_args);
                 break;
             }
             //err = 0;
@@ -1358,7 +1342,128 @@ end:
     p67_sfd_close(sfd);
     if(ssl != NULL) SSL_free(ssl);
     err |= p67_mutex_set_state(
-        state, *state, 
+        &thread_ctx->state, 
+        thread_ctx->state, 
         P67_THREAD_SM_STATE_STOP);
     return err;
+}
+
+P67_CMN_NO_PROTO_ENTER
+void *
+p67_net_run_listen(
+P67_CMN_NO_PROTO_EXIT
+    void * args)
+{
+    p67_net_listen_ctx_t * ctx = (p67_net_listen_ctx_t *)args;
+    p67_err err;
+
+    err = p67_net_listen(
+        &ctx->thread_ctx,
+        ctx->local_addr,
+        ctx->cred,
+        ctx->cbctx,
+        ctx->conn_timeout_ctx);
+    if(err) {
+        p67_err_print_err("listen terminated with error/s: ", err);
+    }
+    return NULL;
+}
+
+p67_err
+p67_net_start_listen(p67_net_listen_ctx_t * ctx)
+{
+    return p67_thread_sm_start(
+        &ctx->thread_ctx, 
+        p67_net_run_listen,
+        ctx);
+}
+
+#define p67_net_connect_ctx(ctx) \
+    p67_net_connect( \
+        (ctx)->local_addr, \
+        (ctx)->remote_addr, \
+        (ctx)->cred, \
+        (ctx)->cb_ctx, \
+        (ctx)->conn_timeout_ctx)
+
+P67_CMN_NO_PROTO_ENTER
+void *
+p67_net_run_connect(
+P67_CMN_NO_PROTO_EXIT
+    void * arg)
+{
+    struct p67_net_connect_ctx * ctx 
+        = (struct p67_net_connect_ctx *)arg;
+    unsigned long interval = 0;
+    p67_err err;
+
+    p67_log_debug(
+        "Connecting to: %s:%s\n",
+        ctx->remote_addr->hostname,
+        ctx->remote_addr->service);
+
+    while(1) {
+        if(ctx->thread_ctx.state != P67_THREAD_SM_STATE_RUNNING) {
+            err = 0; //err |= p67_err_eint;
+            break;
+        }
+
+        // p67_log_debug("Background connect iteration for %s:%s. Slept %lu ms\n", 
+        //     pass->remote.hostname, pass->remote.service, interval);
+
+        if((err = p67_net_connect_ctx(ctx)) != 0) {
+                if(err == p67_err_eaconn && ctx->sig) {
+                    p67_mutex_set_state(
+                        ctx->sig,
+                        P67_NET_CONNECT_SIG_UNSPEC,
+                        P67_NET_CONNECT_SIG_CONNECTED);
+                }
+                // p67_err_print_err("Background connect ", err);
+        } else {
+            // p67_log_debug(
+            //     "Background connected to %s:%s\n", 
+            //     ctx->remote_addr->hostname, 
+            //     ctx->remote_addr->service);
+        }
+
+        if(ctx->thread_ctx.state != P67_THREAD_SM_STATE_RUNNING) {
+            err = 0; //err |= p67_err_eint;
+            break;
+        }
+
+        if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval))) {
+            p67_err_print_err("Background connect RAND_bytes ", p67_err_eerrno | p67_err_essl);
+            break;
+        }
+
+        interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
+
+        err = p67_mutex_wait_for_change(
+            &ctx->thread_ctx.state,
+            P67_THREAD_SM_STATE_RUNNING,
+            interval);
+
+        if(err != 0 && err != p67_err_etime) {
+            p67_err_print_err(
+                "Background connect p67_mutex_wait_for_change ", 
+                p67_err_eerrno);
+            break;
+        }
+    }
+
+    if(err != 0) p67_err_print_err("Background connect: ", err);
+    err |= p67_mutex_set_state(
+        &ctx->thread_ctx.state, 
+        ctx->thread_ctx.state, 
+        P67_THREAD_SM_STATE_STOP);
+    return NULL;
+}
+
+p67_err
+p67_net_start_connect(p67_net_connect_ctx_t * ctx)
+{
+    return p67_thread_sm_start(
+            &ctx->thread_ctx, 
+            p67_net_run_connect,
+            ctx);
 }

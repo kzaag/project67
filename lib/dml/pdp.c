@@ -3,7 +3,7 @@
 
 #include "pdp.h"
 #include "dml.h"
-#include "../conn.h"
+#include "../net.h"
 
 #include <string.h>
 #include <assert.h>
@@ -317,7 +317,7 @@ pdp_loop(void * args)
                 //     printf("retransmission\n");
                 // }
 
-                err = p67_conn_write_once(
+                err = p67_net_write_msg(
                         pudp_inodes[i].addr, 
                         pudp_data[i], 
                         pudp_inodes[i].size);
@@ -428,7 +428,7 @@ p67_pdp_write_ack_for_urg(
     if(err != 0)
         return err;
 
-    return p67_conn_write_once(addr, (p67_pckt_t *)&ack, sizeof(ack));
+    return p67_net_write_msg(addr, (p67_pckt_t *)&ack, sizeof(ack));
 }
 
 p67_err

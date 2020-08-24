@@ -3,7 +3,7 @@
 
 #include "../sfd.h"
 #include "../err.h"
-#include "../conn.h"
+#include "../net.h"
 #include "base.h"
 
 #include <string.h>

@@ -85,6 +85,7 @@ echo "    gencert"
 gcc-8 $FP/gencert.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/gencert $LOPENSSL;
 echo "    net"
 gcc-8 $FP/net.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/net $LOPENSSL;
+exit 1;
 echo "    p2pnet"
 gcc-8 $FP/p2pnet.c $DEBUG -std=c99 -lp67 -o $WD/bin/test/p2pnet $LOPENSSL;
 echo "    pdp"

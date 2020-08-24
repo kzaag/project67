@@ -53,11 +53,7 @@ finish(int a)
     p67_thread_sm_terminate(&listen_ctx.listen_tsm, 500);
     
     for(i = 0; i < conn_ctx_length; i++) {
-        p67_thread_sm_terminate(&conn_ctx[i].keepalive_ctx.th, 500);
-        p67_thread_sm_terminate(&conn_ctx[i].listen_tsm, 500);
-        p67_thread_sm_terminate(&conn_ctx[i].connect_tsm, 500);
-        p67_addr_free(conn_ctx[i].local_addr);
-        p67_addr_free(conn_ctx[i].remote_addr);
+        p67_conn_ctx_free_fields(&conn_ctx[i]);
     }
     
     p67_lib_free();
@@ -74,7 +70,7 @@ main(int argc, char ** argv)
 
     char b[32];
     p67_err err;
-    p67_hashcntl_t * nodes = p67_conn_node_cache();
+    p67_hashcntl_t * nodes = p67_node_cache();
     p67_hashcntl_entry_t * entry;
     p67_node_t * node_entry;
     int i;

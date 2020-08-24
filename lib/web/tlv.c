@@ -1,5 +1,5 @@
 #include "tlv.h"
-#include "../conn.h"
+#include "../net.h"
 
 /*
     generate ack message and write status_fragment fragment into it
@@ -27,7 +27,7 @@ p67_web_tlv_respond_with_status(
 
     if(err != 0) return err;
 
-    p67_conn_write_once(addr, (p67_pckt_t *)ack, sizeof(ack));
+    p67_net_write_msg(addr, (p67_pckt_t *)ack, sizeof(ack));
 
     return err;
 }
