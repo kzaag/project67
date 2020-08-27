@@ -6,6 +6,7 @@
 
 #include "net.h"
 #include "timeout.h"
+#include "cmn.h"
 
 typedef struct p67_timeout_entry {
     p67_addr_t  * addr;
@@ -16,6 +17,7 @@ typedef struct p67_timeout_entry {
 struct p67_timeout {
     p67_hashcntl_t * ix;
     p67_thread_sm_t loophndl;
+    p67_cmn_refcount_fields(_);
 };
 
 P67_CMN_NO_PROTO_ENTER
@@ -113,6 +115,8 @@ p67_timeout_create(size_t capacity, p67_err * err)
     p67_timeout_t * ret = malloc(sizeof(p67_timeout_t));
     if(!ret) return NULL;
 
+    p67_cmn_refcount_init(ret, _);
+
     ret->loophndl.mutex = P67_XLOCK_STATE_UNLOCKED;
     ret->loophndl.state = P67_THREAD_SM_STATE_STOP;
 
@@ -136,13 +140,24 @@ p67_timeout_create(size_t capacity, p67_err * err)
 
 }
 
+#define __p67_timeout_free(t) \
+    {   \
+        p67_thread_sm_terminate(&(t)->loophndl, 2000); \
+        p67_hashcntl_free(t->ix); \
+        free(t); \ 
+    }
+
 void
 p67_timeout_free(p67_timeout_t * t)
 {
     if(!t) return;
-    p67_thread_sm_terminate(&t->loophndl, 2000);
-    p67_hashcntl_free(t->ix);
-    free(t);
+    p67_cmn_refcount_free(t, _, __p67_timeout_free);
+}
+
+p67_timeout_t *
+p67_timeout_refcpy(p67_timeout_t * t)
+{
+    p67_cmn_refcount_refcpy(t, _);
 }
 
 p67_err

@@ -29,4 +29,7 @@ p67_timeout_addr(
 void
 p67_timeout_free(p67_timeout_t * t);
 
+p67_timeout_t *
+p67_timeout_refcpy(p67_timeout_t * t);
+
 #endif

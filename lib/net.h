@@ -8,19 +8,16 @@
 
 #define P67_NET_CRED_INITIALIZER {0}
 
-typedef struct p67_net_cred {
-    const char * certpath;
-    const char * keypath;
-} p67_net_cred_t;
+typedef struct p67_net_cred p67_net_cred_t;
 
-void 
-p67_net_cred_free(p67_net_cred_t * cred);
+p67_net_cred_t *
+p67_net_cred_create(const char * keypath, const char * certpath);
 
 void
-p67_net_cred_create(
-    p67_net_cred_t * cred,
-    const char * certpath,
-    const char * keypath);
+p67_net_cred_free(p67_net_cred_t * cred);
+
+p67_net_cred_t *
+p67_net_cred_ref_cpy(p67_net_cred_t * cred);
 
 typedef p67_err (* p67_net_callback_t)(
     p67_addr_t * peer, p67_pckt_t *, int, void *); 
@@ -113,7 +110,7 @@ p67_err
 p67_net_listen(
     p67_thread_sm_t * thread_ctx,
     p67_addr_t * local_addr,
-    p67_net_cred_t cred,
+    p67_net_cred_t * cred,
     p67_net_cb_ctx_t cb_ctx,
     p67_timeout_t * conn_timeout_ctx);
 
@@ -144,32 +141,13 @@ p67_conn_shutdown_all(void);
 void
 p67_net_init(void);
 
-typedef struct p67_net_listen_ctx {
-    p67_thread_sm_t thread_ctx;
-    p67_addr_t * local_addr;
-    p67_net_cred_t cred;
-    p67_net_cb_ctx_t cbctx;
-    p67_timeout_t * conn_timeout_ctx;
-} p67_net_listen_ctx_t;
-
-#define p67_net_listen_ctx_free(ctx) \
-    { \
-        p67_thread_sm_terminate(&(ctx)->thread_ctx, 500); \
-        p67_timeout_free((ctx)->conn_timeout_ctx); \
-        p67_addr_free((ctx)->local_addr); \
-    }
-
-#define P67_NET_LISTEN_CTX_INITIALIZER \
-    { \
-        .thread_ctx = P67_THREAD_SM_INITIALIZER, \
-        .local_addr = NULL, \
-        .cred = {0}, \
-        .cbctx = {0}, \
-        .conn_timeout_ctx = NULL \
-    }
-
 p67_err
-p67_net_start_listen(p67_net_listen_ctx_t * ctx);
+p67_net_start_listen(
+    p67_thread_sm_t * tsm,
+    p67_addr_t * local_addr,
+    p67_net_cred_t * cred,
+    p67_net_cb_ctx_t cb_ctx,
+    p67_timeout_t * conn_timeout_ctx)
 
 #define P67_NET_CONNECT_SIG_UNSPEC    0
 #define P67_NET_CONNECT_SIG_CONNECTED 1
@@ -184,24 +162,15 @@ typedef struct p67_net_connect_ctx {
     p67_timeout_t * conn_timeout_ctx;
 } p67_net_connect_ctx_t;
 
-#define p67_net_connect_ctx_free(ctx) \
-    { \
-        p67_thread_sm_terminate(&(ctx)->thread_ctx, 500); \
-        p67_timeout_free((ctx)->conn_timeout_ctx); \
-        p67_addr_free((ctx)->local_addr); \
-        p67_addr_free((ctx)->remote_addr); \
-    }
 
-#define P67_NET_CONNECT_CTX_INITIALIZER \
-    { \
-        .thread_ctx = P67_THREAD_SM_INITIALIZER, \
-        .sig = P67_NET_CONNECT_SIG_UNSPEC, \
-        .local_addr = NULL, \
-        .remote_addr = NULL, \
-        .cred = {0}, \
-        .cb_ctx = {0}, \
-        .conn_timeout_ctx = NULL \
-    }
+// #define p67_net_connect_ctx_free(ctx) \
+//     { \
+//         p67_thread_sm_terminate(&(ctx)->thread_ctx, 500); \
+//         p67_timeout_free((ctx)->conn_timeout_ctx); \
+//         p67_addr_free((ctx)->local_addr); \
+//         p67_addr_free((ctx)->remote_addr); \
+//     }
+
 
 p67_err
 p67_net_start_connect(p67_net_connect_ctx_t * ctx);

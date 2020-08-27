@@ -90,4 +90,39 @@ p67_cmn_sleep_s(int s);
 char *
 p67_cmn_strdup(const char * str);
 
+/*
+    generic refcount functionalities 
+    user can add to his structures.
+*/
+
+#define p67_cmn_refcount_fields(prefix) \
+    p67_async_t prefix##lock; \
+    int         prefix##refcount;
+
+#define p67_cmn_refcount_init(ref, prefix) \
+    { (ref)->##prefix##refcount = 1; }
+
+#define p67_cmn_refcount_free(ref, prefix, freecb) \
+    { \
+        if(!(ref)) return;                      \
+        p67_spinlock_lock(&(ref)->##prefix##lock); \
+        (ref)->##prefix##refcount--;             \
+        if(!(ref)->##prefix##refcount) {         \
+            p67_spinlock_unlock(&(ref)->##prefix##lock); \
+            p67_cmn_sleep_ms(1);               \
+            freecb(ref);                              \
+        } else {                                        \
+            p67_spinlock_unlock(&(ref)->##prefix##lock); \
+        }                                               \
+    }
+
+#define p67_cmn_refcount_refcpy(ref, prefix)        \
+    {                                               \
+        p67_spinlock_lock(&(ref)->##prefix##lock);   \
+        if(!(ref)->##prefix##refcount) return NULL; \
+        (ref)->##prefix##refcount++;                    \
+        p67_spinlock_unlock(&(ref)->##prefix##lock); \
+        return ref;                                     \
+    }
+
 #endif

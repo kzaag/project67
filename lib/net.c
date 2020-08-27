@@ -1197,7 +1197,7 @@ p67_err
 p67_net_listen(
     p67_thread_sm_t * thread_ctx,
     p67_addr_t * local_addr,
-    p67_net_cred_t cred,
+    p67_net_cred_t * cred,
     p67_net_cb_ctx_t cb_ctx,
     p67_timeout_t * conn_timeout_ctx)
 {
@@ -1234,11 +1234,11 @@ p67_net_listen(
     SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
 
     if(SSL_CTX_use_certificate_file(
-            ctx, cred.certpath, SSL_FILETYPE_PEM) != 1)
+            ctx, cred->certpath, SSL_FILETYPE_PEM) != 1)
         goto end;
 
     if(SSL_CTX_use_PrivateKey_file(
-            ctx, cred.keypath, SSL_FILETYPE_PEM) != 1)
+            ctx, cred->keypath, SSL_FILETYPE_PEM) != 1)
         goto end;
 
     SSL_CTX_set_mode(ctx, SSL_MODE_RELEASE_BUFFERS);
@@ -1348,6 +1348,71 @@ end:
     return err;
 }
 
+struct p67_net_cred {
+    char * certpath;
+    char * keypath;
+    int refcount;
+};
+
+p67_net_cred_t *
+p67_net_cred_create(const char * keypath, const char * certpath)
+{
+    p67_net_cred_t * ret = malloc(sizeof(p67_net_cred_t));
+    if(!ret) return NULL;
+    ret->certpath = strdup(certpath);
+    if(!ret->certpath) {
+        free(ret);
+        return NULL;
+    }
+    ret->keypath = strdup(keypath);
+    if(!ret->keypath) {
+        free(ret->certpath);
+        free(ret);
+        return NULL;
+    }
+    ret->refcount = 1;
+    return ret;
+}
+
+p67_net_cred_t *
+p67_net_cred_ref_cpy(p67_net_cred_t * cred)
+{
+    cred->refcount++;
+    return cred;
+}
+
+void
+p67_net_cred_free(p67_net_cred_t * cred)
+{
+    if(!cred) return;
+
+    cred->refcount--;
+
+    if(!cred->refcount) {
+        free(cred->certpath);
+        free(cred->keypath);
+        free(cred);
+    }
+}
+
+typedef struct p67_net_listen_ctx p67_net_listen_ctx_t;
+struct p67_net_listen_ctx {
+    p67_thread_sm_t * thread_ctx;
+    p67_addr_t * local_addr;
+    p67_net_cred_t * cred;
+    p67_timeout_t * conn_timeout_ctx;
+    p67_net_cb_ctx_t cb_ctx;
+};
+
+void
+p67_net_listen_ctx_free(p67_net_listen_ctx_t * ctx)
+{
+    #error ------------ note for future kamil ---------------
+    #error finish net listen ctx
+    #error finish connection ctx and migrate it for refcounting. dont forget to free it
+    #error im really tired
+}
+
 P67_CMN_NO_PROTO_ENTER
 void *
 p67_net_run_listen(
@@ -1358,10 +1423,10 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err;
 
     err = p67_net_listen(
-        &ctx->thread_ctx,
+        ctx->thread_ctx,
         ctx->local_addr,
         ctx->cred,
-        ctx->cbctx,
+        ctx->cb_ctx,
         ctx->conn_timeout_ctx);
     if(err) {
         p67_err_print_err("listen terminated with error/s: ", err);
@@ -1370,8 +1435,30 @@ P67_CMN_NO_PROTO_EXIT
 }
 
 p67_err
-p67_net_start_listen(p67_net_listen_ctx_t * ctx)
+p67_net_start_listen(
+    p67_thread_sm_t * tsm,
+    p67_addr_t * local_addr,
+    p67_net_cred_t * cred,
+    p67_net_cb_ctx_t cb_ctx,
+    p67_timeout_t * conn_timeout_ctx)
 {
+    p67_net_listen_ctx_t * ctx = malloc(sizeof(p67_net_listen_ctx_t));
+    if(!ctx) return p67_err_eerrno;
+
+    ctx->thread_ctx = tsm;
+    ctx->local_addr = p67_addr_ref_cpy(local_addr);
+    ctx->cred = p67_net_cred_ref_cpy(ctx->cred);
+    ctx->cb_ctx = cb_ctx;
+    ctx->conn_timeout_ctx = p67_timeout_refcpy(conn_timeout_ctx);
+    
+    if(!ctx->local_addr || !ctx->conn_timeout_ctx || !ctx->cred) {
+        p67_addr_free(ctx->local_addr);
+        p67_timeout_free(ctx->conn_timeout_ctx);
+        p67_timeout_free(ctx->conn_timeout_ctx);
+        free(ctx);
+        return p67_err_eerrno;
+    }
+
     return p67_thread_sm_start(
         &ctx->thread_ctx, 
         p67_net_run_listen,
@@ -1411,19 +1498,13 @@ P67_CMN_NO_PROTO_EXIT
         // p67_log_debug("Background connect iteration for %s:%s. Slept %lu ms\n", 
         //     pass->remote.hostname, pass->remote.service, interval);
 
-        if((err = p67_net_connect_ctx(ctx)) != 0) {
-                if(err == p67_err_eaconn && ctx->sig) {
-                    p67_mutex_set_state(
-                        ctx->sig,
-                        P67_NET_CONNECT_SIG_UNSPEC,
-                        P67_NET_CONNECT_SIG_CONNECTED);
-                }
-                // p67_err_print_err("Background connect ", err);
-        } else {
-            // p67_log_debug(
-            //     "Background connected to %s:%s\n", 
-            //     ctx->remote_addr->hostname, 
-            //     ctx->remote_addr->service);
+        err = p67_net_connect_ctx(ctx);
+
+        if(ctx->sig && (err == 0 || err == p67_err_eaconn)) {
+            p67_mutex_set_state(
+                ctx->sig,
+                P67_NET_CONNECT_SIG_UNSPEC,
+                P67_NET_CONNECT_SIG_CONNECTED);
         }
 
         if(ctx->thread_ctx.state != P67_THREAD_SM_STATE_RUNNING) {
