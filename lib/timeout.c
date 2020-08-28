@@ -17,7 +17,7 @@ typedef struct p67_timeout_entry {
 struct p67_timeout {
     p67_hashcntl_t * ix;
     p67_thread_sm_t loophndl;
-    p67_cmn_refcount_fields(_);
+    p67_cmn_refcount_fields(_)
 };
 
 P67_CMN_NO_PROTO_ENTER
@@ -144,7 +144,7 @@ p67_timeout_create(size_t capacity, p67_err * err)
     {   \
         p67_thread_sm_terminate(&(t)->loophndl, 2000); \
         p67_hashcntl_free(t->ix); \
-        free(t); \ 
+        free(t); \
     }
 
 void

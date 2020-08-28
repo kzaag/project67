@@ -25,4 +25,9 @@ __p67_log(const char * fmt, ...);
 
 #define p67_log(...) __p67_log(__VA_ARGS__)
 
+#define P67_TERMINAL_ENC_SGN_STR "> "
+
+int
+p67_log_cb_terminal(const char * fmt, va_list list);
+
 #endif

@@ -129,6 +129,9 @@ p67_addr_parse_str(
         int p67_sfd_tp)
     __nonnull((2));
 
+#define p67_addr_new_parse_str_udp(svc) \
+    p67_addr_new_parse_str(svc, P67_SFD_TP_DGRAM_UDP)
+
 p67_addr_t *
 p67_addr_new_parse_str(
         const char * __restrict__ src, 

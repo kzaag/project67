@@ -102,7 +102,7 @@ p67_net_get_peer_pk(p67_addr_t * addr, char ** pk);
 p67_err
 p67_net_connect(
     p67_addr_t * local, p67_addr_t * remote,
-    p67_net_cred_t cred,
+    p67_net_cred_t * cred,
     p67_net_cb_ctx_t cb_ctx,
     p67_timeout_t * conn_timeout_ctx);
 
@@ -141,38 +141,46 @@ p67_conn_shutdown_all(void);
 void
 p67_net_init(void);
 
+#define P67_NET_LISTEN_SAFE_EXIT_TIME_MS (P67_DEFAULT_TIMEOUT_MS + 50)
+
+#define p67_net_listen_terminate(tsm) \
+    p67_thread_sm_terminate(tsm, P67_NET_LISTEN_SAFE_EXIT_TIME_MS)
+
+/*
+    if provided tsm or cb_ctx.args cannot be freed before loop exists.
+    the rest of fields can be freed instantly after this function returns.
+*/
 p67_err
 p67_net_start_listen(
     p67_thread_sm_t * tsm,
+
     p67_addr_t * local_addr,
     p67_net_cred_t * cred,
     p67_net_cb_ctx_t cb_ctx,
-    p67_timeout_t * conn_timeout_ctx)
+    p67_timeout_t * conn_timeout_ctx);
 
 #define P67_NET_CONNECT_SIG_UNSPEC    0
 #define P67_NET_CONNECT_SIG_CONNECTED 1
 
-typedef struct p67_net_connect_ctx {
-    p67_thread_sm_t thread_ctx;
-    p67_async_t * sig;
-    p67_addr_t * local_addr;
-    p67_addr_t * remote_addr;
-    p67_net_cred_t cred;
-    p67_net_cb_ctx_t cb_ctx;
-    p67_timeout_t * conn_timeout_ctx;
-} p67_net_connect_ctx_t;
 
+#define P67_NET_CONNECT_SAFE_EXIT_TIME_MS (P67_DEFAULT_TIMEOUT_MS + 50)
 
-// #define p67_net_connect_ctx_free(ctx) \
-//     { \
-//         p67_thread_sm_terminate(&(ctx)->thread_ctx, 500); \
-//         p67_timeout_free((ctx)->conn_timeout_ctx); \
-//         p67_addr_free((ctx)->local_addr); \
-//         p67_addr_free((ctx)->remote_addr); \
-//     }
+#define p67_net_connect_terminate(tsm) \
+    p67_thread_sm_terminate(tsm, P67_NET_CONNECT_SAFE_EXIT_TIME_MS)
 
-
+/*
+    if provided tsm or sig or cb_ctx.args cannot be freed before loop exists.
+    the rest of fields can be freed instantly after this function returns.
+*/
 p67_err
-p67_net_start_connect(p67_net_connect_ctx_t * ctx);
+p67_net_start_connect(
+    p67_thread_sm_t * tsm,
+    p67_async_t * sig,
+
+    p67_addr_t * local_addr,
+    p67_addr_t * remote_addr,
+    p67_net_cred_t * cred,
+    p67_net_cb_ctx_t cb_ctx,
+    p67_timeout_t * conn_timeout_ctx);
 
 #endif

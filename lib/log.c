@@ -21,3 +21,13 @@ __p67_log(const char * fmt, ...)
     va_end(args);
     return ret;
 }
+
+int
+p67_log_cb_terminal(const char * fmt, va_list list)
+{
+    printf("\r");
+    vprintf(fmt, list);
+    printf(P67_TERMINAL_ENC_SGN_STR);
+    fflush(stdout);
+    return 0;
+}
