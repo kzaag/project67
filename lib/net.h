@@ -57,19 +57,39 @@ struct p67_node {
     unsigned int heap_alloc : 1;
 };
 
-#define P67_CONN_AUTH_DONT_TRUST_UNKOWN   1
-#define P67_CONN_AUTH_TRUST_UNKOWN 2
-#define P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN 3
+#define P67_NET_AUTH_LIMIT_TRUST_UNKNOWN   1
+#define P67_NET_AUTH_TRUST_UNKOWN 2
+#define P67_NET_AUTH_DONT_TRUST_UNKOWN 3
 
-typedef struct p67_conn_config {
-    int conn_auth;
+#define P67_NET_DEF_TIMEOUT_DURATION_MS (10*1000)
+
+#define P67_NET_DEF_SHUTDOWN_AFTER_INACTIVE 1
+
+typedef struct p67_net_config {
+    /*
+        type of of authorization used during validating PK / nodes
+    */
+    int conn_auth_type;
+    /*
+        on callback error how long peer should be timeouted.
+        for this value to be used conn_timeout_ctx must be provided.
+        defaults to P67_NET_DEF_TIMEOUT_DURATION_MS.
+        if no conn_timeout_ctx is provided then peers will be timeouted indefinetely.
+    */
     p67_cmn_epoch_t timeout_duration_ms;
+    
+    unsigned long 
+        /*
+            should peer connection be closed afer inactive?
+            defaults to P67_NET_DEF_SHUTDOWN_AFTER_INACTIVE
+        */
+        shutdown_after_inactive : 1;
 } p67_net_config_t;
 
 p67_net_config_t *
 p67_net_config_location(void);
 
-#define p67_conn_config (*p67_conn_config_location())
+#define p67_net_config (*p67_net_config_location())
 
 p67_conn_globals_t *
 p67_net_globals_location(void);

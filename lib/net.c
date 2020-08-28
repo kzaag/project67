@@ -15,7 +15,7 @@
 struct p67_net_cred {
     char * certpath;
     char * keypath;
-    int refcount;
+    p67_cmn_refcount_fields(cred)
 };
 
 p67_net_cred_t *
@@ -34,31 +34,27 @@ p67_net_cred_create(const char * keypath, const char * certpath)
         free(ret);
         return NULL;
     }
-    ret->refcount = 1;
+    p67_cmn_refcount_init(ret, cred);
     return ret;
 }
 
-p67_net_cred_t *
-p67_net_cred_ref_cpy(p67_net_cred_t * cred)
+p67_net_cred_t * 
+p67_net_cred_ref_cpy(p67_net_cred_t * c)
 {
-    cred->refcount++;
-    return cred;
+    p67_cmn_refcount_refcpy(c, cred)
+} 
+
+#define __p67_net_cred_free(c) { \
+    free((c)->certpath); \
+    free((c)->keypath); \
+    free(c); \
 }
 
 void
-p67_net_cred_free(p67_net_cred_t * cred)
+p67_net_cred_free(p67_net_cred_t * c)
 {
-    if(!cred) return;
-
-    cred->refcount--;
-
-    if(!cred->refcount) {
-        free(cred->certpath);
-        free(cred->keypath);
-        free(cred);
-    }
+    p67_cmn_refcount_free(c, cred, __p67_net_cred_free)
 }
-
 
 /* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */
 #define P67_MOD_SLEEP_MS 500
@@ -120,8 +116,9 @@ struct p67_net_globals {
 
 struct p67_net_globals __globals = {
     .config = {
-        .conn_auth = P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN,
-        .timeout_duration_ms = 10*1000,
+        .conn_auth_type = P67_NET_AUTH_LIMIT_TRUST_UNKNOWN,
+        .timeout_duration_ms = P67_NET_DEF_TIMEOUT_DURATION_MS,
+        .shutdown_after_inactive = P67_NET_DEF_SHUTDOWN_AFTER_INACTIVE
     },
     .conn_cache_ini_lock = P67_ASYNC_INTIIALIZER,
     .node_cache_ini_lock = P67_ASYNC_INTIIALIZER,
@@ -516,7 +513,8 @@ P67_CMN_NO_PROTO_EXIT
 
     max_timeouts = max_rcvto_ms / rcvto_ms;
 
-    while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) && num_timeouts < max_timeouts) {
+    while(!(SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) && 
+            (num_timeouts < max_timeouts || !__globals.config.shutdown_after_inactive)) {
         sslr = 1;
         while(sslr) {
             if(conn->hread.state != P67_THREAD_SM_STATE_RUNNING) {
@@ -773,8 +771,8 @@ P67_CMN_NO_PROTO_EXIT
         we will warn user about new peer
     */
     if(node == NULL) {
-        switch(__globals.config.conn_auth) {
-        case P67_CONN_AUTH_LIMIT_TRUST_UNKNOWN:
+        switch(__globals.config.conn_auth_type) {
+        case P67_NET_AUTH_LIMIT_TRUST_UNKNOWN:
             p67_log_debug("Unknown host connecting from %s:%s with public key:\n%s", 
                 peer_addr->hostname, peer_addr->service, pubk);
             if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
@@ -783,14 +781,14 @@ P67_CMN_NO_PROTO_EXIT
             }
             success = 1;
             break;
-        case P67_CONN_AUTH_TRUST_UNKOWN:
+        case P67_NET_AUTH_TRUST_UNKOWN:
             if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_NODE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
             success = 1;
             break;
-        case P67_CONN_AUTH_DONT_TRUST_UNKOWN:
+        case P67_NET_AUTH_DONT_TRUST_UNKOWN:
             p67_log_debug("Rejected Unknown Host ( %s:%s )\n", 
                 peer_addr->hostname, peer_addr->service);
             if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
@@ -1438,6 +1436,7 @@ P67_CMN_NO_PROTO_EXIT
         ctx->cred,
         ctx->cb_ctx,
         ctx->conn_timeout_ctx);
+
     if(err) {
         p67_err_print_err("listen terminated with error/s: ", err);
     }
@@ -1464,18 +1463,17 @@ p67_net_start_listen(
     ctx->cb_ctx = cb_ctx;
     ctx->conn_timeout_ctx = p67_timeout_refcpy(conn_timeout_ctx);
     
-    if(!ctx->local_addr || !ctx->conn_timeout_ctx || !ctx->cred) {
-        p67_addr_free(ctx->local_addr);
-        p67_timeout_free(ctx->conn_timeout_ctx);
-        p67_timeout_free(ctx->conn_timeout_ctx);
-        free(ctx);
+    if(!ctx->local_addr || !ctx->cred) {
+        p67_net_listen_ctx_free(ctx);
         return p67_err_eerrno;
     }
 
-    return p67_thread_sm_start(
+    p67_err err = p67_thread_sm_start(
         ctx->thread_ctx, 
         p67_net_run_listen,
         ctx);
+    if(err) p67_net_listen_ctx_free(ctx);
+    return err;
 }
 
 typedef struct p67_net_connect_ctx p67_net_connect_ctx_t;
@@ -1542,6 +1540,19 @@ P67_CMN_NO_PROTO_EXIT
                 P67_NET_CONNECT_SIG_CONNECTED);
         }
 
+        /* break from the loop and terminate connection with error if... */
+        if(     err != 0 &&                 /* there is error ... */
+                err != p67_err_eaconn &&    /* AND this error is not p67_err_eaconn */
+                /*
+                    AND this error is not p67_err_eerrno with following errno values:
+                        - EAGAIN
+                        - ECONNREFUSED
+                */
+                ((!(err & p67_err_eerrno)) || (errno != EAGAIN && errno != ECONNREFUSED))) 
+        {
+            break;
+        }
+
         if(ctx->thread_ctx && ctx->thread_ctx->state != P67_THREAD_SM_STATE_RUNNING) {
             err = 0; //err |= p67_err_eint;
             break;
@@ -1571,13 +1582,14 @@ P67_CMN_NO_PROTO_EXIT
         }
     }
 
-    if(err != 0) p67_err_print_err("Background connect: ", err);
+    if(err != 0) p67_err_print_err("Connect terminated with error/s: ", err);
     if(ctx->thread_ctx) {
         err |= p67_mutex_set_state(
             &ctx->thread_ctx->state, 
             ctx->thread_ctx->state, 
             P67_THREAD_SM_STATE_STOP);
     }
+    p67_net_connect_ctx_free(ctx);
     return NULL;
 }
 
@@ -1592,7 +1604,7 @@ p67_net_start_connect(
     p67_timeout_t * conn_timeout_ctx)
 {
     p67_net_connect_ctx_t * ctx = 
-        malloc(sizeof(p67_net_connect_ctx_t *));
+        malloc(sizeof(p67_net_connect_ctx_t));
     if(!ctx) return p67_err_eerrno;
 
     ctx->cb_ctx =cb_ctx;
@@ -1604,8 +1616,11 @@ p67_net_start_connect(
     ctx->sig = sig;
     ctx->thread_ctx = tsm;
 
-    return p67_thread_sm_start(
+    p67_err err = p67_thread_sm_start(
             ctx->thread_ctx, 
             p67_net_run_connect,
             ctx);
+
+    if(err) p67_net_connect_ctx_free(ctx);
+    return err;
 }

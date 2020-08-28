@@ -100,7 +100,8 @@ p67_cmn_strdup(const char * str);
     int         prefix##refcount;
 
 #define p67_cmn_refcount_init(ref, prefix) \
-    { (ref)->prefix##refcount = 1; }
+    { (ref)->prefix##refcount = 1; \
+      (ref)->prefix##lock = P67_XLOCK_STATE_UNLOCKED; }
 
 #define p67_cmn_refcount_free(ref, prefix, freecb) \
     { \
@@ -118,6 +119,7 @@ p67_cmn_strdup(const char * str);
 
 #define p67_cmn_refcount_refcpy(ref, prefix)        \
     {                                               \
+        if(!(ref)) return NULL;                     \
         p67_spinlock_lock(&(ref)->prefix##lock);   \
         if(!(ref)->prefix##refcount) return NULL; \
         (ref)->prefix##refcount++;                    \

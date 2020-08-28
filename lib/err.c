@@ -22,82 +22,82 @@ p67_err_print_err(const char * hdr, p67_err err)
     if(err & p67_err_essl) {
         while((sslerr = ERR_get_error()) != 0) {
             ERR_error_string_n(sslerr, errbuf, 128);
-            fprintf(stderr, "%s%s\n", hdr, errbuf);
+            p67_errlog("%s%s\n", hdr, errbuf);
             sslp = 1;
         }
-        if(sslp == 0) fprintf(stderr, "%sUnknown OpenSSL error.\n", hdr); 
+        if(sslp == 0) p67_errlog("%sUnknown OpenSSL error.\n", hdr); 
     }
 
     if((err & p67_err_eerrno) && errno != 0) {
-        fprintf(stderr, "%sErrno: %s\n", hdr, strerror(errno));
+        p67_errlog("%sErrno: %s\n", hdr, strerror(errno));
     }
 
     if(err & p67_err_einval) {
-        fprintf(stderr, "%sInvalid argument\n", hdr);
+        p67_errlog("%sInvalid argument\n", hdr);
     }
 
     if(err & p67_err_eaconn) {
-        fprintf(stderr, "%sAlready connected\n", hdr);
+        p67_errlog("%sAlready connected\n", hdr);
     }
 
     if(err & p67_err_enconn) {
-        fprintf(stderr, "%sConnection gone\n", hdr);
+        p67_errlog("%sConnection gone\n", hdr);
     }
 
     if(err & p67_err_enetdb) {
-        fprintf(stderr, "%sCouldnt obtain address information\n", hdr);
+        p67_errlog("%sCouldnt obtain address information\n", hdr);
     }
 
     if(err & p67_err_easync) {
-        fprintf(stderr, "%sAsync state changed\n", hdr);
+        p67_errlog("%sAsync state changed\n", hdr);
     }
 
     if(err & p67_err_etime) {
-        fprintf(stderr, "%sTimeout\n", hdr);
+        p67_errlog("%sTimeout\n", hdr);
     }
 
     if(err & p67_err_eint) {
-        fprintf(stderr, "%sOperation has been interrupted\n", hdr);
+        p67_errlog("%sOperation has been interrupted\n", hdr);
     }
     
     if(err & p67_err_eaudio) {
         if(p67_audio_err != 0) {
-            fprintf(stderr, "%s%s\n", hdr, p67_audio_strerror());
+            p67_errlog("%s%s\n", hdr, p67_audio_strerror());
         } else {
-            fprintf(stderr, "%sUnkown audio error\n", hdr);
+            p67_errlog("%sUnkown audio error\n", hdr);
         }
     }
 
     if(err & p67_err_epipe) {
-        fprintf(stderr, "%sBroken pipe\n", hdr);
+        p67_errlog("%sBroken pipe\n", hdr);
     }
 
     if(err & p67_err_eagain) {
-        fprintf(stderr, "%sResource temporarily unavailable\n", hdr);
+        p67_errlog("%sResource temporarily unavailable\n", hdr);
     }
 
     if(err & p67_err_enomem) {
-        fprintf(stderr, "%sBuffer too small\n", hdr);
+        p67_errlog("%sBuffer too small\n", hdr);
     }
 
     if(err & p67_err_eacodecs) {
         if(p67_audio_codecs_err != 0) {
-            fprintf(stderr, "%s%s\n", hdr, opus_strerror(p67_audio_codecs_err));
+            p67_errlog("%s%s\n", hdr, opus_strerror(p67_audio_codecs_err));
         } else {
-            fprintf(stderr, "%sUnkown audio codecs error\n", hdr);
+            p67_errlog("%sUnkown audio codecs error\n", hdr);
         }
     }
 
     if(err & p67_err_etlvf) {
-        fprintf(stderr, "%sInvalid TLV format\n", hdr);
+        p67_errlog("%sInvalid TLV format\n", hdr);
     }
 
     if(err & p67_err_eot) {
-        fprintf(stderr, "%sEnd of transmission\n", hdr);
+        p67_errlog("%sEnd of transmission\n", hdr);
     }
 
     if(err & p67_err_epdpf) {
-        fprintf(stderr, "%sInvalid pudp format\n", hdr);
+        p67_errlog("%sInvalid pudp format\n", hdr);
     }
 
 }

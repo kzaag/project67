@@ -2,6 +2,7 @@
 #define P67_LOG 1
 
 #include <stdarg.h>
+#include <stdio.h>
 
 #define p67_log_cb (*p67_log_cb_location())
 
@@ -10,8 +11,11 @@ typedef int (* p67_log_cb_t)(const char *, va_list);
 p67_log_cb_t *
 p67_log_cb_location(void);
 
+#define __p67_log(...) __p67_flog(stdout, __VA_ARGS__)
+#define __p67_errlog(...) __p67_flog(stderr, __VA_ARGS__)
+
 int
-__p67_log(const char * fmt, ...);
+__p67_flog(FILE * __restrict__ f, const char * __restrict__ fmt, ...);
 
 #if defined(DEBUG) 
 
@@ -24,8 +28,11 @@ __p67_log(const char * fmt, ...);
 #endif
 
 #define p67_log(...) __p67_log(__VA_ARGS__)
+#define p67_flog(f, ...) __p67_flog(f, __VA_ARGS__)
+#define p67_errlog(f, ...) __p67_errlog(f, __VA_ARGS__)
 
-#define P67_TERMINAL_ENC_SGN_STR "> "
+#define P67_LOG_TERM_ENC_SGN_STR "> "
+#define P67_LOG_TERM_ENC_SGN_STR_LEN 2
 
 int
 p67_log_cb_terminal(const char * fmt, va_list list);

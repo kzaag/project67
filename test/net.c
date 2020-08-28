@@ -11,7 +11,7 @@
 static p67_err
 process_message(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 {
-    printf("%s:%s says: %.*s\n", addr->hostname, addr->service, msgl, msg);
+    p67_log("%s:%s says: %.*s\n", addr->hostname, addr->service, msgl, msg);
     return 0;
 }
 
@@ -24,6 +24,7 @@ static void
 finish(int a)
 {
     printf("Graceful exit\n");
+    
     p67_net_listen_terminate(&listen_sm);
     p67_net_connect_terminate(&connect_sm);
     p67_addr_free(remote_addr);
@@ -36,8 +37,8 @@ int
 main(int argc, char ** argv)
 {
     p67_lib_init();
+    p67_net_config.shutdown_after_inactive = 0;
     signal(SIGINT, finish);
-    p67_log_cb = p67_log_cb_terminal;
     
     if(argc < 3) {
         printf("Usage: ./%s [source port] [dest addr]\n", argv[0]);
@@ -59,7 +60,7 @@ main(int argc, char ** argv)
         goto end;
     if(!(remote_addr = p67_addr_new_parse_str_udp(argv[2])))
         goto end;
-    if(!(cred = p67_net_cred_create("p2pcert", "p2cert.cert")))
+    if(!(cred = p67_net_cred_create("p2pcert", "p2pcert.cert")))
         goto end;
 
     err |= p67_net_start_connect(
@@ -74,11 +75,15 @@ main(int argc, char ** argv)
 
     p67_mutex_wait_for_change(&sig, P67_NET_CONNECT_SIG_UNSPEC, -1);
 
+    if(err) goto end;
+
+    /* switch to terminal logging style */
+    p67_log_cb = p67_log_cb_terminal;
     char buff[64];
     int ix = 0;
     while(1) {
         do {
-            write(1, "$: ", 3);
+            write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
         } while((ix = read(0, buff, sizeof(buff))) <= 1);
 
         if((err = p67_net_write_msg(remote_addr, buff, ix-1)) != 0)
