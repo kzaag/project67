@@ -2,9 +2,18 @@
 #define P67_COMMANDS_H
 
 typedef struct p67_cmd_ctx {
-    p67_conn_ctx_t ws_conn_ctx;
-    p67_conn_ctx_t p2p_listener_ctx;
+    p67_addr_t * local_addr;
+    p67_addr_t * ws_remote_addr;
+    p67_net_cred_t * cred;
+
 } p67_cmd_ctx_t;
+
+#define p67_cmd_ctx_free(c) \
+    { \
+        p67_addr_free((c)->local_addr); \
+        p67_addr_free((c)->ws_remote_addr); \
+        p67_net_cred_free((c)->cred); \
+    }
 
 int
 p67_cmd_execute(

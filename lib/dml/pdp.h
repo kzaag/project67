@@ -147,4 +147,7 @@ typedef struct p67_pdp_keepalive_ctx {
 p67_err
 p67_pdp_start_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx);
 
+#define p67_pdp_free_keepalive_ctx(ctx) \
+    { p67_thread_sm_terminate(&(ctx)->th, 50); p67_addr_free((ctx)->addr); }    
+
 #endif

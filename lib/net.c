@@ -336,6 +336,8 @@ P67_CMN_NO_PROTO_EXIT
 
     if(cb_ctx.gen_args)
         generated_args = cb_ctx.gen_args(cb_ctx.args);
+    else
+        generated_args = cb_ctx.args;
 
     ret->args = generated_args;
     ret->callback = cb_ctx.cb;
@@ -1511,6 +1513,7 @@ P67_CMN_NO_PROTO_EXIT
         = (struct p67_net_connect_ctx *)arg;
     unsigned long interval = 0;
     p67_err err;
+    int signal_set = 0;
 
     p67_log_debug(
         "Connecting to: %s:%s\n",
@@ -1533,11 +1536,12 @@ P67_CMN_NO_PROTO_EXIT
             ctx->cb_ctx,
             ctx->conn_timeout_ctx);
 
-        if(ctx->sig && (err == 0 || err == p67_err_eaconn)) {
+        if(!signal_set && ctx->sig && (err == 0 || err == p67_err_eaconn)) {
             p67_mutex_set_state(
                 ctx->sig,
                 P67_NET_CONNECT_SIG_UNSPEC,
                 P67_NET_CONNECT_SIG_CONNECTED);
+            signal_set = 1;
         }
 
         /* break from the loop and terminate connection with error if... */

@@ -8,16 +8,7 @@
     communication with N hosts.
 */
 
-int
-log_cb(const char * fmt, va_list list)
-{
-    printf("\r");
-    vprintf(fmt, list);
-    printf("> ");
-    fflush(stdout);
-}
-
-p67_err
+static p67_err
 process_message(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 {
     //p67_dml_pretty_print(NULL, msg, msgl);
@@ -32,28 +23,36 @@ process_message(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 }
 
 #define conn_ctx_length 10
-p67_conn_ctx_t conn_ctx[conn_ctx_length] = {0};
+struct {
+    p67_thread_sm_t connect_sm;
+    p67_async_t sig;
+    p67_pdp_keepalive_ctx_t keepalive_ctx;
+} conn_ctx[conn_ctx_length];
 int conn_ctx_ix = 0;
-p67_conn_ctx_t listen_ctx = {
+p67_thread_sm_t listen_sm = P67_THREAD_SM_INITIALIZER;
+p67_addr_t * local_addr = NULL;
+p67_net_cb_ctx_t cbctx = {
+    .args = NULL,
     .cb = process_message,
-    .keypath = "p2pcert",
-    .certpath = "p2pcert.cert",
-    .local_addr = NULL,
-    .listen_tsm = P67_THREAD_SM_INITIALIZER
+    .free_args = NULL,
+    .gen_args = NULL
 };
+p67_net_cred_t * cred = NULL;
 
-void
+static void
 finish(int a)
 {
     int i = 0;
 
     printf("Graceful exit\n");
-
-    p67_addr_free(listen_ctx.local_addr);
-    p67_thread_sm_terminate(&listen_ctx.listen_tsm, 500);
     
-    for(i = 0; i < conn_ctx_length; i++) {
-        p67_conn_ctx_free_fields(&conn_ctx[i]);
+    p67_net_listen_terminate(&listen_sm);
+    p67_addr_free(local_addr);
+    p67_net_cred_free(cred);
+
+    for(i = 0; i < conn_ctx_ix; i++) {
+        p67_pdp_free_keepalive_ctx(&conn_ctx[i].keepalive_ctx);
+        p67_net_connect_terminate(&conn_ctx[i].connect_sm);
     }
     
     p67_lib_free();
@@ -61,15 +60,79 @@ finish(int a)
     else raise(a);
 }
 
+static p67_err
+init_listener(const char * svc)
+{
+    p67_err err = p67_err_eerrno;
+    
+    local_addr = p67_addr_new_localhost4_udp(svc);
+    if(!local_addr) goto end;
+    cred = p67_net_cred_create("p2pcert", "p2pcert.cert");
+    if(!cred) goto end;
+    err = p67_net_start_listen(&listen_sm, local_addr, cred, cbctx, NULL);
+end:
+    return err;
+}
+
+/* this is not thread safe */
+static p67_err
+add_peer(const char * addrcstr)
+{
+    if(conn_ctx_ix >= conn_ctx_length) {
+        return p67_err_enomem;
+    }
+    
+    p67_addr_t * remote_addr;
+    p67_err err;
+    
+    remote_addr = p67_addr_new_parse_str_udp(addrcstr);
+    if(!remote_addr) return p67_err_einval | p67_err_eerrno;
+    
+    err = p67_net_start_connect(
+        &conn_ctx[conn_ctx_ix].connect_sm,
+        NULL,
+        local_addr,
+        remote_addr,
+        cred,
+        cbctx,
+        NULL);
+    
+    if(err) {
+        p67_addr_free(remote_addr);
+        return err;
+    }
+
+    conn_ctx[conn_ctx_ix].keepalive_ctx.addr 
+        = p67_addr_ref_cpy(remote_addr);
+
+    err = p67_pdp_start_keepalive_loop(
+        &conn_ctx[conn_ctx_ix].keepalive_ctx);
+    if(err) {
+        p67_net_connect_terminate(&conn_ctx[conn_ctx_ix].connect_sm);
+        p67_addr_free(remote_addr);
+        p67_pdp_free_keepalive_ctx(&conn_ctx[conn_ctx_ix].keepalive_ctx);
+        return err;
+    }
+
+    conn_ctx_ix++;
+
+    return 0;
+}
+
 int
 main(int argc, char ** argv)
 {
+    if(argc < 2) {
+        printf("Usage: ./%s [source port]\n", argv[0]);
+        return 2;
+    }
+
     p67_lib_init();
-    p67_log_cb = log_cb;
+    p67_log_cb = p67_log_cb_terminal;
     signal(SIGINT, finish);
 
     char b[32];
-    p67_err err;
+    p67_err err = p67_err_eerrno;
     p67_hashcntl_t * nodes = p67_node_cache();
     p67_hashcntl_entry_t * entry;
     p67_node_t * node_entry;
@@ -87,32 +150,12 @@ main(int argc, char ** argv)
     char * buff = __buff + noffset;
     int ix = 0;
 
-    if(argc < 2) {
-        printf("Usage: ./%s [source port]\n", argv[0]);
-        return 2;
-    }
+    if((err = init_listener(argv[1]))) goto end;
 
-    if(!(listen_ctx.local_addr = p67_addr_new()))
-        p67_cmn_ejmp(err, p67_err_eerrno, end);
-
-    if((err = p67_addr_set_localhost4_udp(
-            listen_ctx.local_addr, argv[1])))
-        goto end;
-
-    if((err = p67_conn_ctx_start_listen(&listen_ctx)) != 0)
-        goto end;
-
-    // if((err = p67_addr_parse_str(argv[2], ctx.remote_addr, P67_SFD_TP_DGRAM_UDP)) != 0)
-    //     goto end;
-
-    //     if((err = p67_conn_ctx_start_listen(&ctx)) != 0)
-    //         goto end;
-    //     if((err = p67_conn_ctx_start_persist_connect(&ctx)) != 0)
-    //         goto end;
 
     while(1) {
         do {
-            write(1, "> ", 3);
+            write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
         } while((ix = read(0, buff, buffl-1)) <= 1);
         buff[ix-1] = 0;
 
@@ -122,48 +165,9 @@ main(int argc, char ** argv)
             case ':':
                 /* command mode */
                 if(ix > 3 && buff[1] == 'c' && buff[2] == ' ') {
-                    //p67_log("connect to: %s %lu\n", buff+3, strlen(buff+3));
-                    if(conn_ctx_ix >= conn_ctx_length) {
-                        p67_log("too many connections\n");
-                        break;
+                    if((err = add_peer(buff+3))) {
+                        p67_err_print_err("Couldnt add connection: ", err);
                     }
-                    conn_ctx[conn_ctx_ix].local_addr 
-                        = p67_addr_ref_cpy(listen_ctx.local_addr);
-                    conn_ctx[conn_ctx_ix].remote_addr = p67_addr_new();
-                    if((err = p67_addr_parse_str(
-                                buff+3, 
-                                conn_ctx[conn_ctx_ix].remote_addr, 
-                                P67_SFD_TP_DGRAM_UDP)) != 0) {
-                        p67_addr_free(conn_ctx[conn_ctx_ix].local_addr);
-                        p67_addr_free(conn_ctx[conn_ctx_ix].remote_addr);
-                        p67_err_print_err("Invalid address: ", err);
-                        break;
-                    }
-                    conn_ctx[conn_ctx_ix].cb = process_message;
-                    conn_ctx[conn_ctx_ix].certpath = listen_ctx.certpath;
-                    conn_ctx[conn_ctx_ix].keypath = listen_ctx.keypath;
-                    
-                    err = p67_conn_ctx_start_connect(&conn_ctx[conn_ctx_ix]);
-                    if(err) {
-                        p67_addr_free(conn_ctx[conn_ctx_ix].local_addr);
-                        p67_addr_free(conn_ctx[conn_ctx_ix].remote_addr);
-                        p67_err_print_err("Couldnt connect: ", err);
-                        break;
-                    }
-
-                    conn_ctx[conn_ctx_ix].keepalive_ctx.addr 
-                            = conn_ctx[conn_ctx_ix].remote_addr;
-
-                    err = p67_pdp_start_keepalive_loop(
-                        &conn_ctx[conn_ctx_ix].keepalive_ctx);
-                    if(err) {
-                        p67_addr_free(conn_ctx[conn_ctx_ix].local_addr);
-                        p67_addr_free(conn_ctx[conn_ctx_ix].remote_addr);
-                        p67_err_print_err("Couldnt start keepalive: ", err);
-                        break;
-                    }
-
-                    conn_ctx_ix++;
                 } else {
                     p67_log("Couldnt match command\n");
                 }

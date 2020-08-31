@@ -1,5 +1,5 @@
 #include <p67/err.h>
-#include <p67/conn_ctx.h>
+#include <p67/net.h>
 #include <p67/dml.h>
 #include <p67/web/status.h>
 #include <p67/web/tlv.h>
@@ -122,7 +122,7 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
     int resl = 80;
 
     if((err = p67_pdp_write_urg(
-            ctx->ws_conn_ctx.remote_addr, msg, ix, -1, &sig, (void **)&res, &resl)) != 0)
+            ctx->ws_remote_addr, msg, ix, -1, &sig, (void **)&res, &resl)) != 0)
         return err;
 
     p67_mutex_wait_for_change(&sig, 0, -1);
@@ -148,93 +148,93 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
     return 0;
 }
 
-p67_err
-p67_cmd_process_call_res(
-    const p67_conn_ctx_t * const ctx,
-    const p67_pckt_t * const msg, const int msgl)
-{
-    if(!p67_dml_parse_hdr(msg, msgl, NULL)) {
-        return p67_err_epdpf;
-    }
+// p67_err
+// p67_cmd_process_call_res(
+//     const p67_conn_ctx_t * const ctx,
+//     const p67_pckt_t * const msg, const int msgl)
+// {
+//     if(!p67_dml_parse_hdr(msg, msgl, NULL)) {
+//         return p67_err_epdpf;
+//     }
 
-    const char * hostname, * service;
-    const p67_pckt_t * payload = msg + sizeof(p67_pdp_ack_hdr_t);
-    int payloadl = msgl - sizeof(p67_pdp_ack_hdr_t);
-    const p67_tlv_header_t * tlv_hdr;
-    const p67_pckt_t * tlv_value;
-    p67_addr_t * addr;
-    p67_err err;
-    p67_web_status res_status;
-    int tlv_status = 0;
+//     const char * hostname, * service;
+//     const p67_pckt_t * payload = msg + sizeof(p67_pdp_ack_hdr_t);
+//     int payloadl = msgl - sizeof(p67_pdp_ack_hdr_t);
+//     const p67_tlv_header_t * tlv_hdr;
+//     const p67_pckt_t * tlv_value;
+//     p67_addr_t * addr;
+//     p67_err err;
+//     p67_web_status res_status;
+//     int tlv_status = 0;
 
-    while((err = p67_tlv_next(
-            &payload, &payloadl, &tlv_hdr, &tlv_value)) == 0) {
-        switch(*tlv_hdr->tlv_key) {
-        case 's':
-            tlv_value = p67_tlv_get_arr(tlv_hdr, tlv_value, 2);
-            if(!tlv_value)
-                break;
-            res_status = p67_cmn_ntohs(*(p67_web_status*)tlv_value);
-            tlv_status |= 1;
-            break;
-        case 'A':
-            hostname = p67_tlv_get_cstr(tlv_hdr, tlv_value);
-            if(!hostname)
-                break;
-            tlv_status |= 2;
-            break;
-        case 'P':
-            service = p67_tlv_get_cstr(tlv_hdr, tlv_value);
-            if(!service)
-                break;
-            tlv_status |= 4;
-            break;
-        }
-    }
+//     while((err = p67_tlv_next(
+//             &payload, &payloadl, &tlv_hdr, &tlv_value)) == 0) {
+//         switch(*tlv_hdr->tlv_key) {
+//         case 's':
+//             tlv_value = p67_tlv_get_arr(tlv_hdr, tlv_value, 2);
+//             if(!tlv_value)
+//                 break;
+//             res_status = p67_cmn_ntohs(*(p67_web_status*)tlv_value);
+//             tlv_status |= 1;
+//             break;
+//         case 'A':
+//             hostname = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+//             if(!hostname)
+//                 break;
+//             tlv_status |= 2;
+//             break;
+//         case 'P':
+//             service = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+//             if(!service)
+//                 break;
+//             tlv_status |= 4;
+//             break;
+//         }
+//     }
     
-    if(err != p67_err_eot || !(tlv_status & 1)) {
-        return err;
-    }
+//     if(err != p67_err_eot || !(tlv_status & 1)) {
+//         return err;
+//     }
 
-    if(res_status != p67_web_status_ok) {
-        char c[P67_WEB_TLV_STATUS_BUFFL];
-        p67_web_status_str(res_status, c, P67_WEB_TLV_STATUS_BUFFL);
-        printf("%s\n", c);
-        return 0;
-    }
+//     if(res_status != p67_web_status_ok) {
+//         char c[P67_WEB_TLV_STATUS_BUFFL];
+//         p67_web_status_str(res_status, c, P67_WEB_TLV_STATUS_BUFFL);
+//         printf("%s\n", c);
+//         return 0;
+//     }
 
-    if(tlv_status != 7) {
-        return p67_err_epdpf;
-    }
+//     if(tlv_status != 7) {
+//         return p67_err_epdpf;
+//     }
 
-    if(!(addr = p67_addr_new())) {
-        return p67_err_eerrno;
-    }
+//     if(!(addr = p67_addr_new())) {
+//         return p67_err_eerrno;
+//     }
 
-    if((err = p67_addr_set_host_udp(addr, hostname, service)) != 0) {
-        p67_addr_free(addr);
-        return err;
-    }
+//     if((err = p67_addr_set_host_udp(addr, hostname, service)) != 0) {
+//         p67_addr_free(addr);
+//         return err;
+//     }
     
-    p67_conn_ctx_t peer_ctx = P67_CONN_CTX_INITIALIZER;
-    peer_ctx.local_addr = ctx->local_addr;
-    peer_ctx.remote_addr = addr;
-    peer_ctx.keypath = ctx->keypath;
-    peer_ctx.certpath = ctx->certpath;
+//     p67_conn_ctx_t peer_ctx = P67_CONN_CTX_INITIALIZER;
+//     peer_ctx.local_addr = ctx->local_addr;
+//     peer_ctx.remote_addr = addr;
+//     peer_ctx.keypath = ctx->keypath;
+//     peer_ctx.certpath = ctx->certpath;
 
-    p67_p2p_ctx_t * pc = p67_p2p_cache_add(&peer_ctx);
-    if(!pc) {
-        p67_addr_free(addr);
-        return p67_err_eerrno;
-    }
+//     p67_p2p_ctx_t * pc = p67_p2p_cache_add(&peer_ctx);
+//     if(!pc) {
+//         p67_addr_free(addr);
+//         return p67_err_eerrno;
+//     }
 
-    if((err = p67_p2p_start_connect(pc)) != 0) {
-        p67_addr_free(addr);
-        return err;
-    }
+//     if((err = p67_p2p_start_connect(pc)) != 0) {
+//         p67_addr_free(addr);
+//         return err;
+//     }
 
-    return 0;
-}
+//     return 0;
+// }
 
 int 
 p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
@@ -277,7 +277,7 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     msgp+=err;
 
     if((err = p67_pdp_write_urg(
-            ctx->ws_conn_ctx.remote_addr, 
+            ctx->ws_remote_addr, 
             msg, msgix, 60000, &sig, msg, &tmpix)) != 0)
         return err;
 
@@ -290,9 +290,10 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
         // if((err = p67_web_tlv_status_str(msg, msgix, c, sizeof(c))) != 0)
         //     return err;
         // printf("%s\n", c);
-        if((err = p67_cmd_process_call_res(&ctx->ws_conn_ctx, msg, msgix)) != 0) {
-            p67_err_print_err("Process call returned error/s: ", err);
-        }
+        // if((err = p67_cmd_process_call_res(&ctx->ws_conn_ctx, msg, msgix)) != 0) {
+        //     p67_err_print_err("Process call returned error/s: ", err);
+        // }
+        printf("acked\n");
     } else {
         char c[P67_PDP_EVT_STR_LEN];
         printf("%s\n", p67_pdp_evt_str(c, sizeof(c), sig));

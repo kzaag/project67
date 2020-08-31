@@ -31,6 +31,9 @@ typedef struct p67_net_cb_ctx {
     void * args;
 } p67_net_cb_ctx_t;
 
+#define p67_net_cb_ctx_initializer(__cb) \
+    { .cb = __cb, .gen_args = NULL, .free_args = NULL, .args = NULL }
+
 #define P67_NET_CB_CTX_INITIALIZER {0}
 
 typedef struct p67_node p67_node_t;
@@ -182,6 +185,8 @@ p67_net_start_listen(
 #define P67_NET_CONNECT_SIG_UNSPEC    0
 #define P67_NET_CONNECT_SIG_CONNECTED 1
 
+#define p67_net_connect_sig_wait_for_connect(sig) \
+    p67_mutex_wait_for_change(&(sig), P67_NET_CONNECT_SIG_UNSPEC, -1);
 
 #define P67_NET_CONNECT_SAFE_EXIT_TIME_MS (P67_DEFAULT_TIMEOUT_MS + 50)
 

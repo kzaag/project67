@@ -31,8 +31,8 @@ __p67_flog(FILE * __restrict__ f, const char * __restrict__ fmt, ...);
 #define p67_flog(f, ...) __p67_flog(f, __VA_ARGS__)
 #define p67_errlog(f, ...) __p67_errlog(f, __VA_ARGS__)
 
-#define P67_LOG_TERM_ENC_SGN_STR "> "
-#define P67_LOG_TERM_ENC_SGN_STR_LEN 2
+#define P67_LOG_TERM_ENC_SGN_STR "\r> "
+#define P67_LOG_TERM_ENC_SGN_STR_LEN 3
 
 int
 p67_log_cb_terminal(const char * fmt, va_list list);

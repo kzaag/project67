@@ -1,6 +1,5 @@
 #include <p67/sfd.h>
 #include <p67/cmn.h>
-#include <p67/conn_ctx.h>
 #include <p67/dml/dml.h>
 #include <p67/web/tlv.h>
 
@@ -800,13 +799,15 @@ p67_ws_cb(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
     return p67_err_einval;
 }
 
-void
-p67_ws_setup_conn_ctx(p67_conn_ctx_t * conn, p67_ws_ctx_t * server)
+p67_net_cb_ctx_t
+p67_ws_get_cb_ctx(p67_ws_ctx_t * server)
 {
-    conn->cb = p67_ws_cb;
-    conn->gen_args = p67_ws_session_create;
-    conn->free_args = p67_ws_session_free;
-    conn->args = server;
+    p67_net_cb_ctx_t ret;
+    ret.cb = p67_ws_cb;
+    ret.gen_args = p67_ws_session_create;
+    ret.free_args = p67_ws_session_free;
+    ret.args = server;
+    return ret;
 }
 
 p67_err
