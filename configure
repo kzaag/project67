@@ -1,0 +1,11 @@
+#!/bin/bash
+
+WD=`realpath $0 | xargs dirname`/;
+
+OUTPATH=${WD}/bin
+
+mkdir -p $OUTPATH;
+
+cd $OUTPATH;
+
+cmake -DCMAKE_C_COMPILER=/usr/bin/gcc ..;
