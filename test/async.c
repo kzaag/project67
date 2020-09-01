@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "async.h"
-#include "cmn.h"
+#include <p67/async.h>
+#include <p67/cmn.h>
 
 static p67_async_t lock = P67_ASYNC_INTIIALIZER;
 const size_t tc = 1000;

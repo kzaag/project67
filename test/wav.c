@@ -1,8 +1,9 @@
-#include <p67/audio.h>
-#include <p67/err.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+
+#include <p67/audio.h>
+#include <p67/err.h>
 
 #include "wav.h"
 

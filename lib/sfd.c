@@ -14,8 +14,8 @@
 #include <errno.h>
 #include <sys/time.h>
 
-#include "sfd.h"
-#include "log.h"
+#include <p67/sfd.h>
+#include <p67/log.h>
 
 #define AL 120
 

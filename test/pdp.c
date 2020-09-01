@@ -2,7 +2,7 @@
 #include <alloca.h>
 #include <string.h>
 
-#include "p67.h"
+#include <p67/all.h>
 
 static p67_err
 process_message(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)

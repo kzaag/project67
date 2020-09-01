@@ -1,3 +1,40 @@
-./configure
-cd bin && make
+distributed p2p communication platform supporting 
+    reliable file transfers, audio, reliable text messaging.
 
+dependencies:
+    openssl 1.1.1d or later
+        installation tips:
+            on debian:
+                sudo apt install openssl=1.1.1d-0+deb10u3 -y;
+            on ubuntu / arch: 
+                wget https://www.openssl.org/source/openssl-1.1.1d.tar.gz
+                cd /openssl-1.1.1d
+                ./config
+                make
+                sudo make install
+    opus
+        installation tips:
+            on debian: 
+                sudo apt install libopus-dev=1.3-1 libopusfile-dev=0.9+20170913-1
+            on ubuntu:
+                sudo apt install libopus-dev=1.1.2-1ubuntu1 libopusfile-dev=0.9+20170913-1build1
+    libpq (if building with server)
+        installation tips:
+            sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+            sudo wget http://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc
+            sudo apt-key add ACCC4CF8.asc
+            sudo apt-get update
+            sudo apt-get install postgresql-12 libpq-dev postgresql-server-dev-all
+
+to build default (library, tests, clients):
+    ./configure
+    cd bin && make
+
+to build server:
+    ./configure
+    cd bin && make server
+
+to build and install library globally
+    ./configure
+    cd bin && make
+    sudo make install

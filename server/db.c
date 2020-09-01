@@ -9,7 +9,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
-#include "db.h"
+#include <server/db.h>
 
 static char * errstr = NULL; 
 
@@ -42,7 +42,7 @@ p67_err
 p67_db_hash_pass(const char * password, int passwordl, unsigned char * hash)
 {
     static const unsigned char p67_db_salt[] = {
-        #include "salt.h"
+        #include <server/salt.h>
     };
 
     // printf("hashing bytes:\n");

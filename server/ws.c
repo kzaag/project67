@@ -3,7 +3,7 @@
 #include <p67/dml/dml.h>
 #include <p67/web/tlv.h>
 
-#include "ws.h"
+#include <server/ws.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -72,8 +72,11 @@ typedef struct p67_ws_session {
 
 } p67_ws_session_t;
 
+P67_CMN_NO_PROTO_ENTER
 p67_thread_sm_t *
-p67_fwc_add(p67_hashcntl_t * ctx, p67_addr_t * dst)
+p67_fwc_add(
+P67_CMN_NO_PROTO_EXIT
+    p67_hashcntl_t * ctx, p67_addr_t * dst)
 {
     if(!dst) return NULL;
 
@@ -101,8 +104,11 @@ p67_fwc_add(p67_hashcntl_t * ctx, p67_addr_t * dst)
     return entry->tsm;
 }
 
+P67_CMN_NO_PROTO_ENTER
 void
-p67_fwc_entry_free(p67_hashcntl_entry_t * e)
+p67_fwc_entry_free(
+P67_CMN_NO_PROTO_EXIT
+    p67_hashcntl_entry_t * e)
 {
     p67_ws_session_fwc_entry_t * fwc = (p67_ws_session_fwc_entry_t *)e;
     if(fwc->tsm->state == P67_THREAD_SM_STATE_RUNNING)
@@ -110,8 +116,10 @@ p67_fwc_entry_free(p67_hashcntl_entry_t * e)
     free(e);
 }
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
 p67_ws_user_nchix_add(
+P67_CMN_NO_PROTO_EXIT
     p67_hashcntl_t * h, 
     const char * username, int usernamel, p67_addr_t * addr)
 {
@@ -136,15 +144,22 @@ p67_ws_user_nchix_add(
     return p67_hashcntl_add(h, (p67_hashcntl_entry_t *)entry);
 }
 
+P67_CMN_NO_PROTO_ENTER
 void
-p67_ws_user_nchix_entry_free(p67_hashcntl_entry_t * e)
+p67_ws_user_nchix_entry_free(
+P67_CMN_NO_PROTO_EXIT
+    p67_hashcntl_entry_t * e)
 {
     p67_addr_t * addr = ((p67_ws_user_ncix_entry_t *)e)->addr;
     p67_addr_free(addr);
     free(e);
 }
 
-void * p67_ws_session_create(void * args)
+P67_CMN_NO_PROTO_ENTER
+void *
+p67_ws_session_create(
+P67_CMN_NO_PROTO_EXIT
+    void * args)
 {
     if(!args) return NULL;
 
@@ -176,8 +191,11 @@ void * p67_ws_session_create(void * args)
     return p;
 }
 
+P67_CMN_NO_PROTO_ENTER
 p67_ws_session_t *
-p67_ws_session_refcpy(p67_ws_session_t * session)
+p67_ws_session_refcpy(
+P67_CMN_NO_PROTO_EXIT
+    p67_ws_session_t * session)
 {
     if(!session) return NULL;
     p67_spinlock_lock(&session->lock);
@@ -187,7 +205,10 @@ p67_ws_session_refcpy(p67_ws_session_t * session)
     return session;
 }
 
-void p67_ws_session_free(void * arg)
+P67_CMN_NO_PROTO_ENTER
+void p67_ws_session_free(
+P67_CMN_NO_PROTO_EXIT
+    void * arg)
 {
     if(!arg) return;
     p67_ws_session_t * sess = (p67_ws_session_t *)arg;
@@ -242,8 +263,11 @@ typedef struct p67_handle_call_ctx {
 
 } p67_handle_call_ctx_t;
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
-p67_handle_call_ctx_free(p67_handle_call_ctx_t * ctx)
+p67_handle_call_ctx_free(
+P67_CMN_NO_PROTO_EXIT
+    p67_handle_call_ctx_t * ctx)
 {
         p67_err err = 0;
         err |= p67_hashcntl_remove_and_free(
@@ -306,8 +330,11 @@ p67_handle_call_ctx_free(p67_handle_call_ctx_t * ctx)
     }
 
 */
+P67_CMN_NO_PROTO_ENTER
 void *
-p67_ws_handle_call(void * args)
+p67_ws_handle_call(
+P67_CMN_NO_PROTO_EXIT
+    void * args)
 {
     //p67_handle_call_ctx_t * ctx = (p67_handle_call_ctx_t *)args;
 
@@ -554,8 +581,10 @@ end:
     return NULL;
 }
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
 p67_ws_handle_call_async(
+P67_CMN_NO_PROTO_EXIT
     p67_addr_t * addr, p67_ws_session_t * sess, p67_pckt_t * msg, int msgl)
 {
     if(!addr || !sess)
@@ -665,8 +694,10 @@ p67_ws_handle_call_async(
     return 0;
 }
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
 p67_ws_handle_login(
+P67_CMN_NO_PROTO_EXIT
     p67_addr_t * addr, p67_ws_session_t * sess, p67_pckt_t * msg, int msgl)
 {
     const p67_tlv_header_t * tlv_hdr;
@@ -757,8 +788,11 @@ end:
     return p67_web_tlv_respond_with_status((p67_pdp_urg_hdr_t *)msg, addr, status);
 }
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
-p67_ws_cb(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
+p67_ws_cb(
+P67_CMN_NO_PROTO_EXIT
+    p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 {
     if(!args) return p67_err_einval;
 

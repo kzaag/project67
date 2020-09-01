@@ -1,7 +1,7 @@
 #if !defined(WAV_H)
 #define WAV_H
 
-#include <p67/p67.h>
+#include <p67/audio.h>
 
 #define rjmp(cnd, err, val, lbl) if(cnd) { err = val; goto lbl; }  
 

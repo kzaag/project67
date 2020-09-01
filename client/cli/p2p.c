@@ -1,7 +1,7 @@
 #include <string.h>
 #include <strings.h>
 
-#include "p2p.h"
+#include <client/cli/p2p.h>
 
 // p67_hashcntl_t * __p2p_cache = NULL;
 // p67_async_t __p2p_cache_lock = P67_ASYNC_INTIIALIZER;

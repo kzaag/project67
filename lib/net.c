@@ -1,7 +1,3 @@
-#include "sfd.h"
-#include "net.h"
-#include "log.h"
-
 #include <sys/time.h>
 #include <assert.h>
 #include <string.h>
@@ -11,6 +7,9 @@
 #include <openssl/rand.h>
 #include <openssl/err.h>
 
+#include <p67/sfd.h>
+#include <p67/net.h>
+#include <p67/log.h>
 
 struct p67_net_cred {
     char * certpath;

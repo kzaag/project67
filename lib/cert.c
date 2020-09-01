@@ -4,8 +4,8 @@
 
 #include <string.h>
 
-#include "cert.h"
-#include "net.h"
+#include <p67/cert.h>
+#include <p67/net.h>
 
 /*
     generate cert from pre existing key

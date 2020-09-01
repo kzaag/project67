@@ -1,17 +1,20 @@
-
-#include "err.h"
-#include "db.h"
-#include "ws.h"
-
 #include <signal.h>
-#include <p67/p67.h>
+
+#include <p67/all.h>
+
+#include <server/err.h>
+#include <server/ws.h>
+
 
 static int main_initialized = 0;
 static p67_ws_ctx_t main_wsctx = {0};
 static p67_thread_sm_t listener = P67_THREAD_SM_INITIALIZER;
 
-void
-main_finish(int sig)
+P67_CMN_NO_PROTO_ENTER
+static void
+main_finish(
+P67_CMN_NO_PROTO_EXIT
+    int sig)
 {
     if(sig == SIGINT) {
 

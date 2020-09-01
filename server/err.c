@@ -1,7 +1,7 @@
-#include "err.h"
-#include "db.h"
-
 #include <stdio.h>
+
+#include <server/err.h>
+#include <server/db.h>
 
 void
 p67_ws_err_print_err(const char * hdr, p67_ws_err err)

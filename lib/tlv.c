@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "tlv.h"
+#include <p67/tlv.h>
 
 /*
     if return > 0 then its written offset

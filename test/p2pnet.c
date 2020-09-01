@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "p67.h"
+#include <p67/all.h>
 
 /*
     communication with N hosts.

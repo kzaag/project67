@@ -1,4 +1,4 @@
-#include "net.h"
+#include <p67/net.h>
 
 void
 p67_lib_init(void);

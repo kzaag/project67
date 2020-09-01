@@ -1,8 +1,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "async.h"
-#include "buffer.h"
+#include <p67/async.h>
+#include <p67/buffer.h>
 
 struct p67_buffer {
     unsigned char * buff;

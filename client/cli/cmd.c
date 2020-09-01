@@ -1,14 +1,15 @@
+#include <signal.h>
+#include <string.h>
+
 #include <p67/err.h>
 #include <p67/net.h>
-#include <p67/dml.h>
+#include <p67/dml/dml.h>
 #include <p67/web/status.h>
 #include <p67/web/tlv.h>
 #include <p67/hashcntl.h>
 
-#include <signal.h>
-
-#include "p2p.h"
-#include "cmd.h"
+#include <client/cli/p2p.h>
+#include <client/cli/cmd.h>
 
 typedef int (* p67_cmd_hndl)(
     p67_cmd_ctx_t * ctx, int argc, char ** argv);
@@ -23,21 +24,26 @@ typedef struct p67_cmd_entry {
 p67_cmn_static_assert_size(p67_cmd_entry_t, p67_hashcntl_entry_t);
 
 /*
-    this is neccesary to use function pointers directly in hash entries.
-    if building on cpu arch whch doesnt support it,
-    then you must replace all assignments and reads from entries.
+    if building on architecture which doesnt support same size pointer
+    you must properly implement p67_cmd_hndl as value ptr in p67_cmd_entry
 */
 p67_cmn_static_assert(
     uchar_ptr_sz, sizeof(unsigned char *) == sizeof(p67_cmd_hndl));
 
+P67_CMN_NO_PROTO_ENTER
 void
-p67_cmd_free(p67_hashcntl_entry_t * e)
+p67_cmd_free(
+P67_CMN_NO_PROTO_EXIT
+    p67_hashcntl_entry_t * e)
 {
     free(e);
 }
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
-p67_cmd_add(p67_hashcntl_t * ctx, char * name, p67_cmd_hndl hndl)
+p67_cmd_add(
+P67_CMN_NO_PROTO_EXIT
+    p67_hashcntl_t * ctx, char * name, p67_cmd_hndl hndl)
 {
     int namelen = strlen(name);
     p67_hashcntl_entry_t * entry = malloc(sizeof(p67_hashcntl_entry_t) + namelen);
@@ -45,16 +51,19 @@ p67_cmd_add(p67_hashcntl_t * ctx, char * name, p67_cmd_hndl hndl)
         return p67_err_eerrno;
     char * key = ((char *)entry) + sizeof(p67_hashcntl_entry_t);
     memcpy(key, name, namelen);
-    entry->key = key;
+    entry->key = (unsigned char *)key;
     entry->keyl = namelen;
     entry->next = NULL;
-    entry->value = (char *)hndl;
+    entry->value = (unsigned char *)&hndl;
     entry->valuel = 0;
     return p67_hashcntl_add(ctx, entry);
 }
 
+P67_CMN_NO_PROTO_ENTER
 int
-p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
+p67_cmd_login(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argvs)
 {
     p67_err err;
     unsigned char msg[120];
@@ -73,7 +82,7 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
         return p67_err_enomem;
 
     const int buffl = 31;
-    char buff[buffl + 1];
+    unsigned char buff[buffl + 1];
     int bl = 0;
     char tmp;
 
@@ -87,8 +96,8 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
     buff[bl++] = 0;
 
     if((err = p67_tlv_add_fragment(
-                msgp, len-ix, "u\0", 
-                argc < 2 ? buff : argvs[1], 
+                msgp, len-ix, (unsigned char *)"u", 
+                argc < 2 ? buff : (unsigned char *)argvs[1], 
                 argc < 2 ? bl : strlen(argvs[1]) + 1)) < 0)
         return -err;
     ix += err;
@@ -105,8 +114,8 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
     buff[bl++] = 0;
 
     if((err = p67_tlv_add_fragment(
-                msgp, len-ix, "p\0", 
-                argc < 3 ? buff : argvs[2], 
+                msgp, len-ix, (unsigned char *)"p", 
+                argc < 3 ? buff : (unsigned char *)argvs[2], 
                 argc < 3 ? bl : strlen(argvs[2]) + 1)) < 0)
         return -err;
     ix += err;
@@ -118,7 +127,7 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
 
     // p67_cmn_time_ms(&start);
 
-    char res[80];
+    const p67_pckt_t res[80];
     int resl = 80;
 
     if((err = p67_pdp_write_urg(
@@ -236,8 +245,11 @@ p67_cmd_login(p67_cmd_ctx_t * ctx, int argc, char ** argvs)
 //     return 0;
 // }
 
+P67_CMN_NO_PROTO_ENTER
 int 
-p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
+p67_cmd_call(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
     unsigned char * msgp;
     unsigned char msg[P67_DML_SAFE_PAYLOAD_SIZE];
@@ -265,13 +277,13 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     //printf("calling...\n");
 
     if((err = p67_tlv_add_fragment(
-            msgp, msgl-msgix, "U", argv[1], strlen(argv[1]) + 1)) < 0)
+            msgp, msgl-msgix, (unsigned char *)"U", (unsigned char *)argv[1], strlen(argv[1]) + 1)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
 
     if((err = p67_tlv_add_fragment(
-            msgp, msgl-msgix, "m", "i love you", 11)) < 0)
+            msgp, msgl-msgix, (unsigned char *)"m", (unsigned char *)"i love you", 11)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
@@ -302,25 +314,36 @@ p67_cmd_call(p67_cmd_ctx_t * ctx, int argc, char ** argv)
     return 0;
 }
 
-int p67_cmd_echo(p67_cmd_ctx_t * ctx, int argc, char ** argv)
+P67_CMN_NO_PROTO_ENTER
+int p67_cmd_echo(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
     int i;
     //printf("%d\n",_argc);
     for(i = 0; i < argc; i++) {
         printf("(%lu) %s\n",strlen(argv[i]), argv[i]);
     }
+    return 0;
 }
 
+P67_CMN_NO_PROTO_ENTER
 int
-p67_cmd_exit(p67_cmd_ctx_t * ctx, int argc, char ** argv)
+p67_cmd_exit(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
-    raise(SIGINT);
+    return raise(SIGINT);
 }
 
+P67_CMN_NO_PROTO_ENTER
 int
-p67_cmd_help(p67_cmd_ctx_t * ctx, int argc, char ** argv)
+p67_cmd_help(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
     printf("?, help, echo, exit, call, login\n");
+    return 0;
 }
 
 p67_hashcntl_t *
@@ -347,9 +370,9 @@ p67_cmd_execute(
     if(argc < 1)
         return -1;
     p67_hashcntl_entry_t * entry;
-    entry = p67_hashcntl_lookup(commands, argv[0], strlen(argv[0]));
+    entry = p67_hashcntl_lookup(commands, (unsigned char *)argv[0], strlen(argv[0]));
     if(entry) {
-        return ((p67_cmd_hndl)entry->value)(ctx, argc, argv);
+        return ((p67_cmd_entry_t *)entry)->handler(ctx, argc, argv);
     } else {
         printf("command: \"%s\" not found.\n", argv[0]);
         return -1;

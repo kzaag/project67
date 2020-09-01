@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "p67.h"
+#include <p67/all.h>
 
 p67_addr_t * remote_addr = NULL;
 static p67_thread_sm_t 

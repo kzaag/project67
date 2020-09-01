@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "async.h"
+#include <p67/async.h>
 
 #define futex(uaddr, op, val, timeout, uaddr2, val3) \
     syscall(SYS_futex, \

@@ -1,6 +1,6 @@
-#include "log.h"
-
 #include <stdlib.h>
+
+#include <p67/log.h>
 
 p67_log_cb_t __cb = NULL;
 

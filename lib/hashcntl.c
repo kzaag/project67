@@ -2,8 +2,8 @@
 
 #include <string.h>
 
-#include "hash.h"
-#include "hashcntl.h"
+#include <p67/hash.h>
+#include <p67/hashcntl.h>
 
 void
 p67_hashcntl_free(p67_hashcntl_t * ctx)

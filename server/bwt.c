@@ -3,18 +3,16 @@
 */
 
 #include <string.h>
-#include <p67/err.h>
 #include <openssl/hmac.h>
 
-#include "db.h"
-#include "bwt.h"
-#include "err.h"
+#include <server/err.h>
+#include <server/bwt.h>
 
 /*
     may be unsafe to keep this variable constantly in memory
 */
 static unsigned char p67_bwt_hmac_key[] = {
-    #include "hmac.h"
+    #include <server/hmac.h>
 };
 
 p67_ws_err

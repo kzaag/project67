@@ -1,6 +1,8 @@
 #if !defined(P67_COMMANDS_H)
 #define P67_COMMANDS_H
 
+#include <p67/net.h>
+
 typedef struct p67_cmd_ctx {
     p67_addr_t * local_addr;
     p67_addr_t * ws_remote_addr;

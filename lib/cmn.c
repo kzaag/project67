@@ -6,8 +6,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "err.h"
-#include "cmn.h"
+#include <p67/err.h>
+#include <p67/cmn.h>
 
 #define LOCK_MAX_RETRIES 3
 

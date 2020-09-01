@@ -1,20 +1,22 @@
 #include <signal.h>
 #include <stdio.h>
 
-#include <p67/p67.h>
+#include <client/cli/p2p.h>
+#include <client/cli/cmd.h>
+#include <p67/all.h>
 
-#include "p2p.h"
-#include "cmd.h"
-
-p67_hashcntl_t * cmdbuf = NULL;
-p67_cmd_ctx_t cmdctx = {0};
+static p67_hashcntl_t * cmdbuf = NULL;
+static p67_cmd_ctx_t cmdctx = {0};
 static p67_thread_sm_t 
     connect_sm = P67_THREAD_SM_INITIALIZER, 
     listen_sm = P67_THREAD_SM_INITIALIZER;
-p67_pdp_keepalive_ctx_t ws_keepalive_ctx = {0};
+static p67_pdp_keepalive_ctx_t ws_keepalive_ctx = {0};
 
+P67_CMN_NO_PROTO_ENTER
 void
-finish(int sig)
+finish(
+P67_CMN_NO_PROTO_EXIT
+    int sig)
 {
     printf("Cleanup\n");
     p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
@@ -29,8 +31,10 @@ finish(int sig)
 const char * str_empty = "";
 const char * str_anon = "anon";
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
 p67_handle_call_request(
+P67_CMN_NO_PROTO_EXIT
     p67_addr_t * const server_addr,
     p67_pckt_t * const msg, const int msgl)
 {
@@ -65,7 +69,7 @@ p67_handle_call_request(
     }
 
     if(err != p67_err_eot || !src_svc || !src_host)
-        err;
+        return err;
 
     if(!src_message)
         src_message = str_empty;
@@ -119,8 +123,10 @@ p67_handle_call_request(
 
 // }
 
+P67_CMN_NO_PROTO_ENTER
 p67_err
 webserver_callback(
+P67_CMN_NO_PROTO_EXIT
     p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 {
     p67_err err;

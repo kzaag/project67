@@ -1,8 +1,8 @@
-#include "audio.h"
-
 #include <pulse/error.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+#include <p67/audio.h>
 
 static __thread p67_audio_err_t __audio_err = 0;
 static __thread p67_audio_err_t __codecs_err = 0;

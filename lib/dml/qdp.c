@@ -8,9 +8,9 @@
 #include <stdlib.h>
 #include <strings.h>
 
-#include "cmn.h"
-#include "async.h"
-#include "dml/qdp.h"
+#include <p67/cmn.h>
+#include <p67/async.h>
+#include <p67/dml/qdp.h>
 
 
 char p67_qdp_hdr_align[P67_QDP_HDR_ALIGN_SIZE] = {0, 0};

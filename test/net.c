@@ -4,7 +4,7 @@
 #include <fcntl.h>
 #include <signal.h>
 
-#include "p67.h"
+#include <p67/all.h>
 
 /*
     core networking integration testing

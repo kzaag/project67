@@ -4,9 +4,9 @@
 
 #include <string.h>
 
-#include "net.h"
-#include "timeout.h"
-#include "cmn.h"
+#include <p67/net.h>
+#include <p67/timeout.h>
+#include <p67/cmn.h>
 
 typedef struct p67_timeout_entry {
     p67_addr_t  * addr;
