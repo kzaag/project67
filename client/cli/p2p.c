@@ -3,8 +3,64 @@
 
 #include <client/cli/p2p.h>
 
-// p67_hashcntl_t * __p2p_cache = NULL;
-// p67_async_t __p2p_cache_lock = P67_ASYNC_INTIIALIZER;
+#include <p67/dml/pdp.h>
+
+static p67_hashcntl_t * __p2p_cache = NULL;
+static p67_async_t p2p_cache_lock = P67_ASYNC_INTIIALIZER;
+
+#define P67_P2P_STATE_INCOMING 1
+#define P67_P2P_STATE_ESTABL   2
+
+struct p67_p2p_ctx {
+    //p67_conn_ctx_t conn_ctx;
+    //p67_pdp_keepalive_ctx_t keepalive_ctx;
+    p67_addr_t * peer_addr;
+    char * peer_username;
+    int peer_usernamel;
+
+    p67_thread_sm_t connect_sm;
+    p67_pdp_keepalive_ctx_t keepalive_ctx;
+
+    int state;
+    
+};
+
+// O(1)
+p67_p2p_ctx_t *
+p67_p2p_cache_lookup(p67_addr_t * addr);
+
+// O(N)
+// index is not neccessary since N is small
+p67_p2p_ctx_t *
+p67_p2p_cache_find_by_name(const char * name);
+
+P67_CMN_NO_PROTO_ENTER
+static p67_hashcntl_t *
+__get_p2p_cache(
+P67_CMN_NO_PROTO_EXIT
+    void) {
+    if(!__p2p_cache) {
+        p67_spinlock_lock(&p2p_cache_lock);
+        if(!__p2p_cache) {
+            __p2p_cache = p67_hashcntl_new(
+                0, p67_p2p_cache_entry_free, NULL);
+            p67_cmn_assert_abort(
+                !__p2p_cache, 
+                "Couldnt initialize p2p cache.");
+        }
+        p67_spinlock_unlock(&p2p_cache_lock);
+    }
+
+    return __p2p_cache;
+}
+
+#define p2p_cache (__get_p2p_cache())
+
+void
+p67_p2p_cache_free(void)
+{
+    p67_hashcntl_free(__p2p_cache);
+}
 
 // void
 // p67_p2p_free_conn_args(void * args)
@@ -18,104 +74,123 @@
 //     }
 // }
 
-// void
-// p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e)
-// {
-//     if(!e) return;
-//     p67_p2p_ctx_t * p2p = (p67_p2p_ctx_t *)e->value;
-//     p67_thread_sm_terminate(&p2p->conn_ctx.connect_tsm, 500);
-//     p67_thread_sm_terminate(&p2p->conn_ctx.listen_tsm, 500);
-//     p67_thread_sm_terminate(&p2p->keepalive_ctx.th, 500);
-//     p67_addr_free(p2p->conn_ctx.local_addr);
-//     p67_addr_free(p2p->conn_ctx.remote_addr);
-//     free(p2p->conn_ctx.certpath);
-//     free(p2p->conn_ctx.keypath);
-//     free(e);
-// }
-
-// p67_hashcntl_t ** 
-// p2p_cache_location(void)
-// {
-//     if(!__p2p_cache) {
-//         p67_spinlock_lock(&__p2p_cache_lock);
-//         if(!__p2p_cache) {
-//             __p2p_cache = p67_hashcntl_new(
-//                 0, p67_p2p_cache_entry_free, NULL);
-//             p67_cmn_assert_abort(
-//                 !__p2p_cache, "Couldnt initialize p2p cache\n");
-//         }
-//         p67_spinlock_unlock(&__p2p_cache_lock);
-//     }
-//     return &__p2p_cache;
-// }
-
-// p67_p2p_ctx_t *
-// p67_p2p_lookup(p67_addr_t * addr)
-// {
-//     p67_hashcntl_entry_t * e = p67_hashcntl_lookup(
-//         p2p_cache, (unsigned char *)&addr->sock, addr->socklen);
-//     if(!e) return NULL;
-//     return (p67_p2p_ctx_t *)e->value;
-// }
-
-// p67_p2p_ctx_t *
-// p67_p2p_cache_add(p67_conn_ctx_t * ctx)
-// {
-//     p67_hashcntl_entry_t * e = malloc(
-//         sizeof(p67_hashcntl_entry_t) +
-//         ctx->remote_addr->socklen + 
-//         sizeof(p67_p2p_ctx_t));
-
-//     e->key = (char *)e + sizeof(p67_hashcntl_entry_t);
-//     e->keyl = ctx->remote_addr->socklen;
-//     e->next = NULL;
-//     e->value = e->key + ctx->remote_addr->socklen;
-//     e->valuel = sizeof(p67_p2p_ctx_t);
-
-//     memcpy(e->key, &ctx->remote_addr->sock, e->keyl);
-
-//     p67_p2p_ctx_t * p2pctx = (p67_p2p_ctx_t *)e->value;
+void
+p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e)
+{
+    if(!e) return;
+    p67_p2p_ctx_t * p2p = (p67_p2p_ctx_t *)e->value;
     
-//     bzero(&p2pctx->conn_ctx, sizeof(p67_p2p_ctx_t));
+    //p67_thread_sm_t connect_sm;
+    //p67_pdp_keepalive_ctx_t keepalive_ctx;
 
-//     p2pctx->conn_ctx.local_addr = p67_addr_ref_cpy(ctx->local_addr);
-//     p2pctx->conn_ctx.remote_addr = p67_addr_ref_cpy(ctx->remote_addr);
-//     p2pctx->conn_ctx.certpath = malloc(strlen(ctx->certpath) + 1);
-//     p2pctx->conn_ctx.keypath = p67_cmn_strdup(ctx->keypath);
-//     p2pctx->conn_ctx.certpath = p67_cmn_strdup(ctx->certpath);
-//     p2pctx->keepalive_ctx.addr = p2pctx->conn_ctx.remote_addr;
-//     p2pctx->conn_ctx.cb = p67_dml_handle_msg;
-//     p2pctx->conn_ctx.args = e;
-//     p2pctx->conn_ctx.free_args = p67_p2p_free_conn_args;
+    p67_pdp_free_keepalive_ctx(&p2p->keepalive_ctx);
+    p67_net_connect_terminate(&p2p->connect_sm);
 
-//     if(!p2pctx->conn_ctx.keypath || 
-//             !p2pctx->conn_ctx.certpath ||
-//             !p2pctx->conn_ctx.local_addr || 
-//             !p2pctx->conn_ctx.remote_addr) {
-//         p67_p2p_cache_entry_free(e);
-//         return NULL;
-//     }
+    p67_addr_free(p2p->peer_addr);
+    
+    free(e);
+}
 
-//     if(p67_hashcntl_add(p2p_cache, e) != 0) {
-//         p67_p2p_cache_entry_free(e);
-//         return NULL;
-//     }
+p67_p2p_ctx_t *
+p67_p2p_cache_lookup(p67_addr_t * addr)
+{
+    p67_hashcntl_entry_t * e = p67_hashcntl_lookup(
+        p2p_cache, (unsigned char *)&addr->sock, addr->socklen);
+    if(!e) return NULL;
+    return (p67_p2p_ctx_t *)e->value;
+}
 
-//     return p2pctx;
-// }
+p67_err
+p67_p2p_cache_accept_by_name(
+    p67_addr_t * local_addr, 
+    p67_net_cred_t * cred,
+    p67_net_cb_ctx_t cb_ctx,
+    const char * name)
+{
+    assert(name);
+    
+    p67_err err;
 
-// p67_err
-// p67_p2p_start_connect(p67_p2p_ctx_t * ctx)
-// {
-//     p67_err err;
+    p67_p2p_ctx_t * ctx = p67_p2p_cache_find_by_name(name);
+    if(!ctx) return p67_err_enconn;
+    
+    err = p67_net_start_connect(
+        &ctx->connect_sm,
+        NULL, 
+        local_addr, 
+        ctx->peer_addr,
+        cred, 
+        cb_ctx, 
+        NULL);
+    if(err) return err;
 
-//     err = p67_conn_ctx_start_persist_connect(&ctx->conn_ctx);
-//     if(err) return err;
-//     err = p67_pdp_start_keepalive_loop(&ctx->keepalive_ctx);
-//     if(err) {
-//         p67_thread_sm_terminate(&ctx->conn_ctx.connect_tsm, 500);
-//         return err;
-//     }
+    err = p67_pdp_start_keepalive_loop(&ctx->keepalive_ctx);
 
-//     return 0;
-// }
+    return err;
+}
+
+/*
+    gotta be careful when using this function since its not thread safe.
+    if p2p_ctx gets disposed this may throw segv fault 
+*/
+p67_p2p_ctx_t *
+p67_p2p_cache_find_by_name(const char * name)
+{
+    int namel = strlen(name), i;
+    p67_hashcntl_entry_t * entry;
+    p67_p2p_ctx_t * ctx;
+
+    for(i = 0; i < p2p_cache->bufferl; i++) {
+        entry = p2p_cache->buffer[i];
+        do {
+            ctx = (p67_p2p_ctx_t *)entry->value;
+            if(namel == ctx->peer_usernamel 
+                    && memcmp(name, ctx->peer_username, namel) == 0) {
+                return ctx;
+            }
+            entry = entry->next;
+        } while((entry));  
+    }
+
+    return NULL;
+}
+
+p67_p2p_ctx_t *
+p67_p2p_cache_add(
+    p67_addr_t * remote_addr, 
+    const unsigned char * peer_username, 
+    int peer_usernamel)
+{
+    p67_hashcntl_entry_t * e = malloc(
+        sizeof(p67_hashcntl_entry_t) +
+        remote_addr->socklen + 
+        sizeof(p67_p2p_ctx_t) + 
+        peer_usernamel);
+
+    e->key = (unsigned char *)e + sizeof(p67_hashcntl_entry_t);
+    e->keyl = remote_addr->socklen;
+    e->next = NULL;
+    e->value = e->key + remote_addr->socklen;
+    e->valuel = sizeof(p67_p2p_ctx_t);
+
+    memcpy(e->key, &remote_addr->sock, remote_addr->socklen);
+
+    p67_p2p_ctx_t * p2pctx = (p67_p2p_ctx_t *)e->value;
+    
+    bzero(p2pctx, sizeof(p67_p2p_ctx_t));
+
+    p2pctx->peer_addr = p67_addr_ref_cpy(remote_addr);
+    p2pctx->state = P67_P2P_STATE_INCOMING;
+    p2pctx->peer_username = (char *)e->value + sizeof(p67_p2p_ctx_t);
+    p2pctx->keepalive_ctx.addr = p67_addr_ref_cpy(remote_addr);
+
+    if(peer_username)
+        memcpy(p2pctx->peer_username, peer_username, peer_usernamel);
+
+    if(p67_hashcntl_add(p2p_cache, e) != 0) {
+        p67_p2p_cache_entry_free(e);
+        return NULL;
+    }
+
+    return p2pctx;
+}

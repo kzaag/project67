@@ -224,6 +224,7 @@ P67_CMN_NO_PROTO_EXIT
         sess->refcount--;
         p67_spinlock_unlock(&sess->lock);
         p67_cmn_sleep_ms(10);
+        p67_hashcntl_free(sess->fwc);
         p67_db_ctx_free(sess->db);
         if(sess->username) {
             p67_hashcntl_remove_and_free(
@@ -231,7 +232,6 @@ P67_CMN_NO_PROTO_EXIT
                 sess->username, sess->usernamel);
             free(sess->username);
         }
-        p67_hashcntl_free(sess->fwc);
         free(sess);
         return;
     }
@@ -803,6 +803,7 @@ P67_CMN_NO_PROTO_EXIT
         return p67_err_epdpf;
 
     switch(h->cmn.cmn_stp) {
+    case P67_DML_STP_PDP_PACK:
     case P67_DML_STP_PDP_ACK:
         return p67_dml_handle_msg(addr, msg, msgl, NULL);
     case P67_DML_STP_PDP_URG:

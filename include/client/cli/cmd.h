@@ -7,6 +7,7 @@ typedef struct p67_cmd_ctx {
     p67_addr_t * local_addr;
     p67_addr_t * ws_remote_addr;
     p67_net_cred_t * cred;
+    p67_net_cb_ctx_t p2p_cb_ctx;
 
 } p67_cmd_ctx_t;
 

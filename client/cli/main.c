@@ -18,13 +18,16 @@ finish(
 P67_CMN_NO_PROTO_EXIT
     int sig)
 {
-    printf("Cleanup\n");
-    p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
-    p67_net_listen_terminate(&listen_sm);
-    p67_net_connect_terminate(&connect_sm);
-    p67_hashcntl_free(cmdbuf);
-    p67_cmd_ctx_free(&cmdctx);
-    p67_lib_free();
+    if(sig == SIGINT) {
+        p67_log("Cleanup\n");
+        p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
+        p67_net_listen_terminate(&listen_sm);
+        p67_net_connect_terminate(&connect_sm);
+        p67_hashcntl_free(cmdbuf);
+        p67_cmd_ctx_free(&cmdctx);
+        p67_lib_free();
+        exit(0);
+    }
     raise(sig);
 }
 
@@ -87,41 +90,21 @@ P67_CMN_NO_PROTO_EXIT
         src_addr->service,
         src_message);
 
-    if((err = p67_web_tlv_respond_with_status(
-            (p67_pdp_urg_hdr_t *)msg, server_addr, p67_web_status_ok)) != 0) {
+    if((err = p67_pdp_write_pack(server_addr, (p67_pdp_urg_hdr_t *)msg))) {
         p67_addr_free(src_addr);
         return err;
     }
 
-    // p67_conn_ctx_t peer_ctx = P67_CONN_CTX_INITIALIZER;
-    // peer_ctx.local_addr = cmdctx.ws_conn_ctx.local_addr;
-    // peer_ctx.remote_addr = src_addr;
-    // peer_ctx.keypath = cmdctx.ws_conn_ctx.keypath;
-    // peer_ctx.certpath = cmdctx.ws_conn_ctx.certpath;
-
-    // p67_p2p_ctx_t * pc = p67_p2p_cache_add(&peer_ctx);
-    // if(!pc) {
-    //     p67_addr_free(src_addr);
-    //     return p67_err_eerrno;
-    // }
-
-    // if((err = p67_p2p_start_connect(pc)) != 0) {
-    //     p67_addr_free(src_addr);
-    //     return err;
-    // }
+    if(!p67_p2p_cache_add(server_addr, (unsigned char *)src_username, strlen(src_username))) {
+        err = p67_err_einval;
+        p67_addr_free(src_addr);
+        return err;
+    }
 
     p67_addr_free(src_addr);
+    
     return 0;
-
-    //return p67_dml_handle_msg(server_addr, msg, msgl, NULL);
 }
-
-// p67_err
-// p2p_callback(
-//     p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
-// {
-
-// }
 
 P67_CMN_NO_PROTO_ENTER
 p67_err
@@ -161,12 +144,13 @@ main(int argc, char ** argv)
     }
 
     p67_lib_init();
+    signal(SIGINT, finish);
     p67_log_cb = p67_log_cb_terminal;
     
     p67_err err;
     
     p67_net_cred_t * cred 
-        = p67_net_cred_create("test/p2pcert", "test/p2pcert.cert");
+        = p67_net_cred_create("p2pcert", "p2pcert.cert");
     p67_net_cb_ctx_t cbctx = p67_net_cb_ctx_initializer(webserver_callback);
     p67_addr_t * local_addr = p67_addr_new_localhost4_udp(argv[1]);
     p67_addr_t * ws_addr = p67_addr_new_parse_str_udp(argv[2]);
@@ -189,7 +173,7 @@ main(int argc, char ** argv)
     cmdctx.local_addr = local_addr;
     cmdctx.ws_remote_addr = ws_addr;
 
-    if((err = p67_cert_trust_address(ws_addr, "test/p2pcert.cert")))
+    if((err = p67_cert_trust_address(ws_addr, "p2pcert.cert")))
         goto end;
 
     cmdbuf = p67_cmd_new();
@@ -197,8 +181,6 @@ main(int argc, char ** argv)
         err = p67_err_eerrno;
         goto end;
     }
-
-    signal(SIGINT, finish);
 
     char n[120];
     char ** _argv;
@@ -285,6 +267,5 @@ main(int argc, char ** argv)
 
 end:
     if(err != 0) p67_err_print_err("Main: ", err);
-    p67_lib_free();
-    if(err == 0) return 0; else return 2;
+    raise(SIGINT);
 }

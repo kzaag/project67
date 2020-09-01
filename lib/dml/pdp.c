@@ -491,3 +491,16 @@ p67_pdp_start_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx)
     return p67_thread_sm_start(
         &ctx->th, __p67_pdp_run_keepalive_loop, ctx);
 }
+
+p67_err
+p67_pdp_write_pack(
+    const p67_addr_t * addr, const p67_pdp_urg_hdr_t * const urg_hdr)
+{
+    p67_pdp_ack_hdr_t pack_hdr;
+    pack_hdr.ack_mid = urg_hdr->urg_mid;
+    pack_hdr.ack_stp = P67_DML_STP_PDP_PACK;
+    pack_hdr.ack_utp = urg_hdr->urg_utp;
+
+    return p67_net_write_msg(
+            addr, (p67_pckt_t *)&pack_hdr, sizeof(pack_hdr));
+}

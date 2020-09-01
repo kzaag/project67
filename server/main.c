@@ -46,7 +46,11 @@ main(void)
     }
 
     p67_net_cred_t * cred 
-        = p67_net_cred_create("test/p2pcert", "test/p2pcert.cert");
+        = p67_net_cred_create("p2pcert", "p2pcert.cert");
+    if(!cred) {
+        p67_log("Couldnt create cred.\n");
+        exit(2);
+    }
 
     p67_addr_t * local_addr = p67_addr_new_localhost4_udp("10000");
     if(!local_addr) {
