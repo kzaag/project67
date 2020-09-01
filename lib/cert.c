@@ -317,6 +317,7 @@ p67_cert_trust_address(p67_addr_t * addr, const char * path)
             return p67_err_eaconn;
         }
 
+        EVP_PKEY_free(pubk);
         break;
     }
 

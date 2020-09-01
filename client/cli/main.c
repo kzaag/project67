@@ -162,12 +162,15 @@ main(int argc, char ** argv)
 
     if((err = p67_net_start_listen(&listen_sm, local_addr, cred, cbctx, NULL)))
         goto end;
+
+
     if((err = p67_net_start_connect(
             &connect_sm, NULL, local_addr, ws_addr, cred, cbctx, NULL)))
         goto end;
     
     ws_keepalive_ctx.addr = p67_addr_ref_cpy(ws_addr);
     if((err = p67_pdp_start_keepalive_loop(&ws_keepalive_ctx)) != 0) goto end;
+
 
     cmdctx.cred = cred;
     cmdctx.local_addr = local_addr;

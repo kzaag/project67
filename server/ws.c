@@ -111,8 +111,9 @@ P67_CMN_NO_PROTO_EXIT
     p67_hashcntl_entry_t * e)
 {
     p67_ws_session_fwc_entry_t * fwc = (p67_ws_session_fwc_entry_t *)e;
-    if(fwc->tsm->state == P67_THREAD_SM_STATE_RUNNING)
-        p67_thread_sm_terminate(fwc->tsm, 500);
+    //if(fwc->tsm->state == P67_THREAD_SM_STATE_RUNNING)
+    p67_thread_sm_terminate(fwc->tsm, 10);
+    printf("killing call\n");
     free(e);
 }
 
@@ -191,19 +192,19 @@ P67_CMN_NO_PROTO_EXIT
     return p;
 }
 
-P67_CMN_NO_PROTO_ENTER
-p67_ws_session_t *
-p67_ws_session_refcpy(
-P67_CMN_NO_PROTO_EXIT
-    p67_ws_session_t * session)
-{
-    if(!session) return NULL;
-    p67_spinlock_lock(&session->lock);
-    if(session->refcount < 1) return NULL;
-    session->refcount++;
-    p67_spinlock_unlock(&session->lock);
-    return session;
-}
+// P67_CMN_NO_PROTO_ENTER
+// p67_ws_session_t *
+// p67_ws_session_refcpy(
+// P67_CMN_NO_PROTO_EXIT
+//     p67_ws_session_t * session)
+// {
+//     if(!session) return NULL;
+//     p67_spinlock_lock(&session->lock);
+//     if(session->refcount < 1) return NULL;
+//     session->refcount++;
+//     p67_spinlock_unlock(&session->lock);
+//     return session;
+// }
 
 P67_CMN_NO_PROTO_ENTER
 void p67_ws_session_free(
@@ -213,30 +214,40 @@ P67_CMN_NO_PROTO_EXIT
     if(!arg) return;
     p67_ws_session_t * sess = (p67_ws_session_t *)arg;
     
-    p67_spinlock_lock(&sess->lock);
+    // p67_spinlock_lock(&sess->lock);
 
-    if(sess->refcount < 1) {
-        p67_log_debug("Warn: tried to free session with refcount < 1.\n");
-        return;
-    } else if (sess->refcount > 1) {
-        sess->refcount--;
-    } else {
-        sess->refcount--;
-        p67_spinlock_unlock(&sess->lock);
-        p67_cmn_sleep_ms(10);
-        p67_hashcntl_free(sess->fwc);
-        p67_db_ctx_free(sess->db);
-        if(sess->username) {
-            p67_hashcntl_remove_and_free(
-                sess->server_ctx->user_nchix, 
-                sess->username, sess->usernamel);
-            free(sess->username);
-        }
-        free(sess);
-        return;
-    }
+    // if(sess->refcount < 1) {
+    //     p67_log_debug("Warn: tried to free session with refcount < 1.\n");
+    //     return;
+    // } else if (sess->refcount > 1) {
+    //     sess->refcount--;
+    // } else {
+    //     sess->refcount--;
+    //     p67_spinlock_unlock(&sess->lock);
+    //     p67_cmn_sleep_ms(10);
+    //     p67_hashcntl_free(sess->fwc);
+    //     p67_db_ctx_free(sess->db);
+    //     if(sess->username) {
+    //         p67_hashcntl_remove_and_free(
+    //             sess->server_ctx->user_nchix, 
+    //             sess->username, sess->usernamel);
+    //         free(sess->username);
+    //     }
+    //     free(sess);
+    //     return;
+    // }
     
-    p67_spinlock_unlock(&sess->lock);
+    // p67_spinlock_unlock(&sess->lock);
+
+    p67_hashcntl_free(sess->fwc);
+    p67_db_ctx_free(sess->db);
+    if(sess->username) {
+        p67_hashcntl_remove_and_free(
+            sess->server_ctx->user_nchix, 
+            sess->username, sess->usernamel);
+        free(sess->username);
+    }
+    free(sess);
 }
 
 typedef struct p67_handle_call_ctx {
@@ -269,16 +280,16 @@ p67_handle_call_ctx_free(
 P67_CMN_NO_PROTO_EXIT
     p67_handle_call_ctx_t * ctx)
 {
-        p67_err err = 0;
-        err |= p67_hashcntl_remove_and_free(
-            ctx->session->fwc, 
-            (unsigned char *)&ctx->dst_addr->sock, 
-            ctx->dst_addr->socklen);
-        p67_addr_free(ctx->dst_addr);
-        p67_addr_free(ctx->src_addr);
-        p67_ws_session_free(ctx->session);
-        free(ctx);
-        return err;
+    p67_err err = 0;
+    err |= p67_hashcntl_remove_and_free(
+        ctx->session->fwc, 
+        (unsigned char *)&ctx->dst_addr->sock, 
+        ctx->dst_addr->socklen);
+    p67_addr_free(ctx->dst_addr);
+    p67_addr_free(ctx->src_addr);
+    ///p67_ws_session_free(ctx->session);
+    free(ctx);
+    return err;
 }
 
 
@@ -666,7 +677,8 @@ P67_CMN_NO_PROTO_EXIT
 
     ctx->src_addr = p67_addr_ref_cpy(addr);
     ctx->dst_addr = p67_addr_ref_cpy((p67_addr_t*)requested_user->value);
-    ctx->session = p67_ws_session_refcpy(sess);
+    //ctx->session = p67_ws_session_refcpy(sess);
+    ctx->session = sess;
 
     if(!ctx->src_addr || !ctx->dst_addr || !ctx->session) {
         p67_addr_free(ctx->src_addr);

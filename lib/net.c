@@ -282,7 +282,7 @@ __p67_node_free(p67_hashcntl_entry_t * ptr)
     if(node == NULL) return;
 
     p67_addr_free(node->trusted_addr);
-    free(node->trusted_pub_key);
+    //free(node->trusted_pub_key);
 
     if(node->heap_alloc)
         free(node);
@@ -1216,6 +1216,8 @@ void
 p67_conn_shutdown_all(void)
 {
     p67_hashcntl_t * ctx = p67_conn_cache();
+    p67_hashcntl_free(ctx);
+    ctx = p67_node_cache();
     p67_hashcntl_free(ctx);
 }
 

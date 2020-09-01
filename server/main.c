@@ -20,8 +20,15 @@ P67_CMN_NO_PROTO_EXIT
 
         if(main_initialized) {
             p67_net_listen_terminate(&listener);
-            p67_hashcntl_free(main_wsctx.user_nchix);
+            /* 
+                first one has to free library ( and dispose sessions )
+                then free user index. 
+                Sessions use user index during cleanup
+                TODO: to fix this neccesity one could use refcounting and make refcpys
+                of user index for each session.
+            */
             p67_lib_free();
+            p67_hashcntl_free(main_wsctx.user_nchix);
         }
 
         exit(0);
