@@ -113,7 +113,6 @@ P67_CMN_NO_PROTO_EXIT
     p67_ws_session_fwc_entry_t * fwc = (p67_ws_session_fwc_entry_t *)e;
     //if(fwc->tsm->state == P67_THREAD_SM_STATE_RUNNING)
     p67_thread_sm_terminate(fwc->tsm, 10);
-    printf("killing call\n");
     free(e);
 }
 
