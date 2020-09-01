@@ -1,5 +1,6 @@
-distributed p2p communication platform supporting 
-    reliable file transfers, audio, reliable text messaging.
+distributed p2p communication platform targetting 
+    reliable file transfers, messaging, audio and video
+as one cross platform solution 
 
 dependencies:
     openssl 1.1.1d or later

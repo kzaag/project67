@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 WD=`realpath $0 | xargs dirname`/;
 
