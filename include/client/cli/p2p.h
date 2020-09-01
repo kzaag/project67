@@ -10,6 +10,22 @@
 
 typedef struct p67_p2p_ctx p67_p2p_ctx_t;
 
+#define P67_P2P_STATE_INCOMING 1
+#define P67_P2P_STATE_ESTABL   2
+
+struct p67_p2p_ctx {
+    //p67_conn_ctx_t conn_ctx;
+    //p67_pdp_keepalive_ctx_t keepalive_ctx;
+    p67_addr_t * peer_addr;
+    char * peer_username;
+    int peer_usernamel;
+
+    p67_thread_sm_t connect_sm;
+    p67_pdp_keepalive_ctx_t keepalive_ctx;
+
+    int state;
+};
+
 void
 p67_p2p_cache_free(void);
 
@@ -28,5 +44,19 @@ p67_p2p_cache_accept_by_name(
     p67_net_cred_t * cred,
     p67_net_cb_ctx_t cb_ctx,
     const char * name);
+
+// O(1)
+p67_p2p_ctx_t *
+p67_p2p_cache_lookup(p67_addr_t * addr);
+
+// O(N)
+// index is not neccessary since N is small
+p67_p2p_ctx_t *
+p67_p2p_cache_find_by_name(const char * name);
+
+static p67_hashcntl_t *
+__get_p2p_cache(void);
+
+#define p2p_cache (__get_p2p_cache())
 
 #endif

@@ -534,7 +534,7 @@ P67_CMN_NO_PROTO_EXIT
     msgbufix+=err;
     err = 0;
     // now endiannes can be reversed to host 
-    // since status hasbeen written into response.
+    // since status has been written into response.
     dst_status = p67_cmn_ntohs(dst_status);
 
     /* 
@@ -696,13 +696,18 @@ P67_CMN_NO_PROTO_EXIT
             (p67_pdp_urg_hdr_t *)msg, addr, p67_web_status_bad_request);
     }
 
-    if((err = p67_cmn_thread_create(
-                &callthr->thr, p67_ws_handle_call, ctx)) != 0) {
+    err = p67_thread_sm_start(callthr, p67_ws_handle_call, ctx);
+    if(err) {
         err |= p67_handle_call_ctx_free(ctx);
-        return err;
     }
+    return err;
 
-    return 0;
+    // if((err = p67_cmn_thread_create(
+    //             &callthr->thr, p67_ws_handle_call, ctx)) != 0) {
+    //     err |= p67_handle_call_ctx_free(ctx);
+    //     return err;
+    // }
+    //return 0;
 }
 
 P67_CMN_NO_PROTO_ENTER

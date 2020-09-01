@@ -1,0 +1,5 @@
+[ ] in server/ws.c p67_fwc_entry_free will terminate ongoing call proxy thread
+    without any questions asked. That will cause memory leaks ( context )
+    either take care of freeing context by placing it in fwc entry , 
+    or figure better way of terminating forward call thread. 
+    ( maybe refcounting with signalling? )

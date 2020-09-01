@@ -8,37 +8,8 @@
 static p67_hashcntl_t * __p2p_cache = NULL;
 static p67_async_t p2p_cache_lock = P67_ASYNC_INTIIALIZER;
 
-#define P67_P2P_STATE_INCOMING 1
-#define P67_P2P_STATE_ESTABL   2
-
-struct p67_p2p_ctx {
-    //p67_conn_ctx_t conn_ctx;
-    //p67_pdp_keepalive_ctx_t keepalive_ctx;
-    p67_addr_t * peer_addr;
-    char * peer_username;
-    int peer_usernamel;
-
-    p67_thread_sm_t connect_sm;
-    p67_pdp_keepalive_ctx_t keepalive_ctx;
-
-    int state;
-    
-};
-
-// O(1)
-p67_p2p_ctx_t *
-p67_p2p_cache_lookup(p67_addr_t * addr);
-
-// O(N)
-// index is not neccessary since N is small
-p67_p2p_ctx_t *
-p67_p2p_cache_find_by_name(const char * name);
-
-P67_CMN_NO_PROTO_ENTER
 static p67_hashcntl_t *
-__get_p2p_cache(
-P67_CMN_NO_PROTO_EXIT
-    void) {
+__get_p2p_cache(void) {
     if(!__p2p_cache) {
         p67_spinlock_lock(&p2p_cache_lock);
         if(!__p2p_cache) {
@@ -53,8 +24,6 @@ P67_CMN_NO_PROTO_EXIT
 
     return __p2p_cache;
 }
-
-#define p2p_cache (__get_p2p_cache())
 
 void
 p67_p2p_cache_free(void)
