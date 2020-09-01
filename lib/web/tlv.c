@@ -1,5 +1,10 @@
-#include "tlv.h"
-#include "../net.h"
+#include "web/tlv.h"
+#include "net.h"
+
+struct p67_web_tlv_status_fragment {
+    p67_tlv_header_fields()
+    p67_web_status status;
+} p67_web_tlv_status_fragment_t;
 
 /*
     generate ack message and write status_fragment fragment into it

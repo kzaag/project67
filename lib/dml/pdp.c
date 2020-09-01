@@ -1,9 +1,8 @@
 
-#include "../log.h"
-
-#include "pdp.h"
-#include "dml.h"
-#include "../net.h"
+#include "log.h"
+#include "dml/pdp.h"
+#include "dml/dml.h"
+#include "net.h"
 
 #include <string.h>
 #include <assert.h>

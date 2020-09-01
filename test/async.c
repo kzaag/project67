@@ -1,23 +1,27 @@
 #include <stdio.h>
-#include <p67/async.h>
-#include <p67/cmn.h>
 #include <stdlib.h>
+
+#include "async.h"
+#include "cmn.h"
 
 static p67_async_t lock = P67_ASYNC_INTIIALIZER;
 const size_t tc = 1000;
-size_t atc = tc;
-int intervalms = 1;
+static size_t atc = tc;
+const int intervalms = 1;
 static p67_async_t state = 0;
 
-void *
-sync_printf(void * args)
+P67_CMN_NO_PROTO_ENTER
+static void *
+sync_printf(
+P67_CMN_NO_PROTO_EXIT
+    void * args)
 {
     if(p67_mutex_lock(&lock) != 0) {
         p67_err_print_err("during lock: ", p67_err_eerrno);
         exit(2);
     }
  
-    int id = *(int *)args;
+    //int id = *(int *)args;
 
     p67_cmn_sleep_ms(intervalms);
     //printf("%d says hi%d\n", id);
@@ -25,6 +29,8 @@ sync_printf(void * args)
         p67_mutex_set_state(&state, 0, 1);
 
     p67_mutex_unlock(&lock);
+
+    return NULL;
 }
 
 /*
@@ -36,7 +42,7 @@ sync_printf(void * args)
         then test fails
 */
 int
-main()
+main(void)
 {
     p67_thread_t thr;
     int ids[tc];

@@ -14,11 +14,6 @@
 
 #define P67_WEB_TLV_STATUS_BUFFL (P67_WEB_STATUS_STR_BUFFL + 16)
 
-struct p67_web_tlv_status_fragment {
-    p67_tlv_header_fields()
-    p67_web_status status;
-} p67_web_tlv_status_fragment_t;
-
 #define p67_web_tlv_add_status_fragment(msg, msgl, status) \
     p67_tlv_add_fragment(                                 \
         msg, msgl,                                  \

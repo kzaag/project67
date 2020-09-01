@@ -1,8 +1,10 @@
-#include <p67/p67.h>
 #include <stdlib.h>
 #include <alloca.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <signal.h>
+
+#include "p67.h"
 
 /*
     core networking integration testing
@@ -41,7 +43,7 @@ main(int argc, char ** argv)
     signal(SIGINT, finish);
     
     if(argc < 3) {
-        printf("Usage: ./%s [source port] [dest addr]\n", argv[0]);
+        printf("Usage: %s [source port] [dest addr]\n", argv[0]);
         return 2;
     }
 
@@ -79,7 +81,7 @@ main(int argc, char ** argv)
 
     /* switch to terminal logging style */
     p67_log_cb = p67_log_cb_terminal;
-    char buff[64];
+    unsigned char buff[64];
     int ix = 0;
     while(1) {
         do {

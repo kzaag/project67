@@ -1,8 +1,9 @@
-#include <p67/p67.h>
 #include <stdlib.h>
 #include <alloca.h>
 #include <unistd.h>
 #include <fcntl.h>
+
+#include "p67.h"
 
 /*
     communication with N hosts.
@@ -123,7 +124,7 @@ int
 main(int argc, char ** argv)
 {
     if(argc < 2) {
-        printf("Usage: ./%s [source port]\n", argv[0]);
+        printf("Usage: %s [source port]\n", argv[0]);
         return 2;
     }
 
@@ -131,7 +132,7 @@ main(int argc, char ** argv)
     p67_log_cb = p67_log_cb_terminal;
     signal(SIGINT, finish);
 
-    char b[32];
+    //char b[32];
     p67_err err = p67_err_eerrno;
     p67_hashcntl_t * nodes = p67_node_cache();
     p67_hashcntl_entry_t * entry;
@@ -139,7 +140,7 @@ main(int argc, char ** argv)
     int i;
     
     const int __buffl = 72;
-    char __buff[__buffl];
+    unsigned char __buff[__buffl];
     /* 
         have some space allocated on the left side of buffer
         so we can write network header into it 
@@ -147,7 +148,7 @@ main(int argc, char ** argv)
     */
     const int noffset = sizeof(p67_pdp_urg_hdr_t);
     const int buffl = __buffl - noffset;
-    char * buff = __buff + noffset;
+    unsigned char * buff = __buff + noffset;
     int ix = 0;
 
     if((err = init_listener(argv[1]))) goto end;
@@ -165,7 +166,7 @@ main(int argc, char ** argv)
             case ':':
                 /* command mode */
                 if(ix > 3 && buff[1] == 'c' && buff[2] == ' ') {
-                    if((err = add_peer(buff+3))) {
+                    if((err = add_peer((char *)buff+3))) {
                         p67_err_print_err("Couldnt add connection: ", err);
                     }
                 } else {

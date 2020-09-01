@@ -1,7 +1,8 @@
-#include <p67/p67.h>
 #include <stdlib.h>
 #include <alloca.h>
 #include <string.h>
+
+#include "p67.h"
 
 static p67_err
 process_message(p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
@@ -77,13 +78,13 @@ main(int argc, const char ** argv)
     p67_net_connect_sig_wait_for_connect(connect_sig);
     
     p67_async_t psig = 0, psig2 = 0;
-    char payload[] = "hello";
-    char payload2[] = "world";
+    p67_pckt_t payload[] = "hello";
+    p67_pckt_t payload2[] = "world";
     p67_pdp_ack_hdr_t ack, ack2;
     int ackix = sizeof(p67_pdp_ack_hdr_t), ackix2 = sizeof(p67_pdp_ack_hdr_t);
     char errbuff[32];
 
-    char msg[sizeof(p67_pdp_urg_hdr_t) + sizeof(payload)];
+    p67_pckt_t msg[sizeof(p67_pdp_urg_hdr_t) + sizeof(payload)];
 
     const int ccount = 10000;
     int count = ccount;
