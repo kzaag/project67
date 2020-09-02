@@ -3,12 +3,10 @@
 
 #include <client/cli/p2p.h>
 
-#include <p67/dml/pdp.h>
-
 static p67_hashcntl_t * __p2p_cache = NULL;
 static p67_async_t p2p_cache_lock = P67_ASYNC_INTIIALIZER;
 
-static p67_hashcntl_t *
+p67_hashcntl_t *
 __get_p2p_cache(void) {
     if(!__p2p_cache) {
         p67_spinlock_lock(&p2p_cache_lock);
