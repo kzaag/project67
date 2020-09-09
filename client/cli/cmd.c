@@ -44,12 +44,16 @@ P67_CMN_NO_PROTO_EXIT
     free(e);
 }
 
+static char __cmds[4096];
+static int __cmdix = 0;
+
 P67_CMN_NO_PROTO_ENTER
 p67_err
 p67_cmd_add(
 P67_CMN_NO_PROTO_EXIT
     p67_hashcntl_t * ctx, char * name, p67_cmd_hndl hndl)
 {
+    p67_err err;
     int namelen = strlen(name);
     p67_hashcntl_entry_t * entry = malloc(
         sizeof(p67_hashcntl_entry_t) + 
@@ -66,7 +70,60 @@ P67_CMN_NO_PROTO_EXIT
     entry->valuel = 0;
     struct p67_cmd_entry_handler * eh = (struct p67_cmd_entry_handler *)entry->value;
     eh->handler = hndl;
-    return p67_hashcntl_add(ctx, entry);
+    err = p67_hashcntl_add(ctx, entry);
+    if(err != 0) return err;
+    if((sizeof(__cmds) - __cmdix) > strlen(name))
+        __cmdix += snprintf(__cmds+__cmdix, sizeof(__cmds)-__cmdix, "%s ", name);
+    return err;
+}
+
+P67_CMN_NO_PROTO_ENTER
+int
+p67_cmd_call_list(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argvs)
+{
+    p67_hashcntl_t * hc = p2p_cache;
+    if(!hc)
+        return -1;
+    p67_hashcntl_entry_t ** e, * ne;
+    p67_p2p_ctx_t * peer;
+
+    for(e = hc->buffer; e < hc->buffer + hc->bufferl; e++) {
+        ne = *e;
+        if(!ne) continue;
+        do {
+            peer = (p67_p2p_ctx_t *)ne->value;
+            printf("username=%.*s addr=%s:%s\n", 
+                peer->peer_usernamel, peer->peer_username,
+                peer->peer_addr->hostname, peer->peer_addr->service);
+            ne=ne->next;
+        } while((ne));
+    }
+
+    return 0;
+}
+
+P67_CMN_NO_PROTO_ENTER
+int
+p67_cmd_call_accept(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argvs)
+{
+    if(argc < 2) {
+        printf("Must provide call target name ( see call_list to get pending )");
+        return -p67_err_einval;
+    }
+
+    p67_err err;
+
+    if((err = p67_p2p_cache_accept_by_name(
+            ctx->local_addr, ctx->cred, ctx->p2p_cb_ctx, argvs[1]))) {
+        p67_err_print_err("couldnt accept call: ", err);
+        return -err;
+    }
+
+    return 0;
 }
 
 P67_CMN_NO_PROTO_ENTER
@@ -348,7 +405,7 @@ p67_cmd_help(
 P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
-    printf("?, help, echo, exit, call, login\n");
+    printf("%s\n", __cmds);
     return 0;
 }
 
@@ -365,6 +422,8 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "exit", p67_cmd_exit)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "call", p67_cmd_call)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "login", p67_cmd_login)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "clist", p67_cmd_call_list)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "caccept", p67_cmd_call_accept)) != 0) return NULL;
 
     return ret;
 }

@@ -95,10 +95,12 @@ P67_CMN_NO_PROTO_EXIT
         return err;
     }
 
-    if(!p67_p2p_cache_add(server_addr, (unsigned char *)src_username, strlen(src_username))) {
-        err = p67_err_einval;
-        p67_addr_free(src_addr);
-        return err;
+    if(!p67_p2p_cache_add(
+            src_addr, (unsigned char *)src_username, strlen(src_username))) {
+        // ignore on fail ( already called )
+        // err = p67_err_einval;
+        // p67_addr_free(src_addr);
+        // return err;
     }
 
     p67_addr_free(src_addr);
@@ -160,9 +162,9 @@ main(int argc, char ** argv)
         goto end;
     }
 
+#warning TODO: finish proper accept for p2p
     if((err = p67_net_start_listen(&listen_sm, local_addr, cred, cbctx, NULL)))
         goto end;
-
 
     if((err = p67_net_start_connect(
             &connect_sm, NULL, local_addr, ws_addr, cred, cbctx, NULL)))

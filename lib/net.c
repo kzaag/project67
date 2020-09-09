@@ -333,10 +333,12 @@ P67_CMN_NO_PROTO_EXIT
 
     generated_args = NULL;
 
-    if(cb_ctx.gen_args)
+    if(cb_ctx.gen_args) {
         generated_args = cb_ctx.gen_args(cb_ctx.args);
-    else
+    }
+    else {
         generated_args = cb_ctx.args;
+    }
 
     ret->args = generated_args;
     ret->callback = cb_ctx.cb;
@@ -1384,6 +1386,7 @@ p67_net_listen(
         
         if(err != 0) {
             SSL_free(ssl);
+            ssl = NULL;
         }
 
         p67_addr_free(raddr);
@@ -1417,8 +1420,8 @@ p67_net_listen_ctx_free(
 P67_CMN_NO_PROTO_EXIT
     p67_net_listen_ctx_t * ctx)
 {
+    //p67_net_listen_terminate(ctx->thread_ctx);
     p67_timeout_free(ctx->conn_timeout_ctx);
-    p67_net_listen_terminate(ctx->thread_ctx);
     p67_net_cred_free(ctx->cred);
     p67_addr_free(ctx->local_addr);
     free(ctx);
@@ -1497,7 +1500,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_net_connect_ctx_t * ctx)
 {
     p67_timeout_free(ctx->conn_timeout_ctx);
-    p67_net_connect_terminate(ctx->thread_ctx);
+    //p67_net_connect_terminate(ctx->thread_ctx);
     p67_net_cred_free(ctx->cred);
     p67_addr_free(ctx->local_addr);
     p67_addr_free(ctx->remote_addr);

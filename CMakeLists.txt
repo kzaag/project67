@@ -84,6 +84,12 @@ set_property(
     SOURCE ${wssrc}
     APPEND PROPERTY OBJECT_DEPENDS ddl main.conf.e)
 
+add_custom_command(
+    TARGET server POST_BUILD
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/dbconfig
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin
+    COMMENT "writing database config")
+
 install(TARGETS p67 LIBRARY DESTINATION lib)
 install(DIRECTORY include/p67/ DESTINATION include/p67
         FILES_MATCHING PATTERN "*.h")

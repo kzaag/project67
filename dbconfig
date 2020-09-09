@@ -1,0 +1,25 @@
+#!/bin/bash
+
+set -e;
+
+if `stat main.conf >/dev/null 2>&1`; then
+    exit 0;
+fi
+
+read -p "server (empty for localhost): " conf_server;
+read -p "database: " conf_database;
+echo -n "password: "
+read -s conf_password
+echo
+read -p "user: " conf_user;
+
+if [ -z $conf_server ]; then
+    conf_server="127.0.0.1";
+fi
+
+cp main.conf.e main.conf;
+
+sed -i "s/??1??/$conf_server/g" main.conf;
+sed -i "s/??2??/$conf_database/g" main.conf;
+sed -i "s/??3??/$conf_password/g" main.conf;
+sed -i "s/??4??/$conf_user/g" main.conf;

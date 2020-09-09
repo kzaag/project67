@@ -29,6 +29,9 @@ p67_db_ctx_create_from_dp_config(
     p67_db_ctx_t ** ctx, const char * config_path);
 
 void
+p67_db_free(void);
+
+void
 p67_db_ctx_free(p67_db_ctx_t * ctx);
 
 char *

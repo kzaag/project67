@@ -63,9 +63,10 @@ p67_err_print_err(const char * hdr, p67_err err)
     if(err & p67_err_eaudio) {
         if(p67_audio_err != 0) {
             p67_errlog("%s%s\n", hdr, p67_audio_strerror());
-        } else {
-            p67_errlog("%sUnkown audio error\n", hdr);
-        }
+        } 
+        // else {
+        //     p67_errlog("%sUnkown audio error\n", hdr);
+        // }
     }
 
     if(err & p67_err_epipe) {
@@ -83,9 +84,10 @@ p67_err_print_err(const char * hdr, p67_err err)
     if(err & p67_err_eacodecs) {
         if(p67_audio_codecs_err != 0) {
             p67_errlog("%s%s\n", hdr, opus_strerror(p67_audio_codecs_err));
-        } else {
-            p67_errlog("%sUnkown audio codecs error\n", hdr);
-        }
+        } 
+        // else {
+        //     p67_errlog("%sUnkown audio codecs error\n", hdr);
+        // }
     }
 
     if(err & p67_err_etlvf) {

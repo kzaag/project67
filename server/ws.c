@@ -163,23 +163,26 @@ P67_CMN_NO_PROTO_EXIT
 {
     if(!args) return NULL;
 
+    p67_ws_err err;
     p67_ws_ctx_t * server = (p67_ws_ctx_t *)args;
-    
     p67_ws_session_t * p = calloc(1, sizeof(p67_ws_session_t));
+    
     if(p == NULL) {
         p67_err_print_err("Couldnt create client session: ", p67_err_eerrno);
         return NULL;
     }
-    p67_ws_err err;
+    
     if((err = p67_db_ctx_create_from_dp_config(&p->db, NULL)) != 0) {
-        p->db = NULL;
-        p67_err_print_err("Couldnt create db connection for client: ", p67_err_eerrno);
+        free(p);
+        p67_ws_err_print_err("Couldnt create db connection for client: ", err);
         return NULL;
     }
     
     p->fwc = p67_hashcntl_new(
         P67_WS_DEFAULT_FWC_CAPACITY, p67_fwc_entry_free, NULL);
     if(!p->fwc) {
+        p67_db_ctx_free(p->db);
+        free(p);
         p67_err_print_err("Couldnt create client session: ", p67_err_eerrno);
         return NULL;
     }

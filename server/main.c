@@ -16,6 +16,8 @@ main_finish(
 P67_CMN_NO_PROTO_EXIT
     int sig)
 {
+    printf("Graceful exit\n");
+
     if(sig == SIGINT) {
 
         if(main_initialized) {
@@ -29,6 +31,7 @@ P67_CMN_NO_PROTO_EXIT
             */
             p67_lib_free();
             p67_hashcntl_free(main_wsctx.user_nchix);
+            p67_db_free();
         }
 
         exit(0);

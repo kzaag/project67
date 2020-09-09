@@ -10,8 +10,17 @@
 #include <openssl/rand.h>
 
 #include <server/db.h>
+#include <p67/cmn.h>
+#include <p67/async.h>
 
-static char * errstr = NULL; 
+p67_async_t __errstr_lock = P67_XLOCK_STATE_UNLOCKED;
+static char * __errstr = NULL; 
+
+void
+p67_db_free(void)
+{
+    free(__errstr);
+}
 
 struct p67_db_ctx {
     PGconn * conn;
@@ -29,13 +38,16 @@ p67rs_parse_cs(const char * path, char ** cs, int * len);
 void
 p67_db_err_set(PGconn * conn)
 {
-    errstr = PQerrorMessage(conn);
+    p67_spinlock_lock(&__errstr_lock);
+    if(__errstr) free(__errstr);
+    __errstr = p67_cmn_strdup(PQerrorMessage(conn));
+    p67_spinlock_unlock(&__errstr_lock);
 }
 
 char *
 p67_db_err_get(void)
 {
-    return errstr;
+    return __errstr;
 }
 
 p67_err
@@ -174,6 +186,7 @@ p67_db_ctx_create_from_dp_config(p67_db_ctx_t ** ctx, const char * config_path)
     if(PQstatus((*ctx)->conn) != CONNECTION_OK) {
         err = p67_ws_err_pq;
         p67_db_err_set((*ctx)->conn);
+        PQfinish((*ctx)->conn);
         goto end;
     }
 

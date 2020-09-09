@@ -1,7 +1,6 @@
 #if !defined(P67_QDP_H)
 #define P67_QDP_H 1
 
-#include "../sfd.h"
 #include "../err.h"
 #include "../net.h"
 #include "base.h"
@@ -48,7 +47,11 @@ struct p67_qdp_ctx {
     p67_qdp_inode_t * q_inodes; // [q_size]
     p67_pckt_t      * q_chunks; // [q_size][q_chunk_size]
 
+    p67_cmn_refcount_fields(q_)
 };
+
+p67_qdp_ctx_t *
+p67_qdp_refcpy(p67_qdp_ctx_t * c);
 
 int
 p67_qdp_space_taken(p67_qdp_ctx_t * s);

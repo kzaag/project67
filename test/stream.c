@@ -5,7 +5,8 @@
 p67_addr_t * remote_addr = NULL;
 static p67_thread_sm_t 
     connect_sm = P67_THREAD_SM_INITIALIZER, 
-    listen_sm = P67_THREAD_SM_INITIALIZER;
+    listen_sm = P67_THREAD_SM_INITIALIZER,
+    audio_sm = P67_THREAD_SM_INITIALIZER;
 p67_async_t connect_sig = P67_NET_CONNECT_SIG_UNSPEC;
 p67_qdp_ctx_t * qdp = NULL;
 
@@ -13,10 +14,9 @@ static void
 finish(int a)
 {
     printf("Graceful exit\n");
-    p67_qdp_free(qdp);
+    p67_audio_rw_terminate(&audio_sm);
     p67_net_listen_terminate(&listen_sm);
     p67_net_connect_terminate(&connect_sm);
-    p67_addr_free(remote_addr);
     p67_lib_free();
     if(a != SIGINT) {
         raise(a);
@@ -67,32 +67,42 @@ int main(int argc, const char ** argv)
     p67_lib_init();
     signal(SIGINT, finish);
 
+    p67_audio_t * audio;
     p67_err err;
     const uint8_t utp = 3;
 
-    if((err = p67_qdp_create(&qdp)))
+    if((err = p67_qdp_create(&qdp))) {
         goto end;
+    }
 
-    if((err = do_connect_and_listen(argc, argv)))
+    if((err = do_connect_and_listen(argc, argv))) {
         goto end;
+    }
 
     p67_net_connect_sig_wait_for_connect(connect_sig);
 
     if(argc > 3) {
         // send stream
-        p67_audio_t stream = P67_AUDIO_INITIALIZER_I;
-        if((err = p67_audio_create_io(&stream)) != 0) goto end;
-        p67_audio_codecs_t codecs = P67_AUDIO_CODECS_INITIALIZER_AUDIO(stream);
-        if((err = p67_audio_codecs_create(&codecs)) != 0) goto end;
-        err = p67_audio_write_qdp(remote_addr, &stream, &codecs, utp);
+        audio = p67_audio_create_i(NULL, NULL);
+        if(!audio) {
+            err = p67_audio_err_mask;
+            goto end;
+        }
+        err = p67_audio_start_write_qdp(&audio_sm, remote_addr, audio ,utp);
     } else {
         // receive stream
-        p67_audio_t stream = P67_AUDIO_INITIALIZER_O;
-        if((err = p67_audio_create_io(&stream)) != 0) goto end;
-        p67_audio_codecs_t codecs = P67_AUDIO_CODECS_INITIALIZER_AUDIO(stream);
-        if((err = p67_audio_codecs_create(&codecs)) != 0) goto end;
-        err = p67_audio_read_qdp(qdp, &stream, &codecs);
+        audio = p67_audio_create_o(NULL, NULL);
+        if(!audio) {
+            err = p67_audio_err_mask;
+            goto end;
+        }
+        err = p67_audio_start_read_qdp(&audio_sm, qdp, audio);
     }
+    
+    p67_audio_free(audio);
+    p67_addr_free(remote_addr);
+
+    getchar();
 
 end:
     if(err != 0) p67_err_print_err("Terminating main thread with error: ", err);

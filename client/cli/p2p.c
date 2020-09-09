@@ -108,7 +108,7 @@ p67_p2p_cache_find_by_name(const char * name)
     p67_p2p_ctx_t * ctx;
 
     for(i = 0; i < p2p_cache->bufferl; i++) {
-        entry = p2p_cache->buffer[i];
+        if(!(entry = p2p_cache->buffer[i])) continue;
         do {
             ctx = (p67_p2p_ctx_t *)entry->value;
             if(namel == ctx->peer_usernamel 
@@ -149,6 +149,7 @@ p67_p2p_cache_add(
     p2pctx->peer_addr = p67_addr_ref_cpy(remote_addr);
     p2pctx->state = P67_P2P_STATE_INCOMING;
     p2pctx->peer_username = (char *)e->value + sizeof(p67_p2p_ctx_t);
+    p2pctx->peer_usernamel = peer_usernamel;
     p2pctx->keepalive_ctx.addr = p67_addr_ref_cpy(remote_addr);
 
     if(peer_username)

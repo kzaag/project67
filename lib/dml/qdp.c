@@ -151,13 +151,27 @@ p67_qdp_deque(
     return 0;
 }
 
+P67_CMN_NO_PROTO_ENTER
 void
-p67_qdp_free(p67_qdp_ctx_t * s) 
+__p67_qdp_free(
+P67_CMN_NO_PROTO_EXIT
+    p67_qdp_ctx_t * s) 
 {
     if(s == NULL) return;
     free(s->q_inodes);
     free(s->q_chunks);
     free(s);
+}
+
+void
+p67_qdp_free(p67_qdp_ctx_t * s) {
+    p67_cmn_refcount_free(s, q_, __p67_qdp_free);
+} 
+
+p67_qdp_ctx_t *
+p67_qdp_refcpy(p67_qdp_ctx_t * c)
+{
+    p67_cmn_refcount_refcpy(c, q_)
 }
 
 p67_err
@@ -176,6 +190,8 @@ p67_qdp_create(p67_qdp_ctx_t ** s)
     (*s)->q_tail = 0;
     (*s)->q_head = 0;
     (*s)->q_lseq = 0;
+
+    p67_cmn_refcount_init(*s, q_);
 
     /* max amount of frames allowed to be kept in jitter buffer */
     (*s)->q_size = 400;

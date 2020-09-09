@@ -61,6 +61,7 @@ p67_hashcntl_new(
     ctx->can_lock = 1;
     ctx->lock = P67_ASYNC_INTIIALIZER;
     ctx->free_entry = free_entry;
+    ctx->count = 0;
 
     return ctx;
 }
