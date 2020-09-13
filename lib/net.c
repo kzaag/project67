@@ -14,7 +14,7 @@
 struct p67_net_cred {
     char * certpath;
     char * keypath;
-    p67_cmn_refcount_fields(cred)
+    P67_CMN_REFCOUNT_FIELDS(cred)
 };
 
 p67_net_cred_t *
@@ -33,14 +33,14 @@ p67_net_cred_create(const char * keypath, const char * certpath)
         free(ret);
         return NULL;
     }
-    p67_cmn_refcount_init(ret, cred);
+    P67_CMN_REFCOUNT_INIT_FN(ret, cred);
     return ret;
 }
 
 p67_net_cred_t * 
 p67_net_cred_ref_cpy(p67_net_cred_t * c)
 {
-    p67_cmn_refcount_refcpy(c, cred)
+    P67_CMN_REFCOUNT_REFCPY_FN(c, cred)
 } 
 
 #define __p67_net_cred_free(c) { \
@@ -52,7 +52,7 @@ p67_net_cred_ref_cpy(p67_net_cred_t * c)
 void
 p67_net_cred_free(p67_net_cred_t * c)
 {
-    p67_cmn_refcount_free(c, cred, __p67_net_cred_free)
+    P67_CMN_REFCOUNT_FREE_FN(c, cred, __p67_net_cred_free)
 }
 
 /* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */

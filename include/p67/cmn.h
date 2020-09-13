@@ -95,15 +95,15 @@ p67_cmn_strdup(const char * str);
     user can add to his structures.
 */
 
-#define p67_cmn_refcount_fields(prefix) \
+#define P67_CMN_REFCOUNT_FIELDS(prefix) \
     p67_async_t prefix##lock; \
     int         prefix##refcount;
 
-#define p67_cmn_refcount_init(ref, prefix) \
+#define P67_CMN_REFCOUNT_INIT_FN(ref, prefix) \
     { (ref)->prefix##refcount = 1; \
       (ref)->prefix##lock = P67_XLOCK_STATE_UNLOCKED; }
 
-#define p67_cmn_refcount_free(ref, prefix, freecb) \
+#define P67_CMN_REFCOUNT_FREE_FN(ref, prefix, freecb) \
     { \
         if(!(ref)) return;                      \
         p67_spinlock_lock(&(ref)->prefix##lock); \
@@ -117,7 +117,7 @@ p67_cmn_strdup(const char * str);
         }                                               \
     }
 
-#define p67_cmn_refcount_refcpy(ref, prefix)        \
+#define P67_CMN_REFCOUNT_REFCPY_FN(ref, prefix)        \
     {                                               \
         if(!(ref)) return NULL;                     \
         p67_spinlock_lock(&(ref)->prefix##lock);   \

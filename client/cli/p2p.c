@@ -2,9 +2,18 @@
 #include <strings.h>
 
 #include <client/cli/p2p.h>
+#include <p67/dml/dml.h>
 
 static p67_hashcntl_t * __p2p_cache = NULL;
 static p67_async_t p2p_cache_lock = P67_ASYNC_INTIIALIZER;
+
+p67_err
+p2pclient_callback(
+    p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
+{
+    p67_dml_pretty_print(NULL, msg, msgl);
+    return 0;
+}
 
 p67_hashcntl_t *
 __get_p2p_cache(void) {
@@ -71,7 +80,6 @@ p67_err
 p67_p2p_cache_accept_by_name(
     p67_addr_t * local_addr, 
     p67_net_cred_t * cred,
-    p67_net_cb_ctx_t cb_ctx,
     const char * name)
 {
     assert(name);
@@ -79,6 +87,7 @@ p67_p2p_cache_accept_by_name(
     p67_err err;
 
     p67_p2p_ctx_t * ctx = p67_p2p_cache_find_by_name(name);
+    p67_net_cb_ctx_t cbctx = p67_net_cb_ctx_initializer(p2pclient_callback);
     if(!ctx) return p67_err_enconn;
     
     err = p67_net_start_connect(
@@ -87,7 +96,7 @@ p67_p2p_cache_accept_by_name(
         local_addr, 
         ctx->peer_addr,
         cred, 
-        cb_ctx, 
+        cbctx, 
         NULL);
     if(err) return err;
 

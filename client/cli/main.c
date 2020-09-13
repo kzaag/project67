@@ -153,7 +153,8 @@ main(int argc, char ** argv)
     
     p67_net_cred_t * cred 
         = p67_net_cred_create("p2pcert", "p2pcert.cert");
-    p67_net_cb_ctx_t cbctx = p67_net_cb_ctx_initializer(webserver_callback);
+    p67_net_cb_ctx_t server_cbctx = p67_net_cb_ctx_initializer(webserver_callback);
+    p67_net_cb_ctx_t p2p_cbctx = p67_net_cb_ctx_initializer(p2pclient_callback);
     p67_addr_t * local_addr = p67_addr_new_localhost4_udp(argv[1]);
     p67_addr_t * ws_addr = p67_addr_new_parse_str_udp(argv[2]);
 
@@ -162,12 +163,13 @@ main(int argc, char ** argv)
         goto end;
     }
 
-#warning TODO: finish proper accept for p2p
-    if((err = p67_net_start_listen(&listen_sm, local_addr, cred, cbctx, NULL)))
+    /* handle incoming connections with p2p handler. */
+    if((err = p67_net_start_listen(&listen_sm, local_addr, cred, p2p_cbctx, NULL)))
         goto end;
 
+    /* connect to redirect-server with server handler */
     if((err = p67_net_start_connect(
-            &connect_sm, NULL, local_addr, ws_addr, cred, cbctx, NULL)))
+            &connect_sm, NULL, local_addr, ws_addr, cred, server_cbctx, NULL)))
         goto end;
     
     ws_keepalive_ctx.addr = p67_addr_ref_cpy(ws_addr);

@@ -35,4 +35,14 @@ p67_err_print_err(const char * hdr, p67_err err);
 
 #define p67_err_print_all(hdr) p67_err_print_err(hdr, p67_err_essl | p67_err_eerrno)
 
+#if defined(DEBUG)
+
+#define p67_err_print_err_dbg(hdr, err) p67_err_print_err(hdr, err)
+
+#else
+
+#define p67_err_print_err_dbg(hdr, err) (void)0
+
+#endif
+
 #endif

@@ -18,9 +18,7 @@ struct p67_hashcntl {
     int count;
     p67_hashcntl_free_entry_cb free_entry;
 
-    // flags
-
-    uint8_t can_lock : 1;
+    P67_CMN_REFCOUNT_FIELDS(_)
 };
 
 struct p67_hashcntl_entry {
@@ -31,11 +29,9 @@ struct p67_hashcntl_entry {
     p67_hashcntl_entry_t * next;
 };
 
-#define p67_hashcntl_lock(ctx) \
-    if(ctx->can_lock) p67_spinlock_lock(&ctx->lock);
+#define p67_hashcntl_lock(ctx) p67_spinlock_lock(&ctx->lock);
 
-#define p67_hashcntl_unlock(ctx) \
-    if(ctx->can_lock) { p67_spinlock_unlock(&ctx->lock); }
+#define p67_hashcntl_unlock(ctx) p67_spinlock_unlock(&ctx->lock)
 
 void
 p67_hashcntl_free(p67_hashcntl_t * ctx);
@@ -63,5 +59,24 @@ p67_err
 p67_hashcntl_remove_and_free(
     p67_hashcntl_t * ctx, 
     const unsigned char * key, size_t keyl);
+
+p67_hashcntl_t *
+p67_hashcntl_refcpy(p67_hashcntl_t * ctx);
+
+#define p67_hashcntl_getter_fn(spin_val, val, cache_len, free_fn, errmsg)  \
+    { \
+        if(!(val)) {                               \
+            p67_spinlock_lock(&(spin_val));      \
+            if(!(val)) {                   \
+                (val) = p67_hashcntl_new(        \
+                    (cache_len), (free_fn), NULL);     \
+                p67_cmn_assert_abort(                           \
+                    !(val),                          \
+                    errmsg);    \
+            }                                       \
+            p67_spinlock_unlock(&(spin_val));        \
+        }                                                 \
+        return (val);                                    \
+    }
 
 #endif

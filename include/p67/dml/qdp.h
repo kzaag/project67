@@ -47,7 +47,7 @@ struct p67_qdp_ctx {
     p67_qdp_inode_t * q_inodes; // [q_size]
     p67_pckt_t      * q_chunks; // [q_size][q_chunk_size]
 
-    p67_cmn_refcount_fields(q_)
+    P67_CMN_REFCOUNT_FIELDS(q_)
 };
 
 p67_qdp_ctx_t *

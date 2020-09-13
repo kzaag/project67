@@ -43,7 +43,6 @@ p67_err
 p67_p2p_cache_accept_by_name(
     p67_addr_t * local_addr, 
     p67_net_cred_t * cred,
-    p67_net_cb_ctx_t cb_ctx,
     const char * name);
 
 // O(1)
@@ -59,5 +58,9 @@ p67_hashcntl_t *
 __get_p2p_cache(void);
 
 #define p2p_cache (__get_p2p_cache())
+
+p67_err
+p2pclient_callback(
+    p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args);
 
 #endif

@@ -118,7 +118,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err;
 
     if((err = p67_p2p_cache_accept_by_name(
-            ctx->local_addr, ctx->cred, ctx->p2p_cb_ctx, argvs[1]))) {
+            ctx->local_addr, ctx->cred, argvs[1]))) {
         p67_err_print_err("couldnt accept call: ", err);
         return -err;
     }
@@ -302,7 +302,7 @@ P67_CMN_NO_PROTO_EXIT
     }
     
     err = p67_p2p_cache_accept_by_name(
-        ctx->local_addr, ctx->cred, ctx->p2p_cb_ctx, username);
+        ctx->local_addr, ctx->cred, username);
     
     p67_addr_free(addr);
 

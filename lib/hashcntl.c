@@ -5,8 +5,11 @@
 #include <p67/hash.h>
 #include <p67/hashcntl.h>
 
-void
-p67_hashcntl_free(p67_hashcntl_t * ctx)
+/* private functions */
+P67_CMN_NO_PROTO_ENTER
+
+static void
+__p67_hashcntl_free(p67_hashcntl_t * ctx)
 {
     if(!ctx) return;
     
@@ -30,6 +33,21 @@ p67_hashcntl_free(p67_hashcntl_t * ctx)
     free(ctx);
 
     return;
+}
+
+
+P67_CMN_NO_PROTO_EXIT
+
+void
+p67_hashcntl_free(p67_hashcntl_t * ctx)
+{
+    P67_CMN_REFCOUNT_FREE_FN(ctx, _, __p67_hashcntl_free)
+}
+
+p67_hashcntl_t *
+p67_hashcntl_refcpy(p67_hashcntl_t * ctx)
+{
+    P67_CMN_REFCOUNT_REFCPY_FN(ctx, _)
 }
 
 p67_hashcntl_t *
@@ -58,10 +76,11 @@ p67_hashcntl_new(
     }
 
     ctx->bufferl = bufferl;
-    ctx->can_lock = 1;
     ctx->lock = P67_ASYNC_INTIIALIZER;
     ctx->free_entry = free_entry;
     ctx->count = 0;
+
+    P67_CMN_REFCOUNT_INIT_FN(ctx, _)
 
     return ctx;
 }

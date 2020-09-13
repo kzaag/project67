@@ -43,7 +43,7 @@ struct p67_audio {
     void * codecs_buffer;
     union p67_codecs_opus codecs;
     int dir;
-    p67_cmn_refcount_fields(_)
+    P67_CMN_REFCOUNT_FIELDS(_)
 };
 
 P67_CMN_NO_PROTO_ENTER
@@ -88,12 +88,12 @@ P67_CMN_NO_PROTO_EXIT
 
 void
 p67_audio_free(p67_audio_t * audio) {
-    p67_cmn_refcount_free(audio, _, __p67_audio_free);
+    P67_CMN_REFCOUNT_FREE_FN(audio, _, __p67_audio_free);
 }
 
 p67_audio_t *
 p67_audio_refcpy(p67_audio_t * audio) {
-    p67_cmn_refcount_refcpy(audio, _);
+    P67_CMN_REFCOUNT_REFCPY_FN(audio, _);
 }
 
 P67_CMN_NO_PROTO_ENTER
@@ -164,7 +164,7 @@ p67_audio_create(
         ret->name = NULL;
     ret->dir = dir;
     ret->codecs.dec = NULL;
-    p67_cmn_refcount_init(ret, _);
+    P67_CMN_REFCOUNT_INIT_FN(ret, _);
 
     p67_audio_config_cpy_with_defaults(config, ret->config)
 
