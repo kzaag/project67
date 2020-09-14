@@ -194,7 +194,7 @@ p67_pdp_start_loop(void)
 p67_err
 p67_pdp_urg_remove(
     uint16_t id, 
-    p67_pckt_t * msg, int msgl,
+    const p67_pckt_t * msg, int msgl,
     int preack)
 {
     assert(msg);

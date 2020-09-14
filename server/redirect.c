@@ -1,8 +1,6 @@
-
+#include <string.h>
 
 #include <server/redirect.h>
-#include <server/session.h>
-#include <p67/net.h>
 #include <p67/tlv.h>
 #include <p67/web/tlv.h>
 #include <p67/dml/pdp.h>
@@ -27,6 +25,7 @@ p67_async_t redirect_buf_inilock;
 p67_hashcntl_t * __redirect_buf_ix;
 p67_async_t redirect_buf_ix_inilock;
 
+P67_CMN_NO_PROTO_ENTER
 
 p67_hashcntl_t *
 redirect_buf(void)
@@ -35,7 +34,7 @@ redirect_buf(void)
         redirect_buf_inilock,
         __redirect_buf,
         0,
-        p67_ws_redirect_entry_free,
+        NULL,
         "Couldnt initialize redirect buffer\n");
 }
 
@@ -46,33 +45,16 @@ redirect_buf_ix(void)
         redirect_buf_ix_inilock,
         __redirect_buf_ix,
         0,
-        p67_ws_redirect_entry_free,
+        NULL,
         "Couldnt initialize redirect buffer index\n");
 }
 
 void
-p67_ws_redirect_entry_free(p67_hashcntl_entry_t * e)
+p67_ws_redirect_entry_free(p67_ws_redirect_entry_t * e)
 {
     if(!e) return;
-    p67_ws_redirect_entry_t * re = 
-        (p67_ws_redirect_entry_t *)e->value;
-    if(re) {
-        p67_addr_free(re->dst_addr);
-        p67_addr_free(re->src_addr);
-        #if defined(DEBUG)
-        p67_err err = p67_hashcntl_remove_and_free(
-            redirect_buf_ix,
-            &re->msg_id,
-            sizeof(re->msg_id));
-        if(err) 
-            p67_err_print_err("Couldnt remove entry from redirect index: ", err)
-        #else
-        p67_hashcntl_remove_and_free(
-            redirect_buf_ix,
-            &re->request_hdr.urg_mid,
-            sizeof(re->msg_id));
-        #endif
-    }
+    p67_addr_free(e->dst_addr);
+    p67_addr_free(e->src_addr);
     free(e);
 }
 
@@ -105,13 +87,13 @@ p67_ws_redirect_entry_add(
     entry->key = (unsigned char *)entry + sizeof(p67_hashcntl_entry_t);
     entry->keyl = src->socklen + dst->socklen;
     entry->next = NULL;
-    entry->value = (unsigned char)e;
+    entry->value = (unsigned char *)e;
     entry->valuel = sizeof(p67_ws_redirect_entry_t);
 
-    memcpy(entry->key, src->sock, src->socklen);
-    memcpy(entry->key+src->socklen, dst->sock, dst->socklen);
+    memcpy(entry->key, &src->sock, src->socklen);
+    memcpy(entry->key+src->socklen, &dst->sock, dst->socklen);
 
-    if((err = p67_hashcntl_add(redirect_buf, entry))) {
+    if((err = p67_hashcntl_add(redirect_buf(), entry))) {
         free(e);
         return err;
     }
@@ -130,13 +112,13 @@ p67_ws_redirect_entry_add(
     entry->key = (unsigned char *)entry + sizeof(p67_hashcntl_entry_t);
     entry->keyl = src->socklen + dst->socklen;
     entry->next = NULL;
-    entry->value = (unsigned char)e;
+    entry->value = (unsigned char *)e;
     entry->valuel = sizeof(p67_ws_redirect_entry_t);
 
     memcpy(entry->key, &req_msghdr->urg_mid, sizeof(req_msghdr->urg_mid));
-    memcpy(entry->key+sizeof(req_msghdr->urg_mid), dst->sock, dst->socklen);
+    memcpy(entry->key+sizeof(req_msghdr->urg_mid), &dst->sock, dst->socklen);
 
-    if((err = p67_hashcntl_add(redirect_buf_ix, entry))) {
+    if((err = p67_hashcntl_add(redirect_buf_ix(), entry))) {
         /* todo finish it */
         //err |= p67_hashcntl_remove(redirect_buf,)
         free(e);
@@ -144,6 +126,52 @@ p67_ws_redirect_entry_add(
     }
 
     return 0;
+}
+
+p67_ws_redirect_entry_t *
+p67_ws_redirect_entry_remove_by_ix(
+    p67_addr_t * dst_addr, p67_pdp_ack_hdr_t * ack, p67_err * err)
+{
+    p67_hashcntl_entry_t * entry;
+    p67_ws_redirect_entry_t * r_entry;
+    int ix_key_len = sizeof(ack->ack_mid) + dst_addr->socklen;
+    p67_pckt_t ix_key[ix_key_len];
+
+    memcpy(ix_key, &ack->ack_mid, sizeof(ack->ack_mid));
+    memcpy(ix_key+sizeof(ack->ack_mid), &dst_addr->sock, dst_addr->socklen);
+
+    entry = p67_hashcntl_remove(redirect_buf_ix(), ix_key, ix_key_len);
+    if(!entry) {
+        if(err) *err = p67_err_enconn;
+        return NULL;
+    }
+
+    r_entry = (p67_ws_redirect_entry_t *)entry->value;
+    free(entry);
+    if(!r_entry) {
+        if(err) *err = p67_err_enconn;
+        return NULL;
+    }
+
+    int primary_key_len = r_entry->src_addr->socklen + r_entry->dst_addr->socklen;
+    p67_pckt_t primary_key[r_entry->src_addr->socklen + r_entry->dst_addr->socklen];
+
+    memcpy(
+        primary_key, 
+        &r_entry->src_addr->sock, 
+        r_entry->src_addr->socklen);
+    memcpy(
+        primary_key+r_entry->src_addr->socklen, 
+        &r_entry->dst_addr->sock, 
+        r_entry->dst_addr->socklen);
+
+    if(!p67_hashcntl_remove(redirect_buf(), primary_key, primary_key_len)) {
+        if(err) *err = p67_err_einval;
+        p67_ws_redirect_entry_free(r_entry);
+        return NULL;
+    }
+
+    return r_entry;
 }
 
 typedef struct p67_ws_redirect_request_ctx {
@@ -179,14 +207,14 @@ p67_ws_redirect_parse_request(
             ctx.src_svc_l = tlv_hdr->tlv_vlength - 1;
             break;
         case 'U':
-            ctx.dst_username = (p67_pckt_t *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            ctx.dst_username = (char *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
             if(!ctx.dst_username)
                 return p67_err_etlvf;
-            ctx.dst_username = tlv_value;
+            ctx.dst_username = (char *)tlv_value;
             ctx.dst_username_l = tlv_hdr->tlv_vlength - 1;
             break;
         case 'm':
-            ctx.src_message = (p67_pckt_t *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            ctx.src_message = (char *)p67_tlv_get_cstr(tlv_hdr, tlv_value);
             if(!ctx.src_message){
                 return p67_err_etlvf;
             }
@@ -269,7 +297,7 @@ p67_ws_redirect_create_request_msg(
                 strlen(src_addr->service) + 1;
     p67_pckt_t * src_hostname = (p67_pckt_t *)src_addr->hostname;
     uint8_t src_hostname_l = strlen(src_addr->hostname) + 1;
-    p67_pckt_t * src_message = request->src_message;
+    const p67_pckt_t * src_message = (const p67_pckt_t *)request->src_message;
     uint8_t src_message_l = src_message ? request->src_message_l + 1 : 0;
     p67_pckt_t * src_username = session->username;
     p67_pckt_t src_username_l = session->username ? session->usernamel + 1 : 0; 
@@ -337,8 +365,8 @@ p67_ws_redirect_create_request_msg(
                 msg+msgix, 
                 msglen-msgix, 
                 (unsigned char *) "u", 
-                session->username,
-                session->usernamel)) < 0) {
+                src_username,
+                src_username_l)) < 0) {
             free(msg);
             return (p67_err)-tlvres;
         }
@@ -353,6 +381,8 @@ p67_ws_redirect_create_request_msg(
 
     *outmsg = msg;
     *outmsgl = msglen;
+
+    return 0;
 }
 
 p67_err
@@ -440,7 +470,11 @@ p67_ws_redirect_create_response_msg(
 
     *outmsg = msg;
     *outmsgl = msglen;
+
+    return 0;
 }
+
+P67_CMN_NO_PROTO_EXIT
 
 p67_err
 p67_ws_redirect_handle_urg(
@@ -448,7 +482,7 @@ p67_ws_redirect_handle_urg(
     p67_addr_t * src_addr,
     const p67_pckt_t * msg, int msgl)
 {
-    p67_hashcntl_entry_t * dst_user, * src_user;
+    p67_hashcntl_entry_t * dst_user;
     p67_pckt_t * request_msg;
     int request_msg_l;
     p67_err err;
@@ -458,9 +492,14 @@ p67_ws_redirect_handle_urg(
         return err;
     }
 
+    /* 
+        find target in logged in users.
+        if not found then return with not found status code.
+    */
+
     dst_user = p67_hashcntl_lookup(
         session->login_user_cache, 
-        rctx.dst_username, 
+        (unsigned char *)rctx.dst_username, 
         rctx.dst_username_l);
 
     if(!dst_user) {
@@ -484,6 +523,12 @@ p67_ws_redirect_handle_urg(
             src_addr, p67_web_status_server_fault);
     }
 
+    /*
+        add entry to the redirect buffer.
+        this must be done before writing request to dst 
+            because this line also validates that src is not already redirecting.
+    */
+
     if((err = p67_ws_redirect_entry_add(
             (p67_pdp_urg_hdr_t *)msg,
             src_addr,
@@ -491,8 +536,12 @@ p67_ws_redirect_handle_urg(
         p67_err_print_err_dbg("Couldnt add redirect entry: ", err);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, 
-            src_addr, p67_web_status_server_fault);
+            src_addr, p67_web_status_bad_request);
     }
+
+    /*
+        write urgent request to dst
+    */
 
     err = p67_pdp_write_urg(
         dst_addr, request_msg, request_msg_l, 30 * SECOND, 
@@ -506,8 +555,26 @@ p67_ws_redirect_handle_urg(
             src_addr, p67_web_status_server_fault);
     }
 
+    p67_pdp_ack_hdr_t pack_hdr;
+    pack_hdr.ack_mid = ((p67_pdp_urg_hdr_t *)msg)->urg_mid;
+    pack_hdr.ack_stp = P67_DML_STP_PDP_PACK;
+    pack_hdr.ack_utp = ((p67_pdp_urg_hdr_t *)msg)->urg_utp;
+
+    if((err = p67_net_write_msg(
+            src_addr, (p67_pckt_t *)&pack_hdr, sizeof(pack_hdr))) != 0)
+        return err;
+
     return 0;
 }
+
+
+/*
+    needed so following comparison can be made in redirect proto:
+        urg.mid = ack.mid
+*/
+p67_cmn_static_assert(
+    urg_and_ack_must_have_the_same_structure, 
+    sizeof(p67_pdp_urg_hdr_t) == sizeof(p67_pdp_ack_hdr_t));
 
 p67_err
 p67_ws_redirect_handle_ack(
@@ -515,25 +582,56 @@ p67_ws_redirect_handle_ack(
     p67_addr_t * addr,
     const p67_pckt_t * msg, int msgl)
 {
-    uint16_t mid = p67_cmn_ntohs(((p67_pdp_urg_hdr_t *)msg)->urg_mid);
-    char key[sizeof(mid) + addr->socklen];
+    p67_pckt_t * resmsg;
     p67_ws_redirect_response_ctx_t res;
+    p67_ws_redirect_entry_t * rc;
+    p67_pdp_ack_hdr_t * dsthdr = (p67_pdp_ack_hdr_t *)msg;
     p67_err err;
+    int resmsgl;
 
+    /*
+        handle ack first so it gets removed from pending URG queue.
+    */
     if((err = p67_dml_handle_msg(addr, msg, msgl, NULL))) {
         return err;
     }
+
+    /*
+        try to find coresponding request
+    */
+
+    if(!(rc = p67_ws_redirect_entry_remove_by_ix(
+            addr, dsthdr, &err))) {
+        /* return error so handler can timeout invalid request. */
+        return err;
+    }
+
+    /*
+        parse dst response and generate src response
+    */
 
     if((err = p67_ws_redirect_parse_response(msg, msgl, &res))) {
         //p67_err_print_err_dbg("Couldnt parse response: ", err);
         // return p67_web_tlv_respond_with_status(
         //     (p67_pdp_urg_hdr_t *)msg, 
         //     addr, p67_web_status_bad_request);
+        p67_ws_redirect_entry_free(rc);
         return err;
     }
 
-    #warning TODO : finish response, handle login, add ttl for hashcntl and should be ok for testing.
+    err = p67_ws_redirect_create_response_msg(
+        session, &res, rc, &resmsg, &resmsgl);
+    if(err) {
+        p67_ws_redirect_entry_free(rc);
+        return err;
+    }
 
-    return 0;
+    if((err = p67_net_write_msg(rc->src_addr, resmsg, resmsgl))) {
+        p67_ws_redirect_entry_free(rc);
+        return err;
+    }
+
+    p67_ws_redirect_entry_free(rc);
+    return err;
 }
 

@@ -2,7 +2,7 @@
 
 const p67_dml_hdr_store_t *
 p67_dml_parse_hdr(
-    const unsigned char * const msg,
+    const p67_pckt_t * const msg,
     const int msg_size, 
     p67_err * err)
 {
@@ -47,7 +47,7 @@ end:
 p67_err
 p67_dml_handle_msg(
     p67_addr_t * addr, 
-    p67_pckt_t * msg, int msgl, 
+    const p67_pckt_t * msg, int msgl, 
     void * args)
 {
     (void)args;

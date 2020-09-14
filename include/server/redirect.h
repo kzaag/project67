@@ -1,6 +1,9 @@
 #if !defined(P67_REDIRECT_H)
 #define P67_REDIRECT_H 1
 
+#include <p67/net.h>
+#include <server/session.h>
+
 /*
     A                         WEBSERVER                        B
 
@@ -45,6 +48,16 @@
 
 */
 
-typedef struct p67_ws_redirect_ctx p67_ws_redirect_ctx_t; 
+p67_err
+p67_ws_redirect_handle_urg(
+    p67_ws_session_t * session,
+    p67_addr_t * src_addr,
+    const p67_pckt_t * msg, int msgl);
+
+p67_err
+p67_ws_redirect_handle_ack(
+    p67_ws_session_t * session,
+    p67_addr_t * addr,
+    const p67_pckt_t * msg, int msgl);
 
 #endif

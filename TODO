@@ -1,5 +1,3 @@
-[ ] in server/ws.c p67_fwc_entry_free will terminate ongoing call proxy thread
-    without any questions asked. That will cause memory leaks ( context )
-    either take care of freeing context by placing it in fwc entry , 
-    or figure better way of terminating forward call thread. 
-    ( maybe refcounting with signalling? )
+[ ] TTL in hashcntl. and use it in redirect call proto
+[ ] in redirect proto, 
+    add wait so src cant exploit system and scan all logged in users. 

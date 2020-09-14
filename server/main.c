@@ -1,13 +1,12 @@
 #include <signal.h>
 
 #include <p67/all.h>
-
 #include <server/err.h>
 #include <server/ws.h>
-
+#include <server/db.h>
 
 static int main_initialized = 0;
-static p67_ws_ctx_t main_wsctx = {0};
+static p67_hashcntl_t * login_user_cache = NULL;
 static p67_thread_sm_t listener = P67_THREAD_SM_INITIALIZER;
 
 P67_CMN_NO_PROTO_ENTER
@@ -30,7 +29,7 @@ P67_CMN_NO_PROTO_EXIT
                 of user index for each session.
             */
             p67_lib_free();
-            p67_hashcntl_free(main_wsctx.user_nchix);
+            p67_hashcntl_free(login_user_cache);
             p67_db_free();
         }
 
@@ -48,12 +47,6 @@ main(void)
     p67_net_config.conn_auth_type = P67_NET_AUTH_TRUST_UNKOWN;
 
     p67_ws_err err;
-
-    err = p67_ws_user_nchix_create(&main_wsctx.user_nchix, 0);
-    if(err != 0) {
-        p67_err_print_err("Couldnt intiialize user_nchix. err was: ", err);
-        exit(2);
-    }
 
     p67_net_cred_t * cred 
         = p67_net_cred_create("p2pcert", "p2pcert.cert");
@@ -74,7 +67,12 @@ main(void)
         exit(2);
     }
 
-    p67_net_cb_ctx_t cbctx = p67_ws_get_cb_ctx(&main_wsctx);
+    p67_net_cb_ctx_t cbctx;
+
+    if((err = p67_ws_create_cb_ctx(&cbctx))) {
+        p67_err_print_err("Couldnt create callback context. err was: ", err);
+        exit(2);
+    }
 
     if((err = p67_net_start_listen(&listener, local_addr, cred, cbctx, tctx))) {
         p67_err_print_err("Couldnt start listener. err was: ", err);
