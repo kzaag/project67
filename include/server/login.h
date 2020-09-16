@@ -22,10 +22,11 @@ typedef struct p67_ws_login_user_entry {
     char * username; /* cstr */
     size_t usernamel; /* = strlen(username) */
     p67_addr_t * addr;
-    char __padd[sizeof(size_t)+sizeof(p67_hashcntl_entry_t *)];
+    char __padd[P67_HASHCNTL_ENTRY_PADDING_SIZE];
 } p67_ws_login_user_entry_t;
 
 p67_cmn_static_assert_size(p67_ws_login_user_entry_t, p67_hashcntl_entry_t);
+
 p67_cmn_static_assert(
     pointers_must_have_the_same_size, 
     sizeof(p67_addr_t *) == sizeof(unsigned char *));

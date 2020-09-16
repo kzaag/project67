@@ -64,6 +64,7 @@ p67_dml_handle_msg(
     case P67_DML_STP_PDP_PACK:
         /* ACKs remove URG messages from pending queue */
         err = p67_pdp_urg_remove(
+                addr,
                 p67_cmn_ntohs(msg_hdr->ack.ack_mid), 
                 (unsigned char *)msg, msgl,
                 msg_hdr->cmn.cmn_stp == P67_DML_STP_PDP_PACK ? 1 : 0);
@@ -135,6 +136,16 @@ p67_dml_pretty_print(const char * msgh, const unsigned char * msg, int msgl)
     }
 
     return 0;
+}
+
+p67_err
+p67_dml_pretty_print_addr(
+    p67_addr_t * addr, const unsigned char * msg, int msgl)
+{
+    const int addrstrlen = 48;
+    char adddstr[addrstrlen];
+    snprintf(adddstr, addrstrlen, "%s:%s ", addr->hostname, addr->service);
+    return p67_dml_pretty_print(adddstr, msg, msgl);
 }
 
 int

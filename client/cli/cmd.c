@@ -22,7 +22,7 @@ typedef struct p67_cmd_entry {
     char * command;
     size_t commandl;
     struct p67_cmd_entry_handler * e_handler;
-    char __padd[sizeof(size_t)+sizeof(p67_hashcntl_entry_t *)];
+    char __padd[P67_HASHCNTL_ENTRY_PADDING_SIZE];
 } p67_cmd_entry_t;
 
 p67_cmn_static_assert_size(p67_cmd_entry_t, p67_hashcntl_entry_t);
@@ -87,13 +87,13 @@ P67_CMN_NO_PROTO_EXIT
     if(!hc)
         return -1;
     p67_hashcntl_entry_t ** e, * ne;
-    p67_p2p_ctx_t * peer;
+    p67_p2p_t * peer;
 
     for(e = hc->buffer; e < hc->buffer + hc->bufferl; e++) {
         ne = *e;
         if(!ne) continue;
         do {
-            peer = (p67_p2p_ctx_t *)ne->value;
+            peer = (p67_p2p_t *)ne->value;
             printf("username=%.*s addr=%s:%s\n", 
                 peer->peer_usernamel, peer->peer_username,
                 peer->peer_addr->hostname, peer->peer_addr->service);
@@ -118,7 +118,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err;
 
     if((err = p67_p2p_cache_accept_by_name(
-            ctx->local_addr, ctx->cred, argvs[1]))) {
+            ctx->local_addr, ctx->ws_remote_addr, ctx->cred, argvs[1]))) {
         p67_err_print_err("couldnt accept call: ", err);
         return -err;
     }
@@ -296,13 +296,17 @@ P67_CMN_NO_PROTO_EXIT
         return err;
     }
 
-    if(!p67_p2p_cache_add(addr, (unsigned char *)username, strlen(username))) {
+    if(!p67_p2p_cache_add(
+            addr, 
+            (unsigned char *)username, 
+            strlen(username), 
+            NULL)) {
         p67_addr_free(addr);
         return p67_err_einval;
     }
-    
+
     err = p67_p2p_cache_accept_by_name(
-        ctx->local_addr, ctx->cred, username);
+        ctx->local_addr, ctx->ws_remote_addr, ctx->cred, username);
     
     p67_addr_free(addr);
 
@@ -341,24 +345,30 @@ P67_CMN_NO_PROTO_EXIT
     //printf("calling...\n");
 
     if((err = p67_tlv_add_fragment(
-            msgp, msgl-msgix, (unsigned char *)"U", (unsigned char *)argv[1], strlen(argv[1]) + 1)) < 0)
+            msgp, msgl-msgix, 
+            (unsigned char *)"U", 
+            (unsigned char *)argv[1], 
+            strlen(argv[1]) + 1)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
 
     if((err = p67_tlv_add_fragment(
-            msgp, msgl-msgix, (unsigned char *)"m", (unsigned char *)"i love you", 11)) < 0)
+            msgp, msgl-msgix, 
+            (unsigned char *)"m", 
+            (unsigned char *)"i love you", 
+            11)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
 
     if((err = p67_pdp_write_urg(
             ctx->ws_remote_addr, 
-            msg, msgix, 60000, &sig, msg, &tmpix)) != 0)
+            msg, msgix, 60000, &sig, msg, &tmpix)) != 0) {
         return err;
+    }
 
     p67_mutex_wait_for_change(&sig, 0, -1);
-
     msgix = tmpix;
 
     if(sig == P67_PDP_EVT_GOT_ACK) {

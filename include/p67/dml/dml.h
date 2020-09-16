@@ -67,6 +67,13 @@ p67_dml_handle_msg(
         void * args);
 
 p67_err
-p67_dml_pretty_print(const char * msgh, const unsigned char * msg, int msgl);
+p67_dml_pretty_print(
+    const char * msgh, 
+    const unsigned char * msg, int msgl);
+
+p67_err
+p67_dml_pretty_print_addr(
+    p67_addr_t * addr, 
+    const unsigned char * msg, int msgl);
 
 #endif

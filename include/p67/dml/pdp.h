@@ -36,9 +36,14 @@ typedef struct p67_pdp_urg_hdr {
 
 #define P67_PDP_URG_OFFSET (sizeof(p67_pdp_urg_hdr_t))
 
-extern uint16_t * p67_pdp_mid_location(void) __attribute_const__;
+// extern uint16_t * p67_pdp_mid_location(void) __attribute_const__;
 
-#define p67_pdp_mid (*p67_pdp_mid_location())
+// #define p67_pdp_mid (*p67_pdp_mid_location())
+
+uint16_t
+__p67_pdp_mid(void);
+
+#define p67_pdp_mid __p67_pdp_mid() 
 
 /*
     pudp event types used in URG-ACK communication model
@@ -137,7 +142,10 @@ p67_pdp_write_ack_for_urg(
 
 p67_err
 p67_pdp_urg_remove(
-    uint16_t id, const p67_pckt_t * msg, int msgl, int preack);
+    p67_addr_t * addr,
+    uint16_t id, 
+    const p67_pckt_t * msg, int msgl, 
+    int preack);
 
 typedef struct p67_pdp_keepalive_ctx {
     p67_thread_sm_t th;
@@ -153,5 +161,8 @@ p67_pdp_start_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx);
 p67_err
 p67_pdp_write_pack(
     const p67_addr_t * addr, const p67_pdp_urg_hdr_t * const urg_hdr);
+
+void
+p67_pdp_stop_loop(void);
 
 #endif

@@ -16,6 +16,10 @@ __p67_hashcntl_free(p67_hashcntl_t * ctx)
     size_t i;
     p67_hashcntl_entry_t * entry, * next_entry;
 
+    if(ctx->ttl > 0) {
+        p67_thread_sm_terminate(&ctx->ttlsm, 3000);
+    }
+
     if(!(ctx->buffer && ctx->free_entry)) {
         free(ctx);
         return;
@@ -79,6 +83,7 @@ p67_hashcntl_new(
     ctx->lock = P67_ASYNC_INTIIALIZER;
     ctx->free_entry = free_entry;
     ctx->count = 0;
+    ctx->ttl = -1;
 
     P67_CMN_REFCOUNT_INIT_FN(ctx, _)
 
@@ -103,10 +108,17 @@ p67_hashcntl_add(p67_hashcntl_t * ctx, p67_hashcntl_entry_t * item)
     }
 
     item->next = NULL;
+    if(ctx->ttl > 0) {
+        if(p67_cmn_epoch_ms(&item->ts)) {
+            return p67_err_eerrno;
+        }
+    }
 
     *prev_entry = item;
 
     ctx->count++;
+
+    if(ctx->ttl > 0) p67_mutex_set_state(&ctx->sig, 0, 1);
 
     p67_hashcntl_unlock(ctx);
 
@@ -180,4 +192,91 @@ p67_hashcntl_remove_and_free(
     if(ctx->free_entry)
         ctx->free_entry(e);
     return 0;
+}
+
+P67_CMN_NO_PROTO_ENTER  
+void *
+p67_hashcntl_ttl_loop(
+P67_CMN_NO_PROTO_EXIT
+    void * args)
+{
+    p67_err err;
+    p67_hashcntl_t * ctx = (p67_hashcntl_t *)args;
+    p67_hashcntl_entry_t * e;
+    p67_cmn_epoch_t now;
+    unsigned char tmpkey[P67_HASH_KEY_MAX_LENGTH];
+    int tmpkeyl, ms_until_to;
+    int32_t next_sleep_ms = 1;
+    size_t i;
+
+    #define tsm (&ctx->ttlsm)
+
+    while(1) {
+        if(ms_until_to == INT32_MAX) ms_until_to = -1;
+        err = p67_mutex_wait_for_change(&ctx->sig, 0, next_sleep_ms);
+        if(err == p67_err_eerrno) goto end;
+        ctx->sig = 0;
+
+        if(p67_thread_sm_stop_requested(tsm)) {
+            err = 0;
+            goto end;
+        }
+        
+        if((err = p67_cmn_epoch_ms(&now)))
+            goto end;
+
+        next_sleep_ms = INT32_MAX;
+ 
+        for(i = 0; i < ctx->bufferl; i++) {
+            e = ctx->buffer[i];
+            if(!e) continue;
+            p67_hashcntl_lock(ctx);
+            e = ctx->buffer[i];
+            if(!e) continue;
+            ms_until_to = (e->ts + ctx->ttl) - now;
+            if(ms_until_to <= 0) {
+                memcpy(tmpkey, e->key, e->keyl);
+                tmpkeyl = e->keyl;
+                p67_hashcntl_unlock(ctx);
+                p67_hashcntl_remove_and_free(ctx, tmpkey, tmpkeyl);
+            } else {
+                p67_hashcntl_unlock(ctx);
+                if(ms_until_to < next_sleep_ms) {
+                    next_sleep_ms = ms_until_to;
+                }
+            }
+        }
+
+    }
+
+end:
+    if(err) {
+        p67_err_print_err("Terminating hashcntl ttl loop with error/s: ", err);
+    }
+    p67_thread_sm_stop_notify(tsm);
+    #undef tsm
+    return NULL;
+}
+
+P67_CMN_NO_PROTO_ENTER
+p67_err
+p67_hashcntl_ttl_start_loop(
+P67_CMN_NO_PROTO_EXIT
+    p67_hashcntl_t * ctx)
+{
+    return p67_thread_sm_start(&ctx->ttlsm, p67_hashcntl_ttl_loop, ctx);
+}
+
+p67_err
+p67_hashcntl_set_ttl(p67_hashcntl_t * ctx, int ttl)
+{
+    assert(ctx);
+    
+    ctx->ttl = ttl;
+    ctx->sig = 0;
+    ctx->ttlsm.mutex = P67_XLOCK_STATE_UNLOCKED;
+    ctx->ttlsm.state = 0;
+    ctx->ttlsm.thr = 0;
+    
+    return p67_hashcntl_ttl_start_loop(ctx);
 }

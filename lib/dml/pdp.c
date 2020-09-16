@@ -5,11 +5,25 @@
 #include <p67/dml/pdp.h>
 #include <p67/dml/dml.h>
 #include <p67/net.h>
+#include <p67/hash.h>
+
 
 #define P67_PUDP_INODE_LEN 101
 #define P67_PUDP_CHUNK_LEN P67_DML_SAFE_PAYLOAD_SIZE
 
-#define pudp_hashin(ix) ((ix) % P67_PUDP_INODE_LEN)
+//#define pudp_hashin(ix) ((ix) % P67_PUDP_INODE_LEN)
+
+P67_CMN_NO_PROTO_ENTER
+p67_hash_t
+pudp_hashin(
+P67_CMN_NO_PROTO_EXIT
+    uint16_t mid, p67_addr_t * dst)
+{
+    unsigned char key[sizeof(mid) + dst->socklen];
+    memcpy(key, &mid, sizeof(mid));
+    memcpy(key+sizeof(mid), &dst->sock, dst->socklen);
+    return p67_hash_fn(key, sizeof(mid) + dst->socklen, P67_PUDP_INODE_LEN);
+}
 
 #define p67_pdp_set_state(inode, p, n) \
     p67_atomic_set_state(&(inode).istate, PARG(p), n)
@@ -49,7 +63,8 @@ static int pudp_wakeup = 0;
 /* main async loop handler */
 static p67_thread_sm_t pudp = P67_THREAD_SM_INITIALIZER;
 
-static __thread uint16_t __mid = 0;
+static uint16_t __mid = 0;
+p67_async_t __midlock = P67_XLOCK_STATE_UNLOCKED;
 
 /****BEGIN PRIVATE PROTOTYPES****/
 
@@ -64,12 +79,22 @@ p67_pdp_run_keepalive_loop(p67_pdp_keepalive_ctx_t * ctx);
 
 /****END PRIVATE PROTOTYPES****/
 
-uint16_t *
-p67_pdp_mid_location(void)
+uint16_t
+__p67_pdp_mid(void)
 {
-    __mid++;
-    return &__mid;
+    uint16_t ret;
+    p67_spinlock_lock(&__midlock);
+    ret = ++__mid;
+    p67_spinlock_unlock(&__midlock);
+    return ret;
 }
+
+// uint16_t *
+// p67_pdp_mid_location(void)
+// {
+//     __mid++;
+//     return &__mid;
+// }
 
 char *
 p67_pdp_evt_str(char * buff, int buffl, int evt)
@@ -126,7 +151,7 @@ p67_pdp_write_urg(
         if((err = p67_pdp_start_loop()) != 0 && err != p67_err_eaconn)
             return err;
 
-    hash = pudp_hashin(mid);
+    hash = pudp_hashin(mid, addr);
 
     i = hash;
 
@@ -185,6 +210,12 @@ LOOPEND:
     }
 }
 
+void
+p67_pdp_stop_loop(void)
+{
+    p67_thread_sm_terminate(&pudp, P67_PDP_INTERV*2);
+}
+
 p67_err
 p67_pdp_start_loop(void)
 {
@@ -193,6 +224,7 @@ p67_pdp_start_loop(void)
 
 p67_err
 p67_pdp_urg_remove(
+    p67_addr_t * addr,
     uint16_t id, 
     const p67_pckt_t * msg, int msgl,
     int preack)
@@ -201,7 +233,7 @@ p67_pdp_urg_remove(
     size_t hash, i;
     int dst_state;
 
-    hash = pudp_hashin(id);
+    hash = pudp_hashin(id, addr);
 
     i = hash;
 
@@ -274,12 +306,19 @@ pdp_loop(void * args)
         if(err == p67_err_eerrno)
             goto end;
 
-        if(pudp.state != P67_THREAD_SM_STATE_RUNNING)
+        if(pudp.state != P67_THREAD_SM_STATE_RUNNING) {
+            err = 0;
             goto end;
+        }
         
         pudp_wakeup = 0;
 
         for(i = 0; i < P67_PUDP_INODE_LEN; i++) {
+
+            if(pudp.state != P67_THREAD_SM_STATE_RUNNING) {
+                err = 0;
+                goto end;
+            }
 
             if(pudp_inodes[i].istate != P67_PDP_ISTATE_ACTV)
                 continue;
@@ -336,10 +375,9 @@ pdp_loop(void * args)
 end:
     if(err != 0)
         p67_err_print_err("error/s occured in PDP loop: ", err);
-    pudp.state = P67_THREAD_SM_STATE_STOP;
+    p67_thread_sm_stop_notify(&pudp);
     return NULL;
 }
-
 
 const p67_pdp_urg_hdr_t *
 p67_pdp_generate_urg_for_msg(

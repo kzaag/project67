@@ -96,7 +96,10 @@ P67_CMN_NO_PROTO_EXIT
     }
 
     if(!p67_p2p_cache_add(
-            src_addr, (unsigned char *)src_username, strlen(src_username))) {
+            src_addr, 
+            (unsigned char *)src_username, 
+            strlen(src_username), 
+            (p67_pdp_urg_hdr_t *)msg)) {
         // ignore on fail ( already called )
         // err = p67_err_einval;
         // p67_addr_free(src_addr);
@@ -117,6 +120,9 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err;
     const p67_dml_hdr_store_t * hs = p67_dml_parse_hdr(msg, msgl, NULL);
     if(!hs) return p67_err_einval;
+
+    //p67_dml_pretty_print_addr(addr, msg, msgl);
+
     if(hs->cmn.cmn_stp != P67_DML_STP_PDP_URG) {
         return p67_dml_handle_msg(addr, msg, msgl, args);
     }

@@ -27,15 +27,63 @@ p67_async_t redirect_buf_ix_inilock;
 
 P67_CMN_NO_PROTO_ENTER
 
+void
+p67_ws_redirect_entry_free(p67_ws_redirect_entry_t * e)
+{
+    if(!e) return;
+    p67_addr_free(e->dst_addr);
+    p67_addr_free(e->src_addr);
+    free(e);
+}
+
+p67_hashcntl_t *
+redirect_buf_ix(void);
+
+void
+p67_ws_redirect_entry_free_entry(p67_hashcntl_entry_t * e)
+{
+    if(!e) return;
+    if(e->value) {
+        p67_ws_redirect_entry_t * re = (p67_ws_redirect_entry_t *)e->value;
+        unsigned char ixkey[sizeof(re->request_hdr.urg_mid) + re->dst_addr->socklen];
+        memcpy(ixkey, &re->request_hdr.urg_mid, sizeof(re->request_hdr.urg_mid));
+        memcpy(ixkey+sizeof(re->request_hdr.urg_mid), &re->dst_addr->sock, re->dst_addr->socklen);
+        p67_hashcntl_remove_and_free(
+            redirect_buf_ix(), 
+            ixkey, 
+            sizeof(re->request_hdr.urg_mid) + re->dst_addr->socklen);
+        p67_ws_redirect_entry_free(re);
+    }
+    free(e);
+}
+
+void
+p67_ws_redirect_entry_free_ix_entry(p67_hashcntl_entry_t * e)
+{
+    if(!e) return;
+    free(e);
+}
+
 p67_hashcntl_t *
 redirect_buf(void)
 {
-    p67_hashcntl_getter_fn(
-        redirect_buf_inilock,
-        __redirect_buf,
-        0,
-        NULL,
-        "Couldnt initialize redirect buffer\n");
+    if(!__redirect_buf) {                               
+            p67_spinlock_lock(&redirect_buf_inilock);      
+            if(!__redirect_buf) {                   
+                __redirect_buf = p67_hashcntl_new(        
+                    0, p67_ws_redirect_entry_free_entry, NULL); 
+                p67_cmn_assert_abort(                           
+                    !__redirect_buf,                          
+                    "Couldnt initialize redirect buffer\n");
+                if(p67_hashcntl_set_ttl(__redirect_buf, 30000)) {
+                    p67_log("Couldnt initialize ttl for redirect buffer\n");
+                    abort();
+                } 
+            }                                       
+            p67_spinlock_unlock(&redirect_buf_inilock);        
+        }                                                 
+        return __redirect_buf;   
+
 }
 
 p67_hashcntl_t *
@@ -45,17 +93,8 @@ redirect_buf_ix(void)
         redirect_buf_ix_inilock,
         __redirect_buf_ix,
         0,
-        NULL,
+        p67_ws_redirect_entry_free_ix_entry,
         "Couldnt initialize redirect buffer index\n");
-}
-
-void
-p67_ws_redirect_entry_free(p67_ws_redirect_entry_t * e)
-{
-    if(!e) return;
-    p67_addr_free(e->dst_addr);
-    p67_addr_free(e->src_addr);
-    free(e);
 }
 
 p67_err
@@ -98,19 +137,17 @@ p67_ws_redirect_entry_add(
         return err;
     }
     
-    free(entry);
     entry = malloc(
         sizeof(p67_hashcntl_entry_t) + sizeof(req_msghdr->urg_mid) + dst->socklen);
     if(!entry) {
         err = p67_err_eerrno;
         /* todo finish it */
         //err |= p67_hashcntl_remove(redirect_buf,)
-        free(e);
         return err;
     }
 
     entry->key = (unsigned char *)entry + sizeof(p67_hashcntl_entry_t);
-    entry->keyl = src->socklen + dst->socklen;
+    entry->keyl = sizeof(req_msghdr->urg_mid) + dst->socklen;
     entry->next = NULL;
     entry->value = (unsigned char *)e;
     entry->valuel = sizeof(p67_ws_redirect_entry_t);
@@ -121,7 +158,6 @@ p67_ws_redirect_entry_add(
     if((err = p67_hashcntl_add(redirect_buf_ix(), entry))) {
         /* todo finish it */
         //err |= p67_hashcntl_remove(redirect_buf,)
-        free(e);
         return err;
     }
 
@@ -165,11 +201,13 @@ p67_ws_redirect_entry_remove_by_ix(
         &r_entry->dst_addr->sock, 
         r_entry->dst_addr->socklen);
 
-    if(!p67_hashcntl_remove(redirect_buf(), primary_key, primary_key_len)) {
+    if(!(entry = p67_hashcntl_remove(redirect_buf(), primary_key, primary_key_len))) {
         if(err) *err = p67_err_einval;
         p67_ws_redirect_entry_free(r_entry);
         return NULL;
     }
+
+    free(entry);
 
     return r_entry;
 }
@@ -303,12 +341,12 @@ p67_ws_redirect_create_request_msg(
     p67_pckt_t src_username_l = session->username ? session->usernamel + 1 : 0; 
 
     int tlvres;
-    int msglen = 
+    const int msglen = 
         sizeof(p67_pdp_urg_hdr_t) +
         src_hostname_l + P67_TLV_HEADER_LENGTH +
         src_svc_l + P67_TLV_HEADER_LENGTH +
-        src_message_l + P67_TLV_HEADER_LENGTH +
-        src_username_l + P67_TLV_HEADER_LENGTH;
+        ( src_message ? src_message_l + P67_TLV_HEADER_LENGTH : 0 )  +
+        ( src_username ? src_username_l + P67_TLV_HEADER_LENGTH : 0 );
     if(msglen > P67_DML_SAFE_PAYLOAD_SIZE) {
         return p67_err_enomem;
     }
@@ -324,11 +362,11 @@ p67_ws_redirect_create_request_msg(
     msgix+=sizeof(p67_pdp_urg_hdr_t);
 
     if((tlvres = p67_tlv_add_fragment(
-            msg+msgix, 
-            msglen-msgix, 
-            (unsigned char *) "p", 
-            src_svc,
-            src_svc_l)) < 0) {
+            msg+msgix,
+            msglen-msgix,
+            (unsigned char *) "a", 
+            src_hostname,
+            src_hostname_l)) < 0) {
         free(msg);
         return (p67_err)-tlvres;
     }
@@ -336,11 +374,11 @@ p67_ws_redirect_create_request_msg(
     msgix+=tlvres;
 
     if((tlvres = p67_tlv_add_fragment(
-            msg+msgix,
-            msglen-msgix,
-            (unsigned char *) "a", 
-            src_hostname,
-            src_hostname_l)) < 0) {
+            msg+msgix, 
+            msglen-msgix, 
+            (unsigned char *) "p", 
+            src_svc,
+            src_svc_l)) < 0) {
         free(msg);
         return (p67_err)-tlvres;
     }
@@ -360,7 +398,7 @@ p67_ws_redirect_create_request_msg(
         msgix+=tlvres;
     }
 
-    if(session->username) {
+    if(src_username) {
         if((tlvres = p67_tlv_add_fragment(
                 msg+msgix, 
                 msglen-msgix, 
@@ -407,15 +445,14 @@ p67_ws_redirect_create_response_msg(
     int msglen = 
         sizeof(p67_pdp_ack_hdr_t) +
         sizeof(response->status) + P67_TLV_HEADER_LENGTH +
-        hstl + P67_TLV_HEADER_LENGTH +
-        svcl + P67_TLV_HEADER_LENGTH;
+        (isok ? hstl + P67_TLV_HEADER_LENGTH : 0) +
+        (isok ? svcl + P67_TLV_HEADER_LENGTH : 0);
     if(msglen > P67_DML_SAFE_PAYLOAD_SIZE) {
         return p67_err_enomem;
     }
     p67_pckt_t * msg = malloc(msglen);
     p67_err err;
     int msgix = 0;
-    
 
     if((err = p67_pdp_generate_ack_from_hdr(
                 &request_entry->request_hdr, NULL, 0, msg, msglen))) {
@@ -530,9 +567,10 @@ p67_ws_redirect_handle_urg(
     */
 
     if((err = p67_ws_redirect_entry_add(
-            (p67_pdp_urg_hdr_t *)msg,
+            (p67_pdp_urg_hdr_t *)request_msg,
             src_addr,
             dst_addr))) {
+        free(request_msg);
         p67_err_print_err_dbg("Couldnt add redirect entry: ", err);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, 
@@ -547,8 +585,9 @@ p67_ws_redirect_handle_urg(
         dst_addr, request_msg, request_msg_l, 30 * SECOND, 
         NULL, NULL, NULL);
 
+    free(request_msg);
+
     if(err) {
-        free(request_msg);
         p67_err_print_err_dbg("Couldnt send message: ", err);
         return p67_web_tlv_respond_with_status(
             (p67_pdp_urg_hdr_t *)msg, 
@@ -566,7 +605,6 @@ p67_ws_redirect_handle_urg(
 
     return 0;
 }
-
 
 /*
     needed so following comparison can be made in redirect proto:
@@ -630,6 +668,8 @@ p67_ws_redirect_handle_ack(
         p67_ws_redirect_entry_free(rc);
         return err;
     }
+
+    free(resmsg);
 
     p67_ws_redirect_entry_free(rc);
     return err;

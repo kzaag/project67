@@ -18,15 +18,24 @@ struct p67_hashcntl {
     int count;
     p67_hashcntl_free_entry_cb free_entry;
 
+    p67_thread_sm_t ttlsm;
+    int ttl;
+    p67_async_t sig;
+
     P67_CMN_REFCOUNT_FIELDS(_)
 };
+
+#define P67_HASHCNTL_ENTRY_PADDING_SIZE \
+    (sizeof(size_t)+sizeof(p67_hashcntl_entry_t *)+sizeof(p67_cmn_epoch_t))
 
 struct p67_hashcntl_entry {
     unsigned char * key;
     size_t keyl;
     unsigned char * value;
+    /* pad */
     size_t valuel;
     p67_hashcntl_entry_t * next;
+    p67_cmn_epoch_t ts;
 };
 
 #define p67_hashcntl_lock(ctx) p67_spinlock_lock(&ctx->lock);
@@ -78,5 +87,8 @@ p67_hashcntl_refcpy(p67_hashcntl_t * ctx);
         }                                                 \
         return (val);                                    \
     }
+
+p67_err
+p67_hashcntl_set_ttl(p67_hashcntl_t * ctx, int ttl);
 
 #endif

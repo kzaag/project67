@@ -1550,15 +1550,16 @@ P67_CMN_NO_PROTO_EXIT
 
         /* break from the loop and terminate connection with error if... */
         if(     err != 0 &&                 /* there is error ... */
-                err != p67_err_eaconn &&    /* AND this error is not p67_err_eaconn */
+                err != p67_err_eaconn &&    /* AND error is not p67_err_eaconn */
                 /*
-                    AND this error is not p67_err_eerrno with following errno values:
+                    AND error is not p67_err_eerrno with following errno values:
                         - EAGAIN
                         - ECONNREFUSED
                 */
                 ((!(err & p67_err_eerrno)) || (errno != EAGAIN && errno != ECONNREFUSED))) 
         {
-            break;
+            p67_err_print_err_dbg("Connect error: ", err);
+            //break;
         }
 
         if(ctx->thread_ctx && ctx->thread_ctx->state != P67_THREAD_SM_STATE_RUNNING) {
