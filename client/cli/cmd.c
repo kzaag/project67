@@ -1,5 +1,6 @@
 #include <signal.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <p67/err.h>
 #include <p67/net.h>
@@ -315,6 +316,67 @@ P67_CMN_NO_PROTO_EXIT
 
 P67_CMN_NO_PROTO_ENTER
 int 
+p67_cmd_text_chan(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
+{
+    if(argc < 2) {
+        printf("must provide target name\n");
+        return 1;
+    }
+
+    p67_addr_t * dst;
+    //char * username;
+
+    {
+        p67_p2p_t * s = p67_p2p_cache_find_by_name(argv[1]);
+        if(!s) {
+            printf("didnt find requested user\n");
+            return 1;
+        }
+        dst = p67_addr_ref_cpy(s->peer_addr);
+        //username = p67_cmn_strdup(s->peer_username);
+    }
+
+    p67_log_set_term_char("\r$> ");
+
+    p67_err err;
+    const int __buffl = 72;
+    unsigned char __buff[__buffl];
+    /* 
+        have some space allocated on the left side of buffer
+        so we can write network header into it 
+        without having to copy whole buffer.
+    */
+    const int noffset = sizeof(p67_pdp_urg_hdr_t);
+    const int buffl = __buffl - noffset;
+    unsigned char * buff = __buff + noffset;
+    int ix = 0;
+
+    while(1) {
+        do {
+            write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
+        } while((ix = read(0, buff, buffl-1)) <= 1);
+        buff[ix-1] = 0;
+
+        if(!p67_pdp_generate_urg_for_msg(NULL, 0, __buff, noffset, 3)) {
+            printf("couldnt generate urg header for message\n");
+            return 2;
+        }
+
+        if((err = p67_pdp_write_urg(
+                dst, 
+                __buff, ix+noffset-1, 
+                1000, NULL, NULL, NULL)) != 0) {
+            p67_err_print_err("couldnt write for err was: ", err);
+        }
+    }
+
+    return 0;
+}
+
+P67_CMN_NO_PROTO_ENTER
+int 
 p67_cmd_call(
 P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argv)
@@ -432,8 +494,9 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "exit", p67_cmd_exit)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "call", p67_cmd_call)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "login", p67_cmd_login)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "clist", p67_cmd_call_list)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "caccept", p67_cmd_call_accept)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "list", p67_cmd_call_list)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
 
     return ret;
 }

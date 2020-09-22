@@ -11,6 +11,23 @@ p67_err
 p2pclient_callback(
     p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 {
+
+    if(p67_hashcntl_lookup(__get_p2p_cache(), (unsigned char *)&addr->sock, addr->socklen)) {
+        const p67_dml_hdr_store_t * h = p67_dml_parse_hdr(msg, msgl, NULL);
+        if(!h)
+            return p67_err_epdpf;
+        switch(h->cmn.cmn_stp) {
+        case P67_DML_STP_PDP_URG:
+            if(h->cmn.cmn_utp != 0) {
+                p67_log(
+                    "%s:%s: %.*s\n",
+                    addr->hostname, addr->service,
+                    msgl-sizeof(p67_pdp_urg_hdr_t),
+                    msg+sizeof(p67_pdp_urg_hdr_t));
+            }
+            break;
+        }
+    }
     //p67_dml_pretty_print_addr(addr, msg, msgl);
     return p67_dml_handle_msg(addr, msg, msgl, args);
 }
@@ -116,6 +133,10 @@ p67_p2p_cache_accept_by_name(
     return err;
 }
 
+/*
+    this takes O(N)
+    TODO: add hash index.
+*/
 p67_p2p_t *
 p67_p2p_cache_find_by_name(const char * name)
 {
