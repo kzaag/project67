@@ -78,7 +78,7 @@ p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e)
 
     p67_pdp_free_keepalive_ctx(&p2p->keepalive_ctx);
     p67_net_connect_terminate(&p2p->connect_sm);
-
+    p67_conn_shutdown(p2p->peer_addr);
     p67_addr_free(p2p->peer_addr);
     
     free(e);

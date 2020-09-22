@@ -373,8 +373,6 @@ P67_CMN_NO_PROTO_EXIT
     int ix = 0, ret;
     struct timeval to;
     fd_set set;
-    FD_ZERO(&set);
-    FD_SET(1, &set);
 
     while(1) {
 
@@ -382,10 +380,13 @@ P67_CMN_NO_PROTO_EXIT
 
         while(1) {
 
+            FD_ZERO(&set);
+            FD_SET(STDIN_FILENO, &set);
             to.tv_sec = 0;
             to.tv_usec = 1000*100;
 
-            ret = select(2, &set, NULL, NULL, &to);
+            ret = select(STDIN_FILENO+1, &set, NULL, NULL, &to);
+
             if(ret == -1) {
                 return p67_err_eerrno;
             } else if(ret == 0) {
@@ -395,6 +396,7 @@ P67_CMN_NO_PROTO_EXIT
                 }
                 continue;
             }
+
             // data
             ix = read(0, buff, buffl-1);
             if(ix > 0) {

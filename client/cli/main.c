@@ -49,13 +49,13 @@ P67_CMN_NO_PROTO_EXIT
         is_cleanup = 1;
 
         p67_log("Cleanup\n");
-        p67_p2p_cache_free();
-        p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
         p67_net_listen_terminate(&listen_sm);
         p67_net_connect_terminate(&connect_sm);
+        p67_p2p_cache_free();
+        p67_lib_free();
+        p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
         p67_hashcntl_free(cmdbuf);
         p67_cmd_ctx_free(&cmdctx);
-        p67_lib_free();
 
         p67_mutex_unlock(&cleanlock);
 
@@ -192,7 +192,7 @@ P67_CMN_NO_PROTO_EXIT
     void * args)
 {
     cmd_run_ctx_t * ctx = (cmd_run_ctx_t *)args;
-    
+
     cmd_last_exit_code = p67_cmd_execute(cmdbuf, &cmdctx, ctx->argc, ctx->argv);
     
     if(cmdctx.tsm->state != P67_THREAD_SM_STATE_STOP) {
