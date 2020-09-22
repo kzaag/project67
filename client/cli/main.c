@@ -11,6 +11,11 @@ static p67_thread_sm_t
     connect_sm = P67_THREAD_SM_INITIALIZER, 
     listen_sm = P67_THREAD_SM_INITIALIZER;
 static p67_pdp_keepalive_ctx_t ws_keepalive_ctx = {0};
+int cmd_last_exit_code = 0;
+p67_thread_sm_t cmdsm = P67_THREAD_SM_INITIALIZER;
+
+p67_async_t cleanlock = 0;
+int is_cleanup = 0;
 
 P67_CMN_NO_PROTO_ENTER
 void
@@ -18,7 +23,31 @@ finish(
 P67_CMN_NO_PROTO_EXIT
     int sig)
 {
+    /*
+        on sigint only exit application if no commands are running, else just kill command
+    */
     if(sig == SIGINT) {
+        p67_err err;
+        /*
+            if command needs to cleanup after sigint, then it should handle state change in specified time,
+            after which it will be terminated.
+        */
+        err = p67_thread_sm_terminate(&cmdsm, 500);
+        if(err == 0 || err == p67_err_etime) {
+            return;
+        }
+
+        if(cmdsm.state != P67_THREAD_SM_STATE_STOP) {
+            return;
+        }
+
+        p67_mutex_lock(&cleanlock);
+
+        if(is_cleanup) {
+            return;
+        }
+        is_cleanup = 1;
+
         p67_log("Cleanup\n");
         p67_p2p_cache_free();
         p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
@@ -27,6 +56,9 @@ P67_CMN_NO_PROTO_EXIT
         p67_hashcntl_free(cmdbuf);
         p67_cmd_ctx_free(&cmdctx);
         p67_lib_free();
+
+        p67_mutex_unlock(&cleanlock);
+
         exit(0);
     }
     raise(sig);
@@ -143,6 +175,34 @@ P67_CMN_NO_PROTO_EXIT
     }
 
     return p67_dml_handle_msg(addr, msg, msgl, args);
+}
+
+typedef struct cmd_run_ctx {
+    int argc;
+    char ** argv;
+} cmd_run_ctx_t;
+
+/*
+    you cant free args!
+*/
+P67_CMN_NO_PROTO_ENTER
+void *
+cmd_run(
+P67_CMN_NO_PROTO_EXIT
+    void * args)
+{
+    cmd_run_ctx_t * ctx = (cmd_run_ctx_t *)args;
+    
+    cmd_last_exit_code = p67_cmd_execute(cmdbuf, &cmdctx, ctx->argc, ctx->argv);
+    
+    if(cmdctx.tsm->state != P67_THREAD_SM_STATE_STOP) {
+        p67_mutex_set_state(
+            &cmdctx.tsm->state, 
+            cmdctx.tsm->state, 
+            P67_THREAD_SM_STATE_STOP);
+    }
+
+    return NULL;
 }
 
 int
@@ -270,7 +330,20 @@ main(int argc, char ** argv)
             }
         }
 
-        p67_cmd_execute(cmdbuf, &cmdctx, _argc, _argv);
+        //p67_cmd_execute(cmdbuf, &cmdctx, _argc, _argv);
+
+        cmd_run_ctx_t c;
+        c.argc = _argc;
+        c.argv = _argv;
+        cmdctx.tsm = &cmdsm;
+
+        if((err = p67_thread_sm_start(&cmdsm, cmd_run, &c)) != 0) {
+            p67_err_print_err("couldnt exec command: ", err);
+        } else {
+            if((err = p67_thread_sm_wait_for_exit(&cmdsm, -1)) != 0) {
+                p67_err_print_err("couldnt await for command exit: ", err);
+            }
+        }
 
         free(_argv);
         free(argvbuf);

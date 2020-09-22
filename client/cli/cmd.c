@@ -315,6 +315,25 @@ P67_CMN_NO_PROTO_EXIT
 }
 
 P67_CMN_NO_PROTO_ENTER
+int
+p67_cmd_sleep(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argvs)
+{
+    int t = 0;
+    p67_err err;
+    if(argc < 2 || (t = atoi(argvs[1])) <= 0) {
+        return 1;
+    }
+    if((err = p67_cmn_sleep_s(t)) != 0) {
+        p67_err_print_err("sleep: ", err);
+        return 2;
+    }
+    return 0;
+}
+
+
+P67_CMN_NO_PROTO_ENTER
 int 
 p67_cmd_text_chan(
 P67_CMN_NO_PROTO_EXIT
@@ -351,13 +370,42 @@ P67_CMN_NO_PROTO_EXIT
     const int noffset = sizeof(p67_pdp_urg_hdr_t);
     const int buffl = __buffl - noffset;
     unsigned char * buff = __buff + noffset;
-    int ix = 0;
+    int ix = 0, ret;
+    struct timeval to;
+    fd_set set;
+    FD_ZERO(&set);
+    FD_SET(1, &set);
 
     while(1) {
-        do {
-            write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
-        } while((ix = read(0, buff, buffl-1)) <= 1);
-        buff[ix-1] = 0;
+
+        write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
+
+        while(1) {
+
+            to.tv_sec = 0;
+            to.tv_usec = 1000*100;
+
+            ret = select(2, &set, NULL, NULL, &to);
+            if(ret == -1) {
+                return p67_err_eerrno;
+            } else if(ret == 0) {
+                if(ctx->tsm->state != P67_THREAD_SM_STATE_RUNNING) {
+                    p67_addr_free(dst);
+                    return 0;
+                }
+                continue;
+            }
+            // data
+            ix = read(0, buff, buffl-1);
+            if(ix > 0) {
+                buff[ix-1] = 0;
+                break;
+            }
+        }
+
+        // do {
+        //     write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
+        // } while((ix = read(0, buff, buffl-1)) <= 1);
 
         if(!p67_pdp_generate_urg_for_msg(NULL, 0, __buff, noffset, 3)) {
             printf("couldnt generate urg header for message\n");
@@ -497,6 +545,7 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "list", p67_cmd_call_list)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "sleep", p67_cmd_sleep)) != 0) return NULL;
 
     return ret;
 }

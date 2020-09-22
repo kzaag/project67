@@ -115,6 +115,9 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms);
 #define p67_thread_sm_break_if_stop_requested(tsm_ptr) \
     { if(tsm_ptr && p67_thread_sm_stop_requested(tsm_ptr)) break; }
 
+#define p67_thread_sm_wait_for_exit(tsm_ptr, to) \
+    p67_mutex_wait_for_change(&(tsm_ptr)->state, P67_THREAD_SM_STATE_RUNNING, (to))
+
 typedef struct p67_thread_sm {
     p67_async_t mutex;
     int state;

@@ -9,6 +9,7 @@ typedef struct p67_cmd_ctx {
     p67_addr_t * ws_remote_addr;
     p67_net_cred_t * cred;
     p67_net_cb_ctx_t p2p_cb_ctx;
+    p67_thread_sm_t * tsm;
 } p67_cmd_ctx_t;
 
 #define p67_cmd_ctx_free(c) \
