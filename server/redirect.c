@@ -16,6 +16,7 @@ typedef struct p67_ws_redirect_entry {
     p67_addr_t * dst_addr;
     p67_async_t state_lock;
     p67_pdp_urg_hdr_t request_hdr;
+    p67_pdp_urg_hdr_t orig_hdr;
     int state;
 } p67_ws_redirect_entry_t;
 
@@ -99,7 +100,9 @@ redirect_buf_ix(void)
 
 p67_err
 p67_ws_redirect_entry_add(
-    p67_pdp_urg_hdr_t * req_msghdr, p67_addr_t * src, p67_addr_t * dst)
+    p67_pdp_urg_hdr_t * req_msghdr, 
+    p67_pdp_urg_hdr_t * orig_msghdr, 
+    p67_addr_t * src, p67_addr_t * dst)
 {
     p67_err err;
 
@@ -109,6 +112,7 @@ p67_ws_redirect_entry_add(
     e->src_addr = p67_addr_ref_cpy(src);
     e->dst_addr = p67_addr_ref_cpy(dst);
     e->request_hdr = *req_msghdr;
+    e->orig_hdr = *orig_msghdr;
     e->state = 0;
     e->state_lock = P67_XLOCK_STATE_UNLOCKED;
 
@@ -455,7 +459,7 @@ p67_ws_redirect_create_response_msg(
     int msgix = 0;
 
     if((err = p67_pdp_generate_ack_from_hdr(
-                &request_entry->request_hdr, NULL, 0, msg, msglen))) {
+                &request_entry->orig_hdr, NULL, 0, msg, msglen))) {
         free(msg);
         return p67_err_einval;
     }
@@ -568,6 +572,7 @@ p67_ws_redirect_handle_urg(
 
     if((err = p67_ws_redirect_entry_add(
             (p67_pdp_urg_hdr_t *)request_msg,
+            (p67_pdp_urg_hdr_t *)msg,
             src_addr,
             dst_addr))) {
         free(request_msg);

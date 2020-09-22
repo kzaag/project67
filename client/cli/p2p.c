@@ -116,10 +116,6 @@ p67_p2p_cache_accept_by_name(
     return err;
 }
 
-/*
-    gotta be careful when using this function since its not thread safe.
-    if p2p_ctx gets disposed this may throw segv fault 
-*/
 p67_p2p_t *
 p67_p2p_cache_find_by_name(const char * name)
 {

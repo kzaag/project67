@@ -20,6 +20,7 @@ P67_CMN_NO_PROTO_EXIT
 {
     if(sig == SIGINT) {
         p67_log("Cleanup\n");
+        p67_p2p_cache_free();
         p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
         p67_net_listen_terminate(&listen_sm);
         p67_net_connect_terminate(&connect_sm);
@@ -100,6 +101,7 @@ P67_CMN_NO_PROTO_EXIT
             (unsigned char *)src_username, 
             strlen(src_username), 
             (p67_pdp_urg_hdr_t *)msg)) {
+            p67_log("Couldnt add p2p entry for %s\n", src_username);
         // ignore on fail ( already called )
         // err = p67_err_einval;
         // p67_addr_free(src_addr);
