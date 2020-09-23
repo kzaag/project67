@@ -19,8 +19,8 @@ int P67_LOG_TERM_ENC_SGN_STR_LEN = 3;
 void
 p67_log_set_term_char(const char * c) 
 {
-    free_sgn_str = 1;
     if(c && free_sgn_str) free(P67_LOG_TERM_ENC_SGN_STR);
+    free_sgn_str = 1;
     P67_LOG_TERM_ENC_SGN_STR = p67_cmn_strdup(c);
     P67_LOG_TERM_ENC_SGN_STR_LEN = strlen(c);
 }
