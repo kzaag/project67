@@ -31,6 +31,7 @@ finish(int a)
     p67_net_connect_terminate(&connect_sm);
     p67_addr_free(remote_addr);
     p67_lib_free();
+    p67_log_restore_echo_canon();
     if(a == SIGINT) exit(0);
     else raise(a);
 }
@@ -80,15 +81,14 @@ main(int argc, char ** argv)
     if(err) goto end;
 
     /* switch to terminal logging style */
-    p67_log_cb = p67_log_cb_terminal;
-    unsigned char buff[64];
-    int ix = 0;
+    p67_log_cb = p67_log_cb_term;
+    const char * buff;
+    int len = 0;
     while(1) {
-        do {
-            write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
-        } while((ix = read(0, buff, sizeof(buff))) <= 1);
 
-        if((err = p67_net_write_msg(remote_addr, buff, ix-1)) != 0)
+        while(!(buff = p67_log_read_term(&len, NULL)));
+
+        if((err = p67_net_write_msg(remote_addr, (unsigned char *)buff, len)) != 0)
             p67_err_print_err("couldnt write: ", err);
     }
 

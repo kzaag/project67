@@ -357,7 +357,10 @@ P67_CMN_NO_PROTO_EXIT
         //username = p67_cmn_strdup(s->peer_username);
     }
 
-    p67_log_set_term_char("\r$> ");
+    char tc[strlen(argv[1])+1];
+    tc[0] = '$';
+    memcpy(tc+1, argv[1], sizeof(tc)-1);
+    p67_log_set_term_char(tc);
 
     p67_err err;
     const int __buffl = 72;
@@ -373,6 +376,8 @@ P67_CMN_NO_PROTO_EXIT
     int ix = 0, ret;
     struct timeval to;
     fd_set set;
+
+    int xx = 1;
 
     while(1) {
 
@@ -390,6 +395,22 @@ P67_CMN_NO_PROTO_EXIT
             if(ret == -1) {
                 return p67_err_eerrno;
             } else if(ret == 0) {
+                {
+                    if((xx % 5) == 0) {
+                        p67_pckt_t msg[sizeof(p67_pdp_urg_hdr_t) + 5];
+                        if(!p67_pdp_generate_urg_for_msg((uint8_t*)"hello", 5, msg, sizeof(msg), 3)) {
+                            printf("couldnt generate urg header for message\n");
+                            return 2;
+                        }
+                        if((err = p67_pdp_write_urg(
+                                dst, 
+                                msg, sizeof(msg), 
+                                1000, NULL, NULL, NULL)) != 0) {
+                            p67_err_print_err("couldnt write for err was: ", err);
+                        }
+                    }
+                    xx++;
+                }
                 if(ctx->tsm->state != P67_THREAD_SM_STATE_RUNNING) {
                     p67_addr_free(dst);
                     return 0;

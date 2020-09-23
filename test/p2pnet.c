@@ -129,7 +129,7 @@ main(int argc, char ** argv)
     }
 
     p67_lib_init();
-    p67_log_cb = p67_log_cb_terminal;
+    p67_log_cb = p67_log_cb_term;
     signal(SIGINT, finish);
 
     //char b[32];

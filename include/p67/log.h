@@ -4,6 +4,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#include <p67/err.h>
+
 #define p67_log_cb (*p67_log_cb_location())
 
 typedef int (* p67_log_cb_t)(const char *, va_list);
@@ -35,12 +37,18 @@ extern int P67_LOG_TERM_ENC_SGN_STR_LEN;
 extern char * P67_LOG_TERM_ENC_SGN_STR;
 
 int
-p67_log_cb_terminal(const char * fmt, va_list list);
+p67_log_cb_term(const char * fmt, va_list list);
 
 void
 p67_log_set_term_char(const char * c);
 
 void
 p67_log_free(void);
+
+const char *
+p67_log_read_term(int * bl, p67_err * err);
+
+void
+p67_log_restore_echo_canon(void);
 
 #endif

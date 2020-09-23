@@ -58,6 +58,7 @@ P67_CMN_NO_PROTO_EXIT
         p67_cmd_ctx_free(&cmdctx);
 
         p67_mutex_unlock(&cleanlock);
+        p67_log_restore_echo_canon();
 
         exit(0);
     }
@@ -215,7 +216,7 @@ main(int argc, char ** argv)
 
     p67_lib_init();
     signal(SIGINT, finish);
-    p67_log_cb = p67_log_cb_terminal;
+    p67_log_cb = p67_log_cb_term;
     
     p67_err err;
     
@@ -257,24 +258,27 @@ main(int argc, char ** argv)
         goto end;
     }
 
-    char n[120];
+    const char * n;
     char ** _argv;
     char * argvbuf;
-    size_t nl, i, j, lv, _argvl = 0, argvbufl = 0;
-    int _argc, argvbufix = 0, offset, rd;
-    char tmp;
+    size_t i, j, lv, _argvl = 0, argvbufl = 0;
+    int nl, _argc, argvbufix = 0, offset, rd;
 
     while(1) {
        
         nl = 0;
 
-        printf("\r> ");
-
-        while((tmp = getchar()) != EOF && tmp != '\n') {
-            if(nl >= (sizeof(n) - 1))
-                break;
-            n[nl++] = tmp;
+        while(!(n = p67_log_read_term(&nl, &err))) {
+            p67_err_print_err(NULL, err);
         }
+
+        // printf("\r> ");
+
+        // while((tmp = getchar()) != EOF && tmp != '\n') {
+        //     if(nl >= (sizeof(n) - 1))
+        //         break;
+        //     n[nl++] = tmp;
+        // }
 
         if(nl < 1)
             continue;

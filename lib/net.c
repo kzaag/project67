@@ -1021,7 +1021,7 @@ p67_net_connect(
     int sfd, noclose;
     int sslerr;
     p67_err err;
-    
+
     noclose = 0;
 
     if(p67_conn_lookup(remote)) return p67_err_eaconn;
