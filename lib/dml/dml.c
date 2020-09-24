@@ -1,4 +1,5 @@
 #include <p67/dml/dml.h>
+#include <p67/log.h>
 
 const p67_dml_hdr_store_t *
 p67_dml_parse_hdr(

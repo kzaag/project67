@@ -3,6 +3,7 @@
 
 #include <client/cli/p2p.h>
 #include <p67/dml/dml.h>
+#include <p67/log.h>
 
 static p67_hashcntl_t * __p2p_cache = NULL;
 static p67_async_t p2p_cache_lock = P67_ASYNC_INTIIALIZER;

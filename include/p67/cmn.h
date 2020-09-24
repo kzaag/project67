@@ -2,7 +2,6 @@
 #define CMN_H 1
 
 #include "err.h"
-#include "log.h"
 
 #define P67_CMN_MICROSEC "\u00b5s"
 

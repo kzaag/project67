@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include <p67/err.h>
+#include <p67/log.h>
 #include <p67/net.h>
 #include <p67/dml/dml.h>
 #include <p67/web/status.h>
@@ -357,9 +358,13 @@ P67_CMN_NO_PROTO_EXIT
         //username = p67_cmn_strdup(s->peer_username);
     }
 
-    char tc[strlen(argv[1])+1];
-    tc[0] = '$';
+    //  1   strlen(argv[1])   1
+    //  >  {peer_username}   \0
+    char tc[1+strlen(argv[1])+1];
+    tc[0] = '>';
     memcpy(tc+1, argv[1], sizeof(tc)-1);
+    tc[sizeof(tc)-1] = 0;
+
     p67_log_set_term_char(tc);
 
     p67_err err;
@@ -372,58 +377,22 @@ P67_CMN_NO_PROTO_EXIT
     */
     const int noffset = sizeof(p67_pdp_urg_hdr_t);
     const int buffl = __buffl - noffset;
+    int cbuffl;
     unsigned char * buff = __buff + noffset;
-    int ix = 0, ret;
-    struct timeval to;
-    fd_set set;
-
-    int xx = 1;
 
     while(1) {
 
-        write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
+        cbuffl = buffl;
 
-        while(1) {
-
-            FD_ZERO(&set);
-            FD_SET(STDIN_FILENO, &set);
-            to.tv_sec = 0;
-            to.tv_usec = 1000*100;
-
-            ret = select(STDIN_FILENO+1, &set, NULL, NULL, &to);
-
-            if(ret == -1) {
-                return p67_err_eerrno;
-            } else if(ret == 0) {
-                {
-                    if((xx % 5) == 0) {
-                        p67_pckt_t msg[sizeof(p67_pdp_urg_hdr_t) + 5];
-                        if(!p67_pdp_generate_urg_for_msg((uint8_t*)"hello", 5, msg, sizeof(msg), 3)) {
-                            printf("couldnt generate urg header for message\n");
-                            return 2;
-                        }
-                        if((err = p67_pdp_write_urg(
-                                dst, 
-                                msg, sizeof(msg), 
-                                1000, NULL, NULL, NULL)) != 0) {
-                            p67_err_print_err("couldnt write for err was: ", err);
-                        }
-                    }
-                    xx++;
-                }
-                if(ctx->tsm->state != P67_THREAD_SM_STATE_RUNNING) {
-                    p67_addr_free(dst);
-                    return 0;
-                }
-                continue;
+        err = p67_log_read_term_in_buf((char *)buff, &cbuffl, 500);
+        if(err) {
+            if(err != p67_err_etime)
+                p67_err_print_err(NULL, err);
+            if(p67_thread_sm_stop_requested(ctx->tsm)) {
+                p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+                return 0;
             }
-
-            // data
-            ix = read(0, buff, buffl-1);
-            if(ix > 0) {
-                buff[ix-1] = 0;
-                break;
-            }
+            continue;
         }
 
         // do {
@@ -437,9 +406,9 @@ P67_CMN_NO_PROTO_EXIT
 
         if((err = p67_pdp_write_urg(
                 dst, 
-                __buff, ix+noffset-1, 
+                __buff, buffl+noffset, 
                 1000, NULL, NULL, NULL)) != 0) {
-            p67_err_print_err("couldnt write for err was: ", err);
+            p67_err_print_err("couldnt write: ", err);
         }
     }
 

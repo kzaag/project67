@@ -6,6 +6,7 @@
 
 #include <p67/cert.h>
 #include <p67/net.h>
+#include <p67/log.h>
 
 /*
     generate cert from pre existing key

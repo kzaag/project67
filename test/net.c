@@ -86,7 +86,7 @@ main(int argc, char ** argv)
     int len = 0;
     while(1) {
 
-        while(!(buff = p67_log_read_term(&len, NULL)));
+        while(!(buff = p67_log_read_term(&len, NULL, 0)));
 
         if((err = p67_net_write_msg(remote_addr, (unsigned char *)buff, len)) != 0)
             p67_err_print_err("couldnt write: ", err);

@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <termios.h>
+#include <sys/select.h>
 
 #include <p67/async.h>
 #include <p67/log.h>
@@ -17,8 +18,8 @@ p67_log_cb_location(void)
 }
 
 int free_sgn_str = 0;
-char * P67_LOG_TERM_ENC_SGN_STR = ">";
-int P67_LOG_TERM_ENC_SGN_STR_LEN = 3;
+char * P67_LOG_TERM_ENC_SGN_STR = P67_LOG_TERM_ENC_SGN_STR_DEF;
+//int P67_LOG_TERM_ENC_SGN_STR_LEN = 1;
 
 void
 p67_log_set_term_char(const char * c) 
@@ -26,7 +27,7 @@ p67_log_set_term_char(const char * c)
     if(c && free_sgn_str) free(P67_LOG_TERM_ENC_SGN_STR);
     free_sgn_str = 1;
     P67_LOG_TERM_ENC_SGN_STR = p67_cmn_strdup(c);
-    P67_LOG_TERM_ENC_SGN_STR_LEN = strlen(c);
+    //P67_LOG_TERM_ENC_SGN_STR_LEN = strlen(c);
 }
 
 void
@@ -95,16 +96,17 @@ p67_log_restore_echo_canon(void)
 }
 
 /* is not thread safe */
-const char *
-p67_log_read_term(int * bl, p67_err * err)
+p67_err
+p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms)
 {
-    int is_spec;
+    int is_spec, select_ret;
     char nc;
+    fd_set set;
+    struct timeval to;
     
     if(!is_noblock) {
         if(setup_noblock() < 0) {
-            if(err) *err = p67_err_eerrno;
-            return NULL;
+            return p67_err_eerrno;
         }
         is_noblock = 1;
     }
@@ -113,9 +115,19 @@ p67_log_read_term(int * bl, p67_err * err)
 
         __p67_log(NULL);
 
-        /*
-            TODO: use select so you can timeout reader.
-        */
+        if(timeout_ms > 0) {
+            FD_ZERO(&set);
+            FD_SET(STDIN_FILENO, &set);
+            to.tv_sec = timeout_ms/1000;
+            to.tv_usec = 1000*(timeout_ms%1000);
+            select_ret = select(STDIN_FILENO+1, &set, NULL, NULL, &to);
+            if(select_ret == -1) {
+                return p67_err_eerrno;
+            } else if(select_ret == 0) {
+                return p67_err_etime;
+            }
+        }
+
         if(read(STDIN_FILENO, &nc, 1) != 1) {
             continue;
         }
@@ -136,19 +148,35 @@ p67_log_read_term(int * bl, p67_err * err)
         buf[buf_ix++] = nc;
 
         if(nc == '\n' || buf_ix == MAX_BUF) {
-            ubuf[buf_ix] = 0;
+            if(buf_ix >= *bl) {
+                buf_ix = *bl - 1;
+            }
+
             /*
                 copy without new line
             */
-            if(nc == '\n')
-                memcpy(ubuf, buf, buf_ix-1);
-            else
-                memcpy(ubuf, buf, buf_ix);
-            if(bl) *bl = buf_ix;
+            if(nc == '\n') {
+                buf_ix--;
+            }
+            
+            memcpy(b, buf, buf_ix);
+            b[buf_ix] = 0;
+            *bl = buf_ix;
             buf_ix = 0;
-            return ubuf;
+            return 0;
         }
     }
+}
+
+/* is not thread safe */
+const char *
+p67_log_read_term(int * bl, p67_err * err, p67_cmn_epoch_t timeout_ms)
+{
+    int _bl = MAX_BUF;
+    p67_err _err = p67_log_read_term_in_buf(ubuf, &_bl, timeout_ms);
+    if(bl) *bl = _bl;
+    if(err) *err = _err;
+    return _err == 0 ? ubuf : NULL;
 }
 
 int

@@ -5,6 +5,7 @@
 
 #include <p67/audio.h>
 #include <p67/err.h>
+#include <p67/log.h>
 
 void
 p67_err_print_err(const char * hdr, p67_err err)

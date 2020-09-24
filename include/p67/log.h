@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include <p67/err.h>
+#include <p67/cmn.h>
 
 #define p67_log_cb (*p67_log_cb_location())
 
@@ -33,7 +34,9 @@ __p67_flog(FILE * __restrict__ f, const char * __restrict__ fmt, ...);
 #define p67_flog(f, ...) __p67_flog(f, __VA_ARGS__)
 #define p67_errlog(f, ...) __p67_errlog(f, __VA_ARGS__)
 
-extern int P67_LOG_TERM_ENC_SGN_STR_LEN;
+#define P67_LOG_TERM_ENC_SGN_STR_DEF ">"
+
+//extern int P67_LOG_TERM_ENC_SGN_STR_LEN;
 extern char * P67_LOG_TERM_ENC_SGN_STR;
 
 int
@@ -46,7 +49,10 @@ void
 p67_log_free(void);
 
 const char *
-p67_log_read_term(int * bl, p67_err * err);
+p67_log_read_term(int * bl, p67_err * err, p67_cmn_epoch_t timeout_ms);
+
+p67_err
+p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms);
 
 void
 p67_log_restore_echo_canon(void);

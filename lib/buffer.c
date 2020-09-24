@@ -3,6 +3,7 @@
 
 #include <p67/async.h>
 #include <p67/buffer.h>
+#include <p67/log.h>
 
 struct p67_buffer {
     unsigned char * buff;

@@ -43,6 +43,8 @@ P67_CMN_NO_PROTO_EXIT
 
         p67_mutex_lock(&cleanlock);
 
+        p67_log("Interrupt\n");
+        
         if(is_cleanup) {
             return;
         }
@@ -268,7 +270,7 @@ main(int argc, char ** argv)
        
         nl = 0;
 
-        while(!(n = p67_log_read_term(&nl, &err))) {
+        while(!(n = p67_log_read_term(&nl, &err, 0))) {
             p67_err_print_err(NULL, err);
         }
 
