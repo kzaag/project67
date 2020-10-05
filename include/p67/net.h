@@ -24,11 +24,14 @@ typedef p67_err (* p67_net_callback_t)(
 typedef void * (* p67_net_gen_args_cb)(void *);
 typedef void (* p67_net_free_args_cb)(void *);
 
+typedef void (* p67_net_shutdown_cb)(p67_addr_t *);
+
 typedef struct p67_net_cb_ctx {
     p67_net_callback_t cb;
     p67_net_gen_args_cb gen_args;
     p67_net_free_args_cb free_args;
     void * args;
+    p67_net_shutdown_cb on_shutdown;
 } p67_net_cb_ctx_t;
 
 #define p67_net_cb_ctx_initializer(__cb) \
@@ -111,7 +114,7 @@ p67_hashcntl_t *
 p67_conn_cache(void);
 
 p67_err
-p67_conn_shutdown(p67_addr_t * addr);
+p67_net_shutdown(p67_addr_t * addr);
 
 p67_node_t *
 p67_node_lookup(p67_addr_t * addr);
@@ -207,5 +210,16 @@ p67_net_start_connect(
     p67_net_cred_t * cred,
     p67_net_cb_ctx_t cb_ctx,
     p67_timeout_t * conn_timeout_ctx);
+
+// p67_err
+// p67_net_start_connect_slim(
+//     p67_thread_sm_t * tsm,
+//     p67_async_t * sig,
+//     p67_addr_t * local_addr,
+//     p67_addr_t * remote_addr,
+//     p67_net_cred_t * cred,
+//     p67_net_cb_ctx_t cb_ctx,
+//     p67_timeout_t * conn_timeout_ctx,
+//     int timeout_ms);
 
 #endif

@@ -13,6 +13,7 @@ static p67_thread_sm_t
 static p67_pdp_keepalive_ctx_t ws_keepalive_ctx = {0};
 int cmd_last_exit_code = 0;
 p67_thread_sm_t cmdsm = P67_THREAD_SM_INITIALIZER;
+const int connect_to = 300;
 
 p67_async_t cleanlock = 0;
 int is_cleanup = 0;
@@ -26,45 +27,47 @@ P67_CMN_NO_PROTO_EXIT
     /*
         on sigint only exit application if no commands are running, else just kill command
     */
-    if(sig == SIGINT) {
-        p67_err err;
-        /*
-            if command needs to cleanup after sigint, then it should handle state change in specified time,
-            after which it will be terminated.
-        */
-        err = p67_thread_sm_terminate(&cmdsm, 500);
-        if(err == 0 || err == p67_err_etime) {
-            return;
-        }
-
-        if(cmdsm.state != P67_THREAD_SM_STATE_STOP) {
-            return;
-        }
-
-        p67_mutex_lock(&cleanlock);
-
-        p67_log("Interrupt\n");
-        
-        if(is_cleanup) {
-            return;
-        }
-        is_cleanup = 1;
-
-        p67_log("Cleanup\n");
-        p67_net_listen_terminate(&listen_sm);
-        p67_net_connect_terminate(&connect_sm);
-        p67_p2p_cache_free();
-        p67_lib_free();
-        p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
-        p67_hashcntl_free(cmdbuf);
-        p67_cmd_ctx_free(&cmdctx);
-
-        p67_mutex_unlock(&cleanlock);
-        p67_log_restore_echo_canon();
-
-        exit(0);
+    if(sig != SIGINT) {
+        raise(sig);
+        return;
     }
-    raise(sig);
+
+    p67_err err;
+    /*
+        if command needs to cleanup after sigint, then it should handle state change in specified time,
+        after which it will be terminated.
+    */
+    err = p67_thread_sm_terminate(&cmdsm, 500);
+    if(err == 0 || err == p67_err_etime) {
+        return;
+    }
+
+    if(cmdsm.state != P67_THREAD_SM_STATE_STOP) {
+        return;
+    }
+
+    p67_mutex_lock(&cleanlock);
+    
+    if(is_cleanup) {
+        return;
+    }
+    is_cleanup = 1;
+
+    p67_log("Interrupt\n");
+
+    p67_net_listen_terminate(&listen_sm);
+    //p67_net_connect_terminate(&connect_sm);
+    p67_thread_sm_terminate(&connect_sm, 2*connect_to);
+    p67_p2p_cache_free();
+    p67_lib_free();
+    p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
+    p67_hashcntl_free(cmdbuf);
+    p67_cmd_ctx_free(&cmdctx);
+
+    p67_mutex_unlock(&cleanlock);
+    p67_log_restore_echo_canon();
+
+    exit(0);
 }
 
 const char * str_empty = "";
@@ -226,29 +229,32 @@ main(int argc, char ** argv)
         = p67_net_cred_create("p2pcert", "p2pcert.cert");
     p67_net_cb_ctx_t server_cbctx = p67_net_cb_ctx_initializer(webserver_callback);
     p67_net_cb_ctx_t p2p_cbctx = p67_net_cb_ctx_initializer(p2pclient_callback);
-    p67_addr_t * local_addr = p67_addr_new_localhost4_udp(argv[1]);
+    p2p_cbctx.on_shutdown = p67_p2p_shutdown_cb;
+    p67_addr_t * local_listen_addr = p67_addr_new_localhost4_udp(argv[1]);
+    // char cs[7];
+    // sprintf(cs, "%d", atoi(argv[1])/*+1*/);
+    // p67_addr_t * local_connect_addr = p67_addr_new_localhost4_udp(cs);
     p67_addr_t * ws_addr = p67_addr_new_parse_str_udp(argv[2]);
 
-    if(!cred || !local_addr || !ws_addr) {
+    if(!cred || !local_listen_addr || !ws_addr) {
         err = p67_err_einval | p67_err_eerrno;
         goto end;
     }
 
     /* handle incoming connections with p2p handler. */
-    if((err = p67_net_start_listen(&listen_sm, local_addr, cred, p2p_cbctx, NULL)))
+    if((err = p67_net_start_listen(&listen_sm, local_listen_addr, cred, p2p_cbctx, NULL)))
         goto end;
 
     /* connect to redirect-server with server handler */
     if((err = p67_net_start_connect(
-            &connect_sm, NULL, local_addr, ws_addr, cred, server_cbctx, NULL)))
+            &connect_sm, NULL, local_listen_addr, ws_addr, cred, server_cbctx, NULL)))
         goto end;
     
     ws_keepalive_ctx.addr = p67_addr_ref_cpy(ws_addr);
     if((err = p67_pdp_start_keepalive_loop(&ws_keepalive_ctx)) != 0) goto end;
 
-
     cmdctx.cred = cred;
-    cmdctx.local_addr = local_addr;
+    cmdctx.local_addr = local_listen_addr;
     cmdctx.ws_remote_addr = ws_addr;
 
     if((err = p67_cert_trust_address(ws_addr, "p2pcert.cert")))

@@ -56,8 +56,8 @@ p67_net_cred_free(p67_net_cred_t * c)
 }
 
 /* sleep ms = P67_MIN_SLEEP_MS + [0 - P67_MOD_SLEEP_MS] */
-#define P67_MOD_SLEEP_MS 500
-#define P67_MIN_SLEEP_MS 500
+#define P67_MOD_SLEEP_MS 100
+#define P67_MIN_SLEEP_MS 200
 
 typedef struct p67_conn p67_conn_t;
 
@@ -73,6 +73,7 @@ struct p67_conn {
     p67_net_callback_t callback;
     void * args;
     p67_net_free_args_cb free_args;
+    p67_net_shutdown_cb on_shutdown;
     p67_thread_sm_t hread;
     p67_async_t lock;
     unsigned int sig_term : 1,
@@ -189,7 +190,7 @@ p67_net_globals_location(void)
 //#define CIPHER_ALT "HIGH:!aNULL:!kRSA:!PSK:!SRP:!MD5:!RC4"
 
 p67_err
-p67_conn_shutdown(p67_addr_t * addr)
+p67_net_shutdown(p67_addr_t * addr)
 {
     if(!addr) return p67_err_einval;
     return p67_hashcntl_remove_and_free(
@@ -222,6 +223,9 @@ __p67_conn_free(p67_hashcntl_entry_t * entry)
 
     /* give everyone waiting some time to terminate */
     p67_cmn_sleep_ms(100);
+
+    if(conn->on_shutdown)
+        conn->on_shutdown(conn->addr_remote);
 
     if(conn->ssl) {
         SSL_shutdown(conn->ssl);
@@ -343,6 +347,7 @@ P67_CMN_NO_PROTO_EXIT
     ret->args = generated_args;
     ret->callback = cb_ctx.cb;
     ret->free_args = cb_ctx.free_args;
+    ret->on_shutdown = cb_ctx.on_shutdown;
     ret->lock = lock;
     ret->ssl = ssl;
     ret->timeout = timeout;
@@ -593,7 +598,7 @@ P67_CMN_NO_PROTO_EXIT
         conn->hread.state, 
         P67_THREAD_SM_STATE_STOP);
 
-    if(err != 0) p67_conn_shutdown(remote);
+    if(err != 0) p67_net_shutdown(remote);
     p67_addr_free(remote);
     return NULL;
 }
@@ -918,11 +923,6 @@ P67_CMN_NO_PROTO_EXIT
     p67_sfd_t sfd;
     int ret;
 
-    // if(p67_conn_is_already_connected(&pass->addr_remote)) {
-    //     err = p67_err_eaconn;
-    //     goto end;
-    // }
- 
     if((err = p67_sfd_create_from_addr(&sfd, pass->addr_local, P67_SFD_TP_DGRAM_UDP)) != 0)
         goto end;
 
@@ -999,43 +999,18 @@ end:
     p67_conn_unlock(pass);
     SSL_shutdown(pass->ssl);
     pass->ssl = NULL;
-    p67_conn_shutdown(pass->addr_remote);
+    p67_net_shutdown(pass->addr_remote);
     if(sfd > 0) p67_sfd_close(sfd);
     return NULL;
 }
 
-p67_err
-p67_net_connect(
-    p67_addr_t * local, p67_addr_t * remote,
-    p67_net_cred_t * cred,
-    p67_net_cb_ctx_t cb_ctx,
-    p67_timeout_t * conn_timeout_ctx)
+P67_CMN_NO_PROTO_ENTER
+SSL_CTX *
+p67_net_get_connect_ctx(
+P67_CMN_NO_PROTO_EXIT
+    p67_net_cred_t * cred)
 {
-    if(!cred || !local || !remote)
-        return p67_err_einval;
-
-    SSL * ssl = NULL;
-    BIO * bio = NULL;
     SSL_CTX * ctx = NULL;
-    p67_conn_t * conn;
-    int sfd, noclose;
-    int sslerr;
-    p67_err err;
-
-    noclose = 0;
-
-    if(p67_conn_lookup(remote)) return p67_err_eaconn;
-
-    if((err = p67_sfd_create_from_addr(
-                &sfd, 
-                local, 
-                P67_SFD_TP_DGRAM_UDP)) != 0) goto end;
-
-    p67_err_mask_all(err);
-
-    if(p67_sfd_set_reuseaddr(sfd) != 0) goto end;
-
-    if(p67_sfd_bind(sfd, local) != 0) goto end;
 
     if((ctx = SSL_CTX_new(DTLS_client_method())) == NULL) goto end;
 
@@ -1058,6 +1033,62 @@ p67_net_connect(
                     p67_net_verify_ssl_callback);
 
 	SSL_CTX_set_read_ahead(ctx, 1);
+
+    return ctx;
+end:
+    if(ctx) SSL_CTX_free(ctx);
+    return NULL;
+}
+
+P67_CMN_NO_PROTO_ENTER
+p67_err
+p67_net_get_connect_sfd(
+P67_CMN_NO_PROTO_EXIT
+    p67_sfd_t * sfd, p67_addr_t * local)
+{
+    p67_err _err;
+
+    if((_err = p67_sfd_create_from_addr(
+            sfd, local, 
+            P67_SFD_TP_DGRAM_UDP)) != 0) 
+        goto end;
+
+    if(p67_sfd_set_reuseaddr(*sfd) != 0) goto end;
+
+    if(p67_sfd_bind(*sfd, local) != 0) goto end;
+
+    return 0;
+end:
+    return _err;        
+}
+
+p67_err
+p67_net_connect(
+    p67_addr_t * local, p67_addr_t * remote,
+    p67_net_cred_t * cred,
+    p67_net_cb_ctx_t cb_ctx,
+    p67_timeout_t * conn_timeout_ctx)
+{
+    if(!cred || !local || !remote)
+        return p67_err_einval;
+
+    SSL * ssl = NULL;
+    BIO * bio = NULL;
+    SSL_CTX * ctx = NULL;
+    p67_conn_t * conn;
+    int noclose;
+    p67_sfd_t sfd;
+    int sslerr;
+    p67_err err;
+
+    noclose = 0;
+
+    if(p67_conn_lookup(remote)) return p67_err_eaconn;
+
+    if((err = p67_net_get_connect_sfd(&sfd, local))) goto end;
+
+    p67_err_mask_all(err);
+    if(!(ctx = p67_net_get_connect_ctx(cred))) goto end;
 
     if((ssl = SSL_new(ctx)) == NULL) goto end;
 
@@ -1127,7 +1158,7 @@ P67_CMN_NO_PROTO_EXIT
 
     if(conn->ssl == NULL || SSL_get_shutdown(conn->ssl) & SSL_RECEIVED_SHUTDOWN) {
         p67_conn_unlock(conn);
-        p67_conn_shutdown(conn->addr_remote);
+        p67_net_shutdown(conn->addr_remote);
         return p67_err_enconn;
     }
 
@@ -1377,7 +1408,7 @@ p67_net_listen(
 
             if((err = p67_cmn_thread_create(&accept_thr, __p67_net_accept, conn)) != 0) {
                 /* possible crash due to calling SSL_shutdown and SSL_Free without completing handshake */
-                p67_conn_shutdown(raddr);
+                p67_net_shutdown(raddr);
                 err = 0;
                 break;
             }
@@ -1491,6 +1522,10 @@ struct p67_net_connect_ctx {
     p67_net_cred_t * cred;
     p67_net_cb_ctx_t cb_ctx;
     p67_timeout_t * conn_timeout_ctx;
+    /*
+        used in slim version of run_connect
+    */
+    int timeout_ms;
 };
 
 P67_CMN_NO_PROTO_ENTER
@@ -1567,12 +1602,16 @@ P67_CMN_NO_PROTO_EXIT
             break;
         }
 
-        if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval))) {
-            p67_err_print_err("Background connect RAND_bytes ", p67_err_eerrno | p67_err_essl);
-            break;
+        if(err == p67_err_eaconn) {
+            interval = 5000;
+        } else {
+            if(1 != RAND_bytes((unsigned char *)&interval, sizeof(interval))) {
+                p67_err_print_err("Background connect RAND_bytes ", p67_err_eerrno | p67_err_essl);
+                break;
+            }
+            interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
         }
 
-        interval = (interval % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
 
         if(ctx->thread_ctx) {
             err = p67_mutex_wait_for_change(
@@ -1601,6 +1640,187 @@ P67_CMN_NO_PROTO_EXIT
     p67_net_connect_ctx_free(ctx);
     return NULL;
 }
+
+P67_CMN_NO_PROTO_ENTER
+p67_err
+p67_net_get_interval(
+P67_CMN_NO_PROTO_EXIT
+    unsigned long * i)
+{
+    if(1 != RAND_bytes((unsigned char *)i, sizeof(*i))) {
+        return p67_err_eerrno | p67_err_essl;
+    }
+
+    *i = (*i % P67_MOD_SLEEP_MS) + P67_MIN_SLEEP_MS;
+
+    return 0;
+}
+
+// P67_CMN_NO_PROTO_ENTER
+// void *
+// p67_net_run_connect_slim(
+// P67_CMN_NO_PROTO_EXIT
+//     void * arg)
+// {
+//     struct p67_net_connect_ctx * ctx 
+//         = (struct p67_net_connect_ctx *)arg;
+
+//     SSL * ssl = NULL;
+//     BIO * bio = NULL;
+//     SSL_CTX * sslctx = NULL;
+//     p67_conn_t * conn;
+//     //unsigned long interval = 0;
+//     p67_sfd_t sfd;
+//     p67_err err;
+//     int signal_set = 0;
+//     int sslerr;
+
+//     if((err = p67_net_get_connect_sfd(&sfd, ctx->local_addr))) goto end;
+
+//     p67_err_mask_all(err);
+//     if(!(sslctx = p67_net_get_connect_ctx(ctx->cred))) goto end;
+
+//     if((ssl = SSL_new(sslctx)) == NULL) {
+//         SSL_CTX_free(sslctx);
+//         goto end;
+//     }
+
+//     SSL_CTX_free(sslctx);
+
+//     if((bio = BIO_new_dgram(sfd, BIO_NOCLOSE)) == NULL) goto end;
+
+//     if(p67_sfd_connect(sfd, ctx->remote_addr) != 0) goto end;
+
+//     BIO_ctrl(bio, BIO_CTRL_DGRAM_SET_CONNECTED, 0, &ctx->remote_addr->sock);
+
+//     SSL_set_bio(ssl, bio, bio);
+
+//     if(p67_sfd_set_timeouts(
+//             sfd, ctx->timeout_ms, ctx->timeout_ms) != 0)
+//         goto end;
+
+//     p67_log(
+//         "Connecting to: %s:%s\n", 
+//         ctx->remote_addr->hostname, 
+//         ctx->remote_addr->service);
+
+//     while(1) {
+
+//         /* if connection exists then wait for the extended time and check again */
+//         if(p67_conn_lookup(ctx->remote_addr)) {
+//             if(!signal_set && ctx->sig) {
+//                 p67_mutex_set_state(
+//                     ctx->sig,
+//                     P67_NET_CONNECT_SIG_UNSPEC,
+//                     P67_NET_CONNECT_SIG_CONNECTED);
+//                 signal_set = 1;
+//             }
+//             p67_thread_sm_wait_for_exit(ctx->thread_ctx, 2000);
+//             if(ctx->thread_ctx && p67_thread_sm_stop_requested(ctx->thread_ctx)) {
+//                 err = 0;
+//                 break;
+//             }
+//             continue;
+//         }
+
+//         if ((sslerr = SSL_connect(ssl)) != 1) {
+//             if(errno != EAGAIN && errno != EWOULDBLOCK) {
+//                 p67_err_mask_all(err);
+//                 p67_err_print_err_dbg("Connect error: ", err);
+//             }
+//             if(ctx->thread_ctx && p67_thread_sm_stop_requested(ctx->thread_ctx)) {
+//                 err = 0;
+//                 break;
+//             }
+//             continue;
+//         }
+
+//         if(!(conn = p67_conn_insert(
+//                 ctx->local_addr, 
+//                 ctx->remote_addr, 
+//                 ssl, 
+//                 ctx->cb_ctx,
+//                 P67_XLOCK_STATE_UNLOCKED,
+//                 ctx->conn_timeout_ctx))) {
+//             p67_cmn_ejmp(err, p67_err_eerrno, end);
+//         }
+
+//         p67_log_debug(
+//             "Connected to %s:%s\n", 
+//             ctx->remote_addr->hostname, 
+//             ctx->remote_addr->service);
+
+//         if(!signal_set && ctx->sig) {
+//             p67_mutex_set_state(
+//                 ctx->sig,
+//                 P67_NET_CONNECT_SIG_UNSPEC,
+//                 P67_NET_CONNECT_SIG_CONNECTED);
+//             signal_set = 1;
+//         }
+
+//         /* restore default timeouts for read loop */
+//         if(p67_sfd_set_timeouts(
+//                 sfd, P67_DEFAULT_TIMEOUT_MS, P67_DEFAULT_TIMEOUT_MS) != 0)
+//             goto end;
+
+//         /*
+//             As of this moment we are connected 
+//             and even if we cannot spawn read loop connection must stay alive
+//         */
+//         ssl = NULL;
+
+//         if((err = p67_net_start_read_loop(conn))) goto end;
+//     }
+
+// end:
+//     if(err != 0) {
+//         p67_err_print_err("Terminating p67_net_run_connect_slim with errors: ", err);
+//     }
+//     if(ssl != NULL) {
+//         SSL_clear(ssl);
+//         SSL_shutdown(ssl);
+//         SSL_free(ssl);
+//     }
+//     if(sfd > 0) p67_sfd_close(sfd);
+
+//     p67_thread_sm_stop_notify(ctx->thread_ctx);
+//     p67_net_connect_ctx_free(ctx);
+//     return NULL;
+// }
+
+// p67_err
+// p67_net_start_connect_slim(
+//     p67_thread_sm_t * tsm,
+//     p67_async_t * sig,
+//     p67_addr_t * local_addr,
+//     p67_addr_t * remote_addr,
+//     p67_net_cred_t * cred,
+//     p67_net_cb_ctx_t cb_ctx,
+//     p67_timeout_t * conn_timeout_ctx,
+//     int timeout_ms)
+// {
+//     p67_net_connect_ctx_t * ctx = 
+//         malloc(sizeof(p67_net_connect_ctx_t));
+//     if(!ctx) return p67_err_eerrno;
+
+//     ctx->cb_ctx =cb_ctx;
+//     ctx->conn_timeout_ctx = p67_timeout_refcpy(conn_timeout_ctx);
+//     ctx->cred = p67_net_cred_ref_cpy(cred);
+//     ctx->local_addr = p67_addr_ref_cpy(local_addr);
+//     ctx->remote_addr = p67_addr_ref_cpy(remote_addr);
+//     ctx->timeout_ms = timeout_ms;
+    
+//     ctx->sig = sig;
+//     ctx->thread_ctx = tsm;
+
+//     p67_err err = p67_thread_sm_start(
+//             ctx->thread_ctx, 
+//             p67_net_run_connect_slim,
+//             ctx);
+
+//     if(err) p67_net_connect_ctx_free(ctx);
+//     return err;
+// }
 
 p67_err
 p67_net_start_connect(

@@ -229,7 +229,6 @@ p67_pdp_urg_remove(
     const p67_pckt_t * msg, int msgl,
     int preack)
 {
-    assert(msg);
     size_t hash, i;
     int dst_state;
 
@@ -263,15 +262,16 @@ p67_pdp_urg_remove(
 
         dst_state = P67_PDP_EVT_GOT_ACK;
 
-        if(pudp_inodes[i].res != NULL && pudp_inodes[i].resl != NULL) {
+        if(msg && msgl > 0) {
+            if(pudp_inodes[i].res != NULL && pudp_inodes[i].resl != NULL) {
 
-            if(msgl > *pudp_inodes[i].resl) {
-                dst_state = P67_PDP_EVT_ENOMEM;
-            } else {
-                memcpy(pudp_inodes[i].res, msg, *pudp_inodes[i].resl);
-                *pudp_inodes[i].resl = msgl;
+                if(msgl > *pudp_inodes[i].resl) {
+                    dst_state = P67_PDP_EVT_ENOMEM;
+                } else {
+                    memcpy(pudp_inodes[i].res, msg, *pudp_inodes[i].resl);
+                    *pudp_inodes[i].resl = msgl;
+                }
             }
-
         }
 
         if(pudp_inodes[i].termsig != NULL)

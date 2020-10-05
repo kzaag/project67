@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include <p67/log.h>
 #include <server/redirect.h>
 #include <p67/tlv.h>
 #include <p67/web/tlv.h>

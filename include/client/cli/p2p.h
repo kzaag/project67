@@ -69,4 +69,10 @@ p67_err
 p2pclient_callback(
     p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args);
 
+p67_err 
+p67_p2p_cache_remove(p67_addr_t * addr);
+
+void
+p67_p2p_shutdown_cb(p67_addr_t * addr);
+
 #endif

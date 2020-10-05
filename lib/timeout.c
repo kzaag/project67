@@ -221,6 +221,6 @@ p67_timeout_addr(p67_addr_t * addr, int with_shutdown)
     node->state = P67_NODE_STATE_QUEUE;
     if(!with_shutdown)
         return 0;
-    return p67_conn_shutdown(addr);
+    return p67_net_shutdown(addr);
 }
 

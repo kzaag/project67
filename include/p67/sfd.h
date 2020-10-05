@@ -109,7 +109,7 @@ p67_sfd_create_from_hint(
             const char * __restrict__ hostname,
             const char * __restrict__ service,
             int flags)
-    __nonnull((1, 3, 4));
+    __nonnull((1, 3));
 
 p67_err
 p67_addr_dup(

@@ -426,6 +426,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_async_t sig = P67_ASYNC_INTIIALIZER;
     const int msgl = 120;
     int msgix = 0, tmpix = sizeof(msg);
+    p67_pdp_urg_hdr_t * u = (p67_pdp_urg_hdr_t *)msg;
     p67_err err;
 
     msgp = msg;
@@ -470,7 +471,20 @@ P67_CMN_NO_PROTO_EXIT
         return err;
     }
 
-    p67_mutex_wait_for_change(&sig, 0, -1);
+    while(1) {
+        p67_mutex_wait_for_change(&sig, 0, 100);
+        if(p67_thread_sm_stop_requested(ctx->tsm)) {
+            err = p67_pdp_urg_remove(
+                ctx->ws_remote_addr, p67_cmn_ntohs(u->urg_mid), NULL, 0, 0);
+            if(err) {
+                p67_err_print_err("Cancel request returned error/s: ", err);
+            }
+            return err;
+        }
+        if(sig) {
+            break;
+        }
+    }
     msgix = tmpix;
 
     if(sig == P67_PDP_EVT_GOT_ACK) {
@@ -521,6 +535,32 @@ P67_CMN_NO_PROTO_EXIT
     return 0;
 }
 
+P67_CMN_NO_PROTO_ENTER
+int
+p67_cmd_terminate_by_name(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
+{
+    if(argc < 2) {
+        p67_log("Must provide name of the target\n");
+        return -1;
+    }
+
+    p67_p2p_t * p = p67_p2p_cache_find_by_name(argv[1]);
+
+    if(!p) {
+        p67_log("Couldnt find %s\n", argv[1]);
+        return -1;
+    }
+
+    p67_err err = p67_p2p_cache_remove(p->peer_addr);
+    if(err) {
+        p67_err_print_err("Error/s occured: ", err);
+    }
+
+    return 0;
+}
+
 p67_hashcntl_t *
 p67_cmd_new(void)
 {
@@ -534,10 +574,11 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "exit", p67_cmd_exit)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "call", p67_cmd_call)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "login", p67_cmd_login)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "list", p67_cmd_call_list)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "ls", p67_cmd_call_list)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "sleep", p67_cmd_sleep)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "term", p67_cmd_terminate_by_name)) != 0) return NULL;
 
     return ret;
 }
