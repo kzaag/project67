@@ -7,6 +7,7 @@
 
 #include "base.h"
 #include "pdp.h"
+#include "qdp.h"
 
 /*
     datagrams multiplexing layer
@@ -16,7 +17,7 @@
 */
 
 /*
-    maxminum "safe" mtu for pdp payload.
+    maximum "safe" mtu for pdp payload.
 */
 #define P67_DML_SAFE_PAYLOAD_SIZE 496
 
@@ -44,10 +45,11 @@ typedef struct p67_dml_dat_hdr {
 #define P67_PUDP_DAT_HDR_OFFSET (sizeof(p67_dmp_dat_hdr_t))
 
 typedef union p67_dml_hdr_store {
-    p67_dml_hdr_t      cmn;
-    p67_dml_dat_hdr_t  dat;
+    p67_dml_hdr_t     cmn;
+    p67_dml_dat_hdr_t dat;
     p67_pdp_ack_hdr_t ack;
     p67_pdp_urg_hdr_t urg;
+    p67_qdp_hdr_t     qdp;
 } p67_dml_hdr_store_t;
 
 /*

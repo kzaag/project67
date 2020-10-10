@@ -59,12 +59,8 @@ P67_CMN_NO_PROTO_EXIT
     //p67_net_connect_terminate(&connect_sm);
     p67_thread_sm_terminate(&connect_sm, 2*connect_to);
 
-    /*
-        it may appear that this is wrong and lib should be freed first (and thus p2p connections)
-        but freeing p2p cache will terminate run_connects for peers so lib can be freed safely.
-    */
-    p67_p2p_cache_free();
     p67_lib_free();
+    p67_p2p_cache_free();
 
     p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
     p67_hashcntl_free(cmdbuf);
@@ -145,7 +141,7 @@ P67_CMN_NO_PROTO_EXIT
             (unsigned char *)src_username, 
             strlen(src_username), 
             (p67_pdp_urg_hdr_t *)msg)) {
-            p67_log("Couldnt add p2p entry for %s\n", src_username);
+        p67_log("Couldnt add p2p entry for %s\n", src_username);
         // ignore on fail ( already called )
         // err = p67_err_einval;
         // p67_addr_free(src_addr);
@@ -235,7 +231,7 @@ main(int argc, char ** argv)
     p67_net_cred_t * cred 
         = p67_net_cred_create("p2pcert", "p2pcert.cert");
     p67_net_cb_ctx_t server_cbctx = p67_net_cb_ctx_initializer(webserver_callback);
-    p67_net_cb_ctx_t p2p_cbctx = p67_net_cb_ctx_initializer(p2pclient_callback);
+    p67_net_cb_ctx_t p2p_cbctx = p67_net_cb_ctx_initializer(p67_p2p_callback);
     p2p_cbctx.on_shutdown = p67_p2p_shutdown_cb;
     p67_addr_t * local_listen_addr = p67_addr_new_localhost4_udp(argv[1]);
     // char cs[7];

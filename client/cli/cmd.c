@@ -120,13 +120,52 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err;
 
     if((err = p67_p2p_cache_accept_by_name(
-            ctx->local_addr, ctx->ws_remote_addr, ctx->cred, argvs[1]))) {
+            ctx->local_addr, ctx->ws_remote_addr, ctx->cred, argvs[1], NULL))) {
         p67_err_print_err("couldnt accept call: ", err);
         return -err;
     }
 
     return 0;
 }
+
+// P67_CMN_NO_PROTO_ENTER
+// int
+// p67_cmd_open_audio(
+// P67_CMN_NO_PROTO_EXIT
+//     p67_cmd_ctx_t * ctx, int argc, char ** argv)
+// {
+//     if(argc < 2) {
+//         p67_log("must provide target name\n");
+//         return 1;
+//     }
+
+//     p67_p2p_t * s = p67_p2p_cache_find_by_name(argv[1]);
+//     if(!s) {
+//         p67_log("didnt find requested user\n");
+//         return 1;
+//     }
+
+//     p67_err err;
+
+//     s->audio.i = p67_audio_create_i(NULL, NULL);
+//     s->audio.o = p67_audio_create_o(NULL, NULL);
+//     if((err = p67_qdp_create(&s->audio.qdp))) {
+//         p67_err_print_err("qdp create returned error/s: ", err);
+//         return -1;
+//     }
+
+//     if((err = p67_audio_start_write_qdp(&s->audio.i_sm, s->peer_addr, s->audio.i, 10))) {
+//         p67_err_print_err("write qdp returned error/s: ", err);
+//         return -1;
+//     }
+    
+//     if((err = p67_audio_start_read_qdp(&s->audio.o_sm, s->audio.qdp, s->audio.o))) {
+//         p67_err_print_err("read qdp returned error/s: ", err);
+//         return -1;
+//     }
+
+//     return err;
+// }
 
 P67_CMN_NO_PROTO_ENTER
 int
@@ -248,6 +287,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err;
     p67_web_status res_status;
     int tlv_status = 0;
+    //p67_async_t conn_sig = 0;
 
     while((err = p67_tlv_next(
             &payload, &payloadl, &tlv_hdr, &tlv_value)) == 0) {
@@ -308,8 +348,8 @@ P67_CMN_NO_PROTO_EXIT
     }
 
     err = p67_p2p_cache_accept_by_name(
-        ctx->local_addr, ctx->ws_remote_addr, ctx->cred, username);
-    
+        ctx->local_addr, ctx->ws_remote_addr, ctx->cred, username, NULL);
+
     p67_addr_free(addr);
 
     return err;
@@ -621,6 +661,7 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "sleep", p67_cmd_sleep)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "trust", p67_cmd_trust_by_name)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "term", p67_cmd_terminate_by_name)) != 0) return NULL;
+    //if((err = p67_cmd_add(ret, "audio", p67_cmd_open_audio)) != 0) return NULL;
 
     return ret;
 }

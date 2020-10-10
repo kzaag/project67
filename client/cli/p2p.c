@@ -12,11 +12,11 @@ void
 p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e);
 
 p67_err
-p2pclient_callback(
+p67_p2p_callback(
     p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
 {
-
-    if(p67_hashcntl_lookup(__get_p2p_cache(), (unsigned char *)&addr->sock, addr->socklen)) {
+    p67_p2p_t * p = p67_p2p_cache_lookup(addr);
+    if(p) {
         const p67_dml_hdr_store_t * h = p67_dml_parse_hdr(msg, msgl, NULL);
         if(!h)
             return p67_err_epdpf;
@@ -30,10 +30,18 @@ p2pclient_callback(
                     msg+sizeof(p67_pdp_urg_hdr_t));
             }
             break;
+        case P67_DML_STP_QDP_DAT:
+            if(p->audio.qdp)
+                return p67_qdp_handle_data(addr, msg, msgl, p->audio.qdp);
+            else
+                // not ready to accept stream so just ignore. 
+                // maybe notify user / kill connection?
+                return 0;
+            break;
         }
     }
     //p67_dml_pretty_print_addr(addr, msg, msgl);
-    return p67_dml_handle_msg(addr, msg, msgl, args);
+    return p67_dml_handle_msg(addr, msg, msgl, NULL);
 }
 
 void
@@ -91,6 +99,14 @@ p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e)
 
     p67_pdp_free_keepalive_ctx(&p2p->keepalive_ctx);
     p67_net_connect_terminate(&p2p->connect_sm);
+
+    p67_thread_sm_terminate(&p2p->audio.i_sm, 100);
+    p67_thread_sm_terminate(&p2p->audio.o_sm, 100);
+
+    p67_audio_free(p2p->audio.i);
+    p67_audio_free(p2p->audio.o);
+    p67_qdp_free(p2p->audio.qdp);
+
     /*
         DONT shutdown connection here.
         shutdown will call this function!!!
@@ -110,12 +126,16 @@ p67_p2p_cache_lookup(p67_addr_t * addr)
     return (p67_p2p_t *)e->value;
 }
 
+/*
+    TODO: add timeouts so command can properly terminate
+*/
 p67_err
 p67_p2p_cache_accept_by_name(
     p67_addr_t * local_addr,
     p67_addr_t * server_addr,
     p67_net_cred_t * cred,
-    const char * name)
+    const char * name,
+    p67_async_t * connect_sig)
 {
     assert(name);
     
@@ -123,11 +143,10 @@ p67_p2p_cache_accept_by_name(
 
     p67_p2p_t * ctx = p67_p2p_cache_find_by_name(name);
 
-    p67_net_cb_ctx_t cbctx = p67_net_cb_ctx_initializer(p2pclient_callback);
+    p67_net_cb_ctx_t cbctx = p67_net_cb_ctx_initializer(p67_p2p_callback);
     cbctx.on_shutdown = p67_p2p_shutdown_cb;
 
     if(!ctx) return p67_err_enconn;
-    //p67_async_t connect_sig = P67_ASYNC_INTIIALIZER;
 
     if(!p67_node_insert(ctx->peer_addr, NULL, 0, NULL, NULL, P67_NODE_STATE_NODE)) {
         p67_log("warn: couldnt add node. Already exists?\n");
@@ -143,7 +162,7 @@ p67_p2p_cache_accept_by_name(
     
     err = p67_net_start_connect(
         &ctx->connect_sm,
-        NULL, //&connect_sig, 
+        connect_sig, 
         local_addr, 
         ctx->peer_addr,
         cred, 
@@ -151,9 +170,16 @@ p67_p2p_cache_accept_by_name(
         NULL);
     if(err) return err;
 
+    // client will wait
     //p67_mutex_wait_for_change(&connect_sig, 0, -1);
 
-    err = p67_pdp_start_keepalive_loop(&ctx->keepalive_ctx);
+    /*
+        keeaplive thread can be started without active connection 
+            - it will wait until connection appears.
+    */
+    if((err = p67_pdp_start_keepalive_loop(&ctx->keepalive_ctx))) {
+        return err;
+    }
 
     return err;
 }
@@ -214,7 +240,6 @@ p67_p2p_cache_add(
     bzero(p2pctx, sizeof(p67_p2p_t));
 
     p2pctx->peer_addr = p67_addr_ref_cpy(remote_addr);
-    p2pctx->state = P67_P2P_STATE_INCOMING;
     p2pctx->peer_username = (char *)e->value + sizeof(p67_p2p_t);
     p2pctx->peer_usernamel = peer_usernamel;
     p2pctx->keepalive_ctx.addr = p67_addr_ref_cpy(remote_addr);
@@ -224,6 +249,7 @@ p67_p2p_cache_add(
     } else {
         p2pctx->should_respond = 0;
     }
+    p67_p2p_audio_init(p2pctx->audio);
 
     if(peer_username)
         memcpy(p2pctx->peer_username, peer_username, peer_usernamel);

@@ -99,6 +99,8 @@ p67_mutex_wait_for_change(int * pptr, int state, int maxms);
 #define P67_THREAD_SM_TIMEOUT_DEF 5000
 
 #define P67_THREAD_SM_INITIALIZER {0}
+#define p67_thread_sm_init(sm_val) \
+    { (sm_val).mutex = 0; (sm_val).state = 0; (sm_val).thr = 0; (sm_val).__align = 0; }
 
 #define p67_thread_sm_lock(t) \
     p67_mutex_must_lock(&(t)->mutex)

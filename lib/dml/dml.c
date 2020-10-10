@@ -28,8 +28,11 @@ p67_dml_parse_hdr(
     case P67_DML_STP_PDP_URG:
         ejmp((long unsigned)msg_size < sizeof(hdr->urg), p67_err_epdpf);
         break;
+    case P67_DML_STP_QDP_DAT:
+        ejmp((long unsigned)msg_size < sizeof(hdr->cmn), p67_err_epdpf);
+        break;
     case P67_DML_STP_DAT:
-        ejmp((long unsigned)msg_size < sizeof(hdr->dat), p67_err_epdpf);
+        ejmp((long unsigned)msg_size < sizeof(hdr->qdp), p67_err_epdpf);
         break;
     default:
         ejmp(1, p67_err_epdpf);
@@ -78,7 +81,7 @@ p67_dml_handle_msg(
         err = p67_pdp_write_ack_for_urg(addr, &msg_hdr->urg);
         break;
     case P67_DML_STP_DAT:
-        /* DATs are effectively NOOPs on DML */
+        /* DATs are effectively NOOPs in DML*/
         break;
     default:
         err = p67_err_einval;
