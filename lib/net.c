@@ -195,13 +195,14 @@ p67_net_shutdown(p67_addr_t * addr)
     if(!addr) return p67_err_einval;
     return p67_hashcntl_remove_and_free(
         p67_conn_cache(), 
-        (unsigned char *)&addr->sock, addr->socklen);
+        &addr->sock, addr->socklen);
 }
 
 void
 __p67_conn_free(p67_hashcntl_entry_t * entry)
 {
     assert(entry);
+
 
     int sfd;
     p67_conn_t * conn = (p67_conn_t *)entry->value;
@@ -224,8 +225,9 @@ __p67_conn_free(p67_hashcntl_entry_t * entry)
     /* give everyone waiting some time to terminate */
     p67_cmn_sleep_ms(100);
 
-    if(conn->on_shutdown)
+    if(conn->on_shutdown) {
         conn->on_shutdown(conn->addr_remote);
+    }
 
     if(conn->ssl) {
         SSL_shutdown(conn->ssl);
@@ -234,6 +236,8 @@ __p67_conn_free(p67_hashcntl_entry_t * entry)
         SSL_free(conn->ssl);
         conn->ssl = NULL;
     }
+
+
 
     p67_log_debug(
         "Shutdown for %s:%s\n", 
@@ -285,6 +289,9 @@ __p67_node_free(p67_hashcntl_entry_t * ptr)
 
     if(node == NULL) return;
 
+    if(node->free_args)
+        node->free_args(node->args);
+
     p67_addr_free(node->trusted_addr);
     //free(node->trusted_pub_key);
 
@@ -327,7 +334,7 @@ P67_CMN_NO_PROTO_EXIT
     entry->key = (unsigned char*)entry + sizeof(p67_hashcntl_entry_t);
     entry->keyl = remotecpy->socklen;
     entry->next = NULL;
-    entry->value = entry->key + remotecpy->socklen;
+    entry->value = (unsigned char*)entry->key + remotecpy->socklen;
     entry->valuel = sizeof(p67_conn_t);
 
     ret = (p67_conn_t *)entry->value;
@@ -374,26 +381,35 @@ p67_node_insert(
     p67_addr_t * addr,
     const char * trusted_key,
     int trusted_key_l,
+    void * args,
+    void (* free_args)(void *),
     int node_state)
 {
     p67_hashcntl_entry_t * entry = NULL;
     p67_addr_t * addrcpy = NULL;
-    
+    int keyl;
+
     addrcpy = p67_addr_ref_cpy(addr);
     if(!addrcpy) return NULL;
+
+    if(trusted_key && trusted_key_l > 0) {
+        keyl = trusted_key_l + 1;
+    } else {
+        keyl = 0;
+    }
 
     entry = malloc(
         sizeof(p67_hashcntl_entry_t) + 
         addr->socklen + 
         sizeof(p67_node_t) + 
-        trusted_key_l + 1);
+        keyl);
     
     if(!entry) goto end;
 
     entry->key = (unsigned char *)entry + sizeof(p67_hashcntl_entry_t);
     entry->keyl = addr->socklen;
     entry->next = NULL;
-    entry->value = entry->key + addr->socklen;
+    entry->value = (unsigned char*)entry->key + addr->socklen;
     entry->valuel = sizeof(p67_node_t);
 
     memcpy(entry->key, &addr->sock, addr->socklen);
@@ -402,10 +418,16 @@ p67_node_insert(
     node->heap_alloc = 0;
     node->state = node_state;
     node->trusted_addr = addrcpy;
-    node->trusted_pub_key = (char *)(entry->value + entry->valuel);
+    node->args = args;
+    node->free_args = free_args;
 
-    memcpy(node->trusted_pub_key, trusted_key, trusted_key_l + 1);
-    node->trusted_pub_key[trusted_key_l] = 0;
+    if(keyl) {
+        node->trusted_pub_key = (char*)entry->value + entry->valuel;
+        memcpy(node->trusted_pub_key, trusted_key, keyl);
+        node->trusted_pub_key[keyl-1] = 0;
+    } else {
+        node->trusted_pub_key = NULL;
+    }
 
     if(p67_hashcntl_add(p67_node_cache(), entry) != 0)
         goto end;
@@ -783,14 +805,14 @@ P67_CMN_NO_PROTO_EXIT
         case P67_NET_AUTH_LIMIT_TRUST_UNKNOWN:
             p67_log_debug("Unknown host connecting from %s:%s with public key:\n%s", 
                 peer_addr->hostname, peer_addr->service, pubk);
-            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), NULL, NULL, P67_NODE_STATE_QUEUE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
             success = 1;
             break;
         case P67_NET_AUTH_TRUST_UNKOWN:
-            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_NODE)) {
+            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), NULL, NULL, P67_NODE_STATE_NODE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
@@ -799,7 +821,7 @@ P67_CMN_NO_PROTO_EXIT
         case P67_NET_AUTH_DONT_TRUST_UNKOWN:
             p67_log_debug("Rejected Unknown Host ( %s:%s )\n", 
                 peer_addr->hostname, peer_addr->service);
-            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), P67_NODE_STATE_QUEUE)) {
+            if(!p67_node_insert(peer_addr, pubk, strlen(pubk), NULL, NULL, P67_NODE_STATE_QUEUE)) {
                 p67_log("In ssl_validate_cb: couldnt insert node\n");
                 goto end;
             }
@@ -1582,6 +1604,12 @@ P67_CMN_NO_PROTO_EXIT
                 P67_NET_CONNECT_SIG_CONNECTED);
             signal_set = 1;
         }
+
+        /*
+            TODO:
+            this error handling is beyond mess.
+            fix it!
+        */
 
         /* break from the loop and terminate connection with error if... */
         if(     err != 0 &&                 /* there is error ... */

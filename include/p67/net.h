@@ -35,7 +35,7 @@ typedef struct p67_net_cb_ctx {
 } p67_net_cb_ctx_t;
 
 #define p67_net_cb_ctx_initializer(__cb) \
-    { .cb = __cb, .gen_args = NULL, .free_args = NULL, .args = NULL }
+    { .cb = __cb, .gen_args = NULL, .free_args = NULL, .args = NULL, .on_shutdown = NULL }
 
 #define P67_NET_CB_CTX_INITIALIZER {0}
 
@@ -59,6 +59,8 @@ struct p67_node {
     p67_addr_t * trusted_addr;
     /* heap allocated null terminated string */
     char * trusted_pub_key;
+    void * args;
+    void (* free_args)(void *);
     p67_node_state_t state;
     unsigned int heap_alloc : 1;
 };
@@ -108,6 +110,8 @@ p67_node_insert(
     p67_addr_t * addr,
     const char * trusted_key,
     int trusted_key_l,
+    void * args,
+    void (* free_args)(void *),
     int node_state);
 
 p67_hashcntl_t *

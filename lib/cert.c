@@ -312,7 +312,7 @@ p67_cert_trust_address(p67_addr_t * addr, const char * path)
         wrote = BIO_number_written(mbio);
         BIO_get_mem_data(mbio, &bptr);
         
-        if(!p67_node_insert(addr, bptr, wrote, P67_NODE_STATE_NODE)) {
+        if(!p67_node_insert(addr, bptr, wrote, NULL, NULL, P67_NODE_STATE_NODE)) {
             freeblock;
             EVP_PKEY_free(pubk);
             return p67_err_eaconn;

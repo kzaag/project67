@@ -8,6 +8,9 @@
 static p67_hashcntl_t * __p2p_cache = NULL;
 static p67_async_t p2p_cache_lock = P67_ASYNC_INTIIALIZER;
 
+void
+p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e);
+
 p67_err
 p2pclient_callback(
     p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args)
@@ -36,7 +39,8 @@ p2pclient_callback(
 void
 p67_p2p_shutdown_cb(p67_addr_t * addr)
 {
-    p67_err err = p67_p2p_cache_remove(addr);
+    p67_err err = p67_hashcntl_remove_and_free(
+         p2p_cache, &addr->sock, addr->socklen);
     if(err)
         p67_err_print_err("In p2p_free_args couldnt remove p2p context. ", err);
 }
@@ -87,7 +91,11 @@ p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e)
 
     p67_pdp_free_keepalive_ctx(&p2p->keepalive_ctx);
     p67_net_connect_terminate(&p2p->connect_sm);
-    p67_net_shutdown(p2p->peer_addr);
+    /*
+        DONT shutdown connection here.
+        shutdown will call this function!!!
+    */
+    //p67_net_shutdown(p2p->peer_addr);
     p67_addr_free(p2p->peer_addr);
     
     free(e);
@@ -114,9 +122,17 @@ p67_p2p_cache_accept_by_name(
     p67_err err;
 
     p67_p2p_t * ctx = p67_p2p_cache_find_by_name(name);
+
     p67_net_cb_ctx_t cbctx = p67_net_cb_ctx_initializer(p2pclient_callback);
+    cbctx.on_shutdown = p67_p2p_shutdown_cb;
+
     if(!ctx) return p67_err_enconn;
     //p67_async_t connect_sig = P67_ASYNC_INTIIALIZER;
+
+    if(!p67_node_insert(ctx->peer_addr, NULL, 0, NULL, NULL, P67_NODE_STATE_NODE)) {
+        p67_log("warn: couldnt add node. Already exists?\n");
+        //return p67_err_einval;
+    }
 
     if(ctx->should_respond) {
         if(p67_atomic_set_state(&ctx->should_respond, &(int){1}, 0)) {
@@ -188,7 +204,7 @@ p67_p2p_cache_add(
     e->key = (unsigned char *)e + sizeof(p67_hashcntl_entry_t);
     e->keyl = remote_addr->socklen;
     e->next = NULL;
-    e->value = e->key + remote_addr->socklen;
+    e->value = (unsigned char *)e->key + remote_addr->socklen;
     e->valuel = sizeof(p67_p2p_t);
 
     memcpy(e->key, &remote_addr->sock, remote_addr->socklen);
@@ -221,12 +237,10 @@ p67_p2p_cache_add(
 }
 
 p67_err 
-p67_p2p_cache_remove(p67_addr_t * addr)
+p67_p2p_shutdown(p67_addr_t * addr)
 {
-    p67_err err = 0;
+    // err = p67_hashcntl_remove_and_free(
+    //     p2p_cache, (p67_pckt_t *)&addr->sock, addr->socklen);
 
-    err |= p67_hashcntl_remove_and_free(
-        p2p_cache, (p67_pckt_t *)&addr->sock, addr->socklen);
-
-    return err;
+    return p67_net_shutdown(addr);
 }

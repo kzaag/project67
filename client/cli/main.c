@@ -58,8 +58,14 @@ P67_CMN_NO_PROTO_EXIT
     p67_net_listen_terminate(&listen_sm);
     //p67_net_connect_terminate(&connect_sm);
     p67_thread_sm_terminate(&connect_sm, 2*connect_to);
+
+    /*
+        it may appear that this is wrong and lib should be freed first (and thus p2p connections)
+        but freeing p2p cache will terminate run_connects for peers so lib can be freed safely.
+    */
     p67_p2p_cache_free();
     p67_lib_free();
+
     p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
     p67_hashcntl_free(cmdbuf);
     p67_cmd_ctx_free(&cmdctx);
@@ -222,6 +228,7 @@ main(int argc, char ** argv)
     p67_lib_init();
     signal(SIGINT, finish);
     p67_log_cb = p67_log_cb_term;
+    p67_net_config.conn_auth_type = P67_NET_AUTH_DONT_TRUST_UNKOWN;
     
     p67_err err;
     

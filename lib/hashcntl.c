@@ -128,7 +128,7 @@ p67_hashcntl_add(p67_hashcntl_t * ctx, p67_hashcntl_entry_t * item)
 p67_hashcntl_entry_t *
 p67_hashcntl_lookup(
     p67_hashcntl_t * ctx, 
-    const unsigned char * key, size_t keyl)
+    const void * key, size_t keyl)
 {
     p67_hash_t hash = p67_hash_fn(key, keyl, ctx->bufferl);
     p67_hashcntl_entry_t ** prev_entry, * entry;
@@ -150,7 +150,7 @@ p67_hashcntl_lookup(
 p67_hashcntl_entry_t *
 p67_hashcntl_remove(
     p67_hashcntl_t * ctx, 
-    const unsigned char * key, size_t keyl)
+    const void * key, size_t keyl)
 {
     p67_hash_t hash = p67_hash_fn(key, keyl, ctx->bufferl);
     p67_hashcntl_entry_t * prev_entry = NULL, * entry;
@@ -184,7 +184,7 @@ p67_hashcntl_remove(
 p67_err
 p67_hashcntl_remove_and_free(
     p67_hashcntl_t * ctx, 
-    const unsigned char * key, size_t keyl)
+    const void * key, size_t keyl)
 {
     p67_hashcntl_entry_t * e = p67_hashcntl_remove(ctx, key, keyl);
     if(!e)

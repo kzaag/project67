@@ -41,9 +41,6 @@ p67_p2p_cache_add(
     int peer_usernamel,
     p67_pdp_urg_hdr_t * urg);
 
-void
-p67_p2p_cache_entry_free(p67_hashcntl_entry_t * e);
-
 p67_err
 p67_p2p_cache_accept_by_name(
     p67_addr_t * local_addr, 
@@ -70,7 +67,7 @@ p2pclient_callback(
     p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args);
 
 p67_err 
-p67_p2p_cache_remove(p67_addr_t * addr);
+p67_p2p_shutdown(p67_addr_t * addr);
 
 void
 p67_p2p_shutdown_cb(p67_addr_t * addr);

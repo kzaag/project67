@@ -194,7 +194,7 @@ p67_timeout_addr_for_epoch(
     memcpy(entry->key, &addr->sock, addr->socklen);
     entry->keyl = addr->socklen;
     entry->next = NULL;
-    entry->value = entry->key + addr->socklen;
+    entry->value = (unsigned char *)entry->key + addr->socklen;
     entry->valuel = sizeof(p67_timeout_entry_t);
 
     timeout_entry = (p67_timeout_entry_t *)entry->value;

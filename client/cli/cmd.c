@@ -504,7 +504,8 @@ P67_CMN_NO_PROTO_EXIT
 }
 
 P67_CMN_NO_PROTO_ENTER
-int p67_cmd_echo(
+int 
+p67_cmd_echo(
 P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
@@ -536,6 +537,43 @@ P67_CMN_NO_PROTO_EXIT
 }
 
 P67_CMN_NO_PROTO_ENTER
+int 
+p67_cmd_trust_by_name(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
+{
+    if(argc < 2) {
+        p67_log("Must provide name of the target\n");
+        return -1;
+    }
+
+    p67_p2p_t * p = p67_p2p_cache_find_by_name(argv[1]);
+
+    if(!p) {
+        p67_log("Couldnt find in p2p cache %s\n", argv[1]);
+        return -1;
+    }
+
+    /*
+        this is NOT thread safe.
+        in future implement proper refcounting
+    */
+    p67_node_t * n = p67_node_lookup(p->peer_addr);
+    if(!n) {
+        p67_log(
+            "Couldnt find node for addr: %s:%s\n", 
+            p->peer_addr->hostname, 
+            p->peer_addr->service);
+        return -1;
+    }
+
+    n->state = P67_NODE_STATE_NODE;
+
+    return 0;
+}
+
+
+P67_CMN_NO_PROTO_ENTER
 int
 p67_cmd_terminate_by_name(
 P67_CMN_NO_PROTO_EXIT
@@ -553,9 +591,12 @@ P67_CMN_NO_PROTO_EXIT
         return -1;
     }
 
-    p67_err err = p67_p2p_cache_remove(p->peer_addr);
+    // p67_err err = p67_p2p_cache_remove(p->peer_addr);
+
+    p67_err err = p67_net_shutdown(p->peer_addr);
     if(err) {
         p67_err_print_err("Error/s occured: ", err);
+        return -1;
     }
 
     return 0;
@@ -578,6 +619,7 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "sleep", p67_cmd_sleep)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "trust", p67_cmd_trust_by_name)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "term", p67_cmd_terminate_by_name)) != 0) return NULL;
 
     return ret;

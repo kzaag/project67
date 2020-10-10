@@ -135,7 +135,7 @@ p67_ws_redirect_entry_add(
     entry->valuel = sizeof(p67_ws_redirect_entry_t);
 
     memcpy(entry->key, &src->sock, src->socklen);
-    memcpy(entry->key+src->socklen, &dst->sock, dst->socklen);
+    memcpy((unsigned char *)entry->key+src->socklen, &dst->sock, dst->socklen);
 
     if((err = p67_hashcntl_add(redirect_buf(), entry))) {
         free(e);
@@ -158,7 +158,7 @@ p67_ws_redirect_entry_add(
     entry->valuel = sizeof(p67_ws_redirect_entry_t);
 
     memcpy(entry->key, &req_msghdr->urg_mid, sizeof(req_msghdr->urg_mid));
-    memcpy(entry->key+sizeof(req_msghdr->urg_mid), &dst->sock, dst->socklen);
+    memcpy((unsigned char *)entry->key+sizeof(req_msghdr->urg_mid), &dst->sock, dst->socklen);
 
     if((err = p67_hashcntl_add(redirect_buf_ix(), entry))) {
         /* todo finish it */

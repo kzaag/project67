@@ -29,9 +29,9 @@ struct p67_hashcntl {
     (sizeof(size_t)+sizeof(p67_hashcntl_entry_t *)+sizeof(p67_cmn_epoch_t))
 
 struct p67_hashcntl_entry {
-    unsigned char * key;
+    void * key;
     size_t keyl;
-    unsigned char * value;
+    void * value;
     /* pad */
     size_t valuel;
     p67_hashcntl_entry_t * next;
@@ -57,17 +57,17 @@ p67_hashcntl_add(p67_hashcntl_t * ctx, p67_hashcntl_entry_t * item);
 p67_hashcntl_entry_t *
 p67_hashcntl_lookup(
     p67_hashcntl_t * ctx, 
-    const unsigned char * key, size_t keyl);
+    const void * key, size_t keyl);
 
 p67_hashcntl_entry_t *
 p67_hashcntl_remove(
     p67_hashcntl_t * ctx, 
-    const unsigned char * key, size_t keyl);
+    const void * key, size_t keyl);
 
 p67_err
 p67_hashcntl_remove_and_free(
     p67_hashcntl_t * ctx, 
-    const unsigned char * key, size_t keyl);
+    const void * key, size_t keyl);
 
 p67_hashcntl_t *
 p67_hashcntl_refcpy(p67_hashcntl_t * ctx);

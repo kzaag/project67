@@ -1,4 +1,5 @@
 [ ] in redirect proto, handle 'peer not found'.
 [ ] in net.c start connect: better handle errors during connect.
-[ ] there is big delay when connecting to the server from client.
+[*] there is big delay when connecting to the server from client.
     its probably due to the bad structure of persist_connect. fix it.
+[ ] maybe hashcntl should create refcpy of object on lookup? (yep)

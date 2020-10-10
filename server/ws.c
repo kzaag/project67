@@ -78,13 +78,12 @@ p67_ws_create_cb_ctx(p67_net_cb_ctx_t * ctx)
     assert(ctx);
 
     p67_hashcntl_t * login_cache;
-    p67_net_cb_ctx_t ret;
+    p67_net_cb_ctx_t ret = p67_net_cb_ctx_initializer(p67_ws_cb);
     p67_err err;
 
     err = p67_ws_login_cache_create(&login_cache);
     if(err) return err;
 
-    ret.cb = p67_ws_cb;
     ret.gen_args = p67_ws_session_create_arg_fn;
     ret.free_args = p67_ws_session_free_arg_fn;
     ret.args = login_cache;
