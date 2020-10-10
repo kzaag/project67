@@ -148,17 +148,15 @@ main(int argc, char ** argv)
     */
     const int noffset = sizeof(p67_pdp_urg_hdr_t);
     const int buffl = __buffl - noffset;
-    unsigned char * buff = __buff + noffset;
+    const char * buff = (char *)__buff + noffset;
     int ix = 0;
 
     if((err = init_listener(argv[1]))) goto end;
 
 
     while(1) {
-        do {
-            write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
-        } while((ix = read(0, buff, buffl-1)) <= 1);
-        buff[ix-1] = 0;
+        ix = buffl-1;
+        while(!(buff = p67_log_read_term(&ix, NULL, 0)));
 
         switch(buff[0]) {
             case '\0':
