@@ -136,7 +136,7 @@ P67_CMN_NO_PROTO_EXIT
         return err;
     }
 
-    if(!p67_p2p_cache_add(
+    if(!p67_p2p_node_insert(
             src_addr, 
             (unsigned char *)src_username, 
             strlen(src_username), 

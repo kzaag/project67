@@ -295,7 +295,7 @@ __p67_node_free(p67_hashcntl_entry_t * ptr)
     p67_addr_free(node->trusted_addr);
     //free(node->trusted_pub_key);
 
-    if(node->heap_alloc)
+    if(node->__should_free)
         free(node);
     free(ptr);
 }
@@ -415,7 +415,7 @@ p67_node_insert(
     memcpy(entry->key, &addr->sock, addr->socklen);
 
     p67_node_t * node = (p67_node_t *)entry->value;
-    node->heap_alloc = 0;
+    node->__should_free = 0;
     node->state = node_state;
     node->trusted_addr = addrcpy;
     node->args = args;

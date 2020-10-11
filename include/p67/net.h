@@ -62,7 +62,7 @@ struct p67_node {
     void * args;
     void (* free_args)(void *);
     p67_node_state_t state;
-    unsigned int heap_alloc : 1;
+    unsigned int __should_free : 1;
 };
 
 #define P67_NET_AUTH_LIMIT_TRUST_UNKNOWN   1

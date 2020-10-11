@@ -48,11 +48,8 @@ struct p67_p2p {
     unsigned int should_respond;
 };
 
-void
-p67_p2p_cache_free(void);
-
 p67_p2p_t *
-p67_p2p_cache_add(
+p67_p2p_add(
     p67_addr_t * remote_addr, 
     const unsigned char * peer_username, 
     int peer_usernamel,
@@ -75,14 +72,11 @@ p67_p2p_cache_lookup(p67_addr_t * addr);
 p67_p2p_t *
 p67_p2p_cache_find_by_name(const char * name);
 
-p67_hashcntl_t *
-__get_p2p_cache(void);
-
-#define p2p_cache (__get_p2p_cache())
-
 p67_err
 p67_p2p_callback(
-    p67_addr_t * addr, p67_pckt_t * msg, int msgl, void * args);
+    p67_addr_t * addr, 
+    p67_pckt_t * msg, 
+    int msgl, void * args);
 
 p67_err 
 p67_p2p_shutdown(p67_addr_t * addr);
