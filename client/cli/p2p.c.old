@@ -41,10 +41,10 @@ p67_p2p_callback(
 void
 p67_p2p_shutdown_cb(p67_addr_t * addr)
 {
-    p67_err err = p67_hashcntl_remove_and_free(
-         p2p_cache, &addr->sock, addr->socklen);
-    if(err)
-        p67_err_print_err("In p2p_free_args couldnt remove p2p context. ", err);
+    // p67_err err = p67_hashcntl_remove_and_free(
+    //      p2p_cache, &addr->sock, addr->socklen);
+    // if(err)
+    //     p67_err_print_err("In p2p_free_args couldnt remove p2p context. ", err);
 }
 
 void
@@ -75,20 +75,42 @@ p67_p2p_free(p67_p2p_t * p2p)
     free(p2p);
 }
 
-p67_p2p_t *
-p67_p2p_cache_lookup(p67_addr_t * addr)
+/*
+    this takes O(N)
+    TODO: add hash index.
+*/
+p67_node_t *
+p67_p2p_node_find_by_name(const char * name)
 {
-    p67_hashcntl_entry_t * e = p67_hashcntl_lookup(
-        p2p_cache, (unsigned char *)&addr->sock, addr->socklen);
-    if(!e) return NULL;
-    return (p67_p2p_t *)e->value;
+    int namel = strlen(name), i;
+    p67_hashcntl_entry_t * entry;
+    p67_p2p_t * p2p;
+    p67_node_t * node;
+    p67_hashcntl_t * h = p67_node_cache();
+
+    for(i = 0; i < h->bufferl; i++) {
+        if(!(entry = h->buffer[i])) continue;
+        do {
+            if(!entry->value) continue;
+            node = (p67_node_t *)entry->value;
+            p2p = (p67_p2p_t *)node->args;
+            if(!p2p || !p2p->peer_username) continue;
+            if(namel == p2p->peer_usernamel 
+                    && memcmp(name, p2p->peer_username, namel) == 0) {
+                return node;
+            }
+            entry = entry->next;
+        } while((entry));  
+    }
+
+    return NULL;
 }
 
 /*
     TODO: add timeouts so command can properly terminate
 */
 p67_err
-p67_p2p_cache_accept_by_name(
+p67_p2p_node_accept_by_name(
     p67_addr_t * local_addr,
     p67_addr_t * server_addr,
     p67_net_cred_t * cred,
@@ -100,16 +122,12 @@ p67_p2p_cache_accept_by_name(
     p67_err err;
 
     p67_p2p_t * ctx = p67_p2p_cache_find_by_name(name);
+    if(!ctx) {
+        return p67_err_enconn;
+    }
 
     p67_net_cb_ctx_t cbctx = p67_net_cb_ctx_initializer(p67_p2p_callback);
     cbctx.on_shutdown = p67_p2p_shutdown_cb;
-
-    if(!ctx) return p67_err_enconn;
-
-    if(!p67_node_insert(ctx->peer_addr, NULL, 0, NULL, NULL, P67_NODE_STATE_NODE)) {
-        p67_log("warn: couldnt add node. Already exists?\n");
-        //return p67_err_einval;
-    }
 
     if(ctx->should_respond) {
         if(p67_atomic_set_state(&ctx->should_respond, &(int){1}, 0)) {
@@ -128,13 +146,6 @@ p67_p2p_cache_accept_by_name(
         NULL);
     if(err) return err;
 
-    // client will wait
-    //p67_mutex_wait_for_change(&connect_sig, 0, -1);
-
-    /*
-        keeaplive thread can be started without active connection 
-            - it will wait until connection appears.
-    */
     if((err = p67_pdp_start_keepalive_loop(&ctx->keepalive_ctx))) {
         return err;
     }
@@ -142,38 +153,10 @@ p67_p2p_cache_accept_by_name(
     return err;
 }
 
-/*
-    this takes O(N)
-    TODO: add hash index.
-*/
-p67_p2p_t *
-p67_p2p_cache_find_by_name(const char * name)
-{
-    int namel = strlen(name), i;
-    p67_hashcntl_entry_t * entry;
-    p67_p2p_t * ctx;
-    p67_hashcntl_t * h = p67_node_cache();
-
-    for(i = 0; i < h->bufferl; i++) {
-        if(!(entry = h->buffer[i])) continue;
-        do {
-            if(!entry->value) continue;
-            ctx = (p67_node_t *)entry->value;
-            if(namel == ctx->peer_usernamel 
-                    && memcmp(name, ctx->peer_username, namel) == 0) {
-                return ctx;
-            }
-            entry = entry->next;
-        } while((entry));  
-    }
-
-    return NULL;
-}
-
 p67_p2p_t *
 p67_p2p_node_insert(
     p67_addr_t * remote_addr, 
-    const unsigned char * peer_username, 
+    const unsigned char * peer_username,
     int peer_usernamel,
     p67_pdp_urg_hdr_t * req)
 {

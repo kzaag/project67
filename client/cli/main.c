@@ -1,9 +1,11 @@
 #include <signal.h>
 #include <stdio.h>
 
-#include <client/cli/p2p.h>
-#include <client/cli/cmd.h>
 #include <p67/all.h>
+
+#include <client/cli/node.h>
+#include <client/cli/call.h>
+#include <client/cli/cmd.h>
 
 static p67_hashcntl_t * cmdbuf = NULL;
 static p67_cmd_ctx_t cmdctx = {0};
@@ -60,7 +62,6 @@ P67_CMN_NO_PROTO_EXIT
     p67_thread_sm_terminate(&connect_sm, 2*connect_to);
 
     p67_lib_free();
-    p67_p2p_cache_free();
 
     p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
     p67_hashcntl_free(cmdbuf);
@@ -136,16 +137,15 @@ P67_CMN_NO_PROTO_EXIT
         return err;
     }
 
-    if(!p67_p2p_node_insert(
-            src_addr, 
-            (unsigned char *)src_username, 
-            strlen(src_username), 
-            (p67_pdp_urg_hdr_t *)msg)) {
-        p67_log("Couldnt add p2p entry for %s\n", src_username);
-        // ignore on fail ( already called )
-        // err = p67_err_einval;
-        // p67_addr_free(src_addr);
-        // return err;
+    err = p67_call_add_pending(
+        server_addr, 
+        src_addr, 
+        src_username, 
+        strlen(src_username)+1, 
+        (p67_pdp_urg_hdr_t *)msg);
+
+    if(err) {
+        p67_err_print_err_dbg("Couldnt add pending call, reason: ", err);
     }
 
     p67_addr_free(src_addr);
@@ -231,8 +231,6 @@ main(int argc, char ** argv)
     p67_net_cred_t * cred 
         = p67_net_cred_create("p2pcert", "p2pcert.cert");
     p67_net_cb_ctx_t server_cbctx = p67_net_cb_ctx_initializer(webserver_callback);
-    p67_net_cb_ctx_t p2p_cbctx = p67_net_cb_ctx_initializer(p67_p2p_callback);
-    p2p_cbctx.on_shutdown = p67_p2p_shutdown_cb;
     p67_addr_t * local_listen_addr = p67_addr_new_localhost4_udp(argv[1]);
     // char cs[7];
     // sprintf(cs, "%d", atoi(argv[1])/*+1*/);
@@ -245,7 +243,12 @@ main(int argc, char ** argv)
     }
 
     /* handle incoming connections with p2p handler. */
-    if((err = p67_net_start_listen(&listen_sm, local_listen_addr, cred, p2p_cbctx, NULL)))
+    if((err = p67_net_start_listen(
+            &listen_sm, 
+            local_listen_addr, 
+            cred, 
+            p67_ext_node_p2p_cb(), 
+            NULL)))
         goto end;
 
     /* connect to redirect-server with server handler */

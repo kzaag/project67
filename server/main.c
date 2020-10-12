@@ -40,7 +40,7 @@ P67_CMN_NO_PROTO_EXIT
 }
 
 int
-main(void)
+main(int argc, char ** argv)
 {
     p67_lib_init();
     signal(SIGINT, main_finish);
@@ -55,7 +55,12 @@ main(void)
         exit(2);
     }
 
-    p67_addr_t * local_addr = p67_addr_new_localhost4_udp("10000");
+    char * port = "10000";
+    if(argc > 1) {
+        port = argv[1];
+    }
+
+    p67_addr_t * local_addr = p67_addr_new_localhost4_udp(port);
     if(!local_addr) {
         p67_log("Couldnt set up local address.\n");
         exit(2);

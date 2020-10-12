@@ -128,6 +128,23 @@ struct p67_net_globals __globals = {
     .cookie_initialized = 0,
 };
 
+void
+p67_node_state_str(char * sb, int sbl, int state)
+{
+    if(!sb || sbl <= 0) return;
+    switch(state) {
+    case P67_NODE_STATE_NODE:
+        snprintf(sb, sbl, "NODE");
+        break;
+    case P67_NODE_STATE_QUEUE:
+        snprintf(sb, sbl, "QUEUE");
+        break;
+    default:
+        snprintf(sb, sbl, "UNKOWN");
+        break;
+    }
+}
+
 p67_net_config_t *
 p67_net_config_location(void)
 {
@@ -195,6 +212,15 @@ p67_net_shutdown(p67_addr_t * addr)
     if(!addr) return p67_err_einval;
     return p67_hashcntl_remove_and_free(
         p67_conn_cache(), 
+        &addr->sock, addr->socklen);
+}
+
+p67_err
+p67_node_remove(p67_addr_t * addr)
+{
+    if(!addr) return p67_err_einval;
+    return p67_hashcntl_remove_and_free(
+        p67_node_cache(), 
         &addr->sock, addr->socklen);
 }
 
@@ -1268,9 +1294,11 @@ p67_net_write_msg(
 }
 
 void
-p67_conn_shutdown_all(void)
+p67_conn_free_all(void)
 {
-    p67_hashcntl_t * ctx = p67_conn_cache();
+    p67_hashcntl_t * ctx;
+    
+    ctx = p67_conn_cache();
     p67_hashcntl_free(ctx);
     ctx = p67_node_cache();
     p67_hashcntl_free(ctx);
@@ -1281,6 +1309,28 @@ p67_net_init(void)
 {
     OpenSSL_add_ssl_algorithms();
     SSL_load_error_strings();
+}
+
+P67_CMN_NO_PROTO_ENTER
+void
+p67_conn_print(
+P67_CMN_NO_PROTO_EXIT
+    p67_hashcntl_entry_t * e)
+{
+    if(!e || !e->value) return;
+    p67_conn_t * conn = (p67_conn_t *)e->value;
+    p67_log(
+        "%s:%s -> %s:%s\n",
+        conn->addr_local->hostname,
+        conn->addr_local->service,
+        conn->addr_remote->hostname,
+        conn->addr_remote->service);
+}
+
+void
+p67_conn_print_all(void)
+{
+    p67_hashcntl_foreach(p67_conn_cache(), p67_conn_print);
 }
 
 // P67_CMN_NO_PROTO_ENTER
@@ -1406,10 +1456,11 @@ p67_net_listen(
 
         do {
             if(!(raddr = p67_addr_new())) break;
-            if((err = p67_addr_set_sockaddr(raddr, &remote, sizeof(remote))) != 0)
+            if((err = p67_addr_set_sockaddr(raddr, &remote, sizeof(remote))) != 0) {
                 break;
+            }
             /* 
-                moved from ssl verify cvallback due to memory leaks.
+                moved from ssl verify callback due to memory leaks.
                 if remote was already queued and their ssl conn closed then block them 
             */
             if((node = p67_node_lookup(raddr)) != NULL 

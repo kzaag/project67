@@ -111,6 +111,7 @@ p67_cmn_epoch_micro(p67_cmn_epoch_t * t)
 char *
 p67_cmn_strdup(const char * str)
 {
+    if(!str) return NULL;
     int strl = strlen(str);
     char * ret = malloc(strl + 1);
     if(!ret) return NULL;

@@ -43,7 +43,9 @@ typedef struct p67_node p67_node_t;
 
 #define P67_NODE_STATE_NODE 0
 #define P67_NODE_STATE_QUEUE 1
-#define P67_NODE_STATE_ALL 1
+
+void
+p67_node_state_str(char * sb, int sbl, int state);
 
 #define P67_DEFAULT_TIMEOUT_MS 200
 
@@ -104,6 +106,12 @@ p67_net_globals_location(void);
 
 p67_hashcntl_t *
 p67_node_cache(void);
+
+p67_err
+p67_node_remove(p67_addr_t * addr);
+
+void
+p67_conn_print_all(void);
 
 p67_node_t *
 p67_node_insert(
@@ -166,7 +174,7 @@ p67_net_write_msg(
     const p67_addr_t * addr, const p67_pckt_t * msg, int msgl);
 
 void
-p67_conn_shutdown_all(void);
+p67_conn_free_all(void);
 
 void
 p67_net_init(void);

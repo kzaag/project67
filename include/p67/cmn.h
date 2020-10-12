@@ -34,7 +34,7 @@
 #endif
 
 #define p67_cmn_assert_abort(cnd, msg) \
-    if(cnd) { p67_log(msg); abort(); }
+    if(cnd) { printf(msg); abort(); }
 
 #define p67_cmn_ejmp(err, verr, lbl) \
     { err = verr; goto lbl; }

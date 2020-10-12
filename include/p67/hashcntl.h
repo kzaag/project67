@@ -91,4 +91,8 @@ p67_hashcntl_refcpy(p67_hashcntl_t * ctx);
 p67_err
 p67_hashcntl_set_ttl(p67_hashcntl_t * ctx, int ttl);
 
+void
+p67_hashcntl_foreach(
+    p67_hashcntl_t * ctx, void (* callback)(p67_hashcntl_entry_t * item));
+
 #endif

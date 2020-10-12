@@ -280,3 +280,25 @@ p67_hashcntl_set_ttl(p67_hashcntl_t * ctx, int ttl)
     
     return p67_hashcntl_ttl_start_loop(ctx);
 }
+
+void
+p67_hashcntl_foreach(
+    p67_hashcntl_t * ctx, void (* callback)(p67_hashcntl_entry_t * item))
+{
+    assert(ctx);
+    assert(callback);
+
+    p67_hashcntl_lock(ctx);
+    p67_hashcntl_entry_t ** e, * ne;
+
+    for(e = ctx->buffer; e < ctx->buffer + ctx->bufferl; e++) {
+        ne = *e;
+        if(!ne) continue;
+        do {
+            callback(ne);
+            ne=ne->next;
+        } while((ne));
+    }
+
+    p67_hashcntl_unlock(ctx);
+}

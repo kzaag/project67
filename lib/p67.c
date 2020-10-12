@@ -18,6 +18,6 @@ void
 p67_lib_free(void)
 {
     p67_pdp_stop_loop();
-    p67_conn_shutdown_all();
+    p67_conn_free_all();
     p67_log_free();
 }

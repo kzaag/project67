@@ -1,5 +1,5 @@
-#include <postgresql/libpq-fe.h>
-#include <postgresql/12/server/catalog/pg_type_d.h>
+#include <libpq-fe.h>
+#include <postgresql/server/catalog/pg_type_d.h>
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
