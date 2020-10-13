@@ -18,7 +18,7 @@ p67_ext_node_insert(
     p67_addr_t * addr,
     const char * trused_pk,
     int state,
-    char * username);
+    const char * username);
 
 #define p67_ext_node_remove(addr) p67_node_remove(addr)
 
@@ -37,7 +37,7 @@ p67_err
 p67_ext_node_insert_and_connect(
     p67_addr_t * addr,
     const char * trusted_pk_path,
-    char * username,
+    const char * username,
     p67_addr_t * local_addr,
     p67_net_cred_t * cred,
     p67_net_cb_ctx_t cbctx);

@@ -242,27 +242,49 @@ end:
     return ret;
 }
 
-// P67_CMN_NO_PROTO_ENTER
-// int
-// p67_cmd_call_accept(
-// P67_CMN_NO_PROTO_EXIT
-//     p67_cmd_ctx_t * ctx, int argc, char ** argvs)
-// {
-//     if(argc < 2) {
-//         printf("Must provide call target name ( see call_list to get pending )");
-//         return -p67_err_einval;
-//     }
+P67_CMN_NO_PROTO_ENTER
+int
+p67_cmd_call_accept(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argvs)
+{
+    if(argc < 2) {
+        p67_log("Usage %s [username]\n", argvs[0]);
+        return -p67_err_einval;
+    }
 
-//     p67_err err;
+    p67_call_entry_t * ce = p67_call_lookup(argvs[1]);
+    if(!ce) {
+        p67_log("cannot find specified call\n");
+        return -1;
+    }
 
-//     if((err = p67_p2p_node_accept_by_name(
-//             ctx->local_addr, ctx->ws_remote_addr, ctx->cred, argvs[1], NULL))) {
-//         p67_err_print_err("couldnt accept call: ", err);
-//         return -err;
-//     }
+    p67_err err = p67_web_tlv_respond_with_status(
+        &ce->req, ce->server_addr, p67_web_status_ok);
+    if(err) {
+        p67_err_print_err("cannot respond to redirect server, reason: ", err);
+        return -err;
+    }
 
-//     return 0;
-// }
+    err = p67_ext_node_insert_and_connect(
+        ce->peer_addr, 
+        NULL, 
+        ce->username, 
+        ctx->local_addr, ctx->cred, ctx->p2p_cb_ctx);
+
+    if(err) {
+        p67_err_print_err("cannot insert node, reason: ", err);
+        return -err;
+    }
+
+    err = p67_call_remove(argvs[1]);
+    if(err) {
+        p67_err_print_err("cannot remove pending call, reason: ", err);
+        return -err;
+    }
+
+    return err;
+}
 
 // P67_CMN_NO_PROTO_ENTER
 // int
@@ -367,19 +389,19 @@ P67_CMN_NO_PROTO_EXIT
     int ix = 0;
 
     if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, len, 'l') == NULL)
-        return p67_err_einval;
+        goto end;
 
     msgp += P67_PDP_URG_OFFSET;
     ix += P67_PDP_URG_OFFSET;
     
     if(ix >= len)
-        return p67_err_enomem;
+        goto end;
 
     if((err = p67_tlv_add_fragment(
                 msgp, len-ix, (unsigned char *)"u", 
                 (unsigned char *)username, 
                 strlen(username) + 1)) < 0)
-        return -err;
+        goto end;
     ix += err;
     msgp+=err;
 
@@ -387,7 +409,7 @@ P67_CMN_NO_PROTO_EXIT
                 msgp, len-ix, (unsigned char *)"p", 
                 (unsigned char *)password,
                 strlen(password) + 1)) < 0)
-        return -err;
+        goto end;
     ix += err;
     msgp+=err;
 
@@ -395,7 +417,7 @@ P67_CMN_NO_PROTO_EXIT
         if((err = p67_tlv_add_fragment(
                     msgp, len-ix, (unsigned char *)"r", 
                     NULL, 0)) < 0)
-            return -err;
+        goto end;
         ix += err;
         msgp+=err;
     }
@@ -413,7 +435,7 @@ P67_CMN_NO_PROTO_EXIT
 
     if((err = p67_pdp_write_urg(
             ctx->ws_remote_addr, msg, ix, -1, &sig, (void **)&res, &resl)) != 0)
-        return err;
+        goto end;
 
     p67_mutex_wait_for_change(&sig, 0, -1);
 
@@ -425,12 +447,12 @@ P67_CMN_NO_PROTO_EXIT
     if(sig == P67_PDP_EVT_GOT_ACK) {
         char buff[P67_WEB_TLV_STATUS_BUFFL];
         if((err = p67_web_tlv_status_str(res, resl, buff, P67_WEB_TLV_STATUS_BUFFL)) != 0)
-            return err;
+            goto end;
         p67_log("%s\n", buff);
     } else {
         char c[32];
         p67_log("%s\n", p67_pdp_evt_str(c, sizeof(c), sig));
-        return p67_err_eagain;
+        goto end;
     }
 
 end:
@@ -438,96 +460,6 @@ end:
     free(password);
     return 0;
 }
-
-// P67_CMN_NO_PROTO_ENTER
-// p67_err
-// p67_cmd_process_call_res(
-// P67_CMN_NO_PROTO_EXIT
-//     const p67_cmd_ctx_t * const ctx,
-//     const p67_pckt_t * const msg,
-//     const int msgl,
-//     const char * username)
-// {
-//     if(!p67_dml_parse_hdr(msg, msgl, NULL)) {
-//         return p67_err_epdpf;
-//     }
-
-//     const char * hostname, * service;
-//     const p67_pckt_t * payload = msg + sizeof(p67_pdp_ack_hdr_t);
-//     int payloadl = msgl - sizeof(p67_pdp_ack_hdr_t);
-//     const p67_tlv_header_t * tlv_hdr;
-//     const p67_pckt_t * tlv_value;
-//     p67_addr_t * addr;
-//     p67_err err;
-//     p67_web_status res_status;
-//     int tlv_status = 0;
-//     //p67_async_t conn_sig = 0;
-
-//     while((err = p67_tlv_next(
-//             &payload, &payloadl, &tlv_hdr, &tlv_value)) == 0) {
-//         switch(*tlv_hdr->tlv_key) {
-//         case 's':
-//             tlv_value = p67_tlv_get_arr(tlv_hdr, tlv_value, 2);
-//             if(!tlv_value)
-//                 break;
-//             res_status = p67_cmn_ntohs(*(p67_web_status*)tlv_value);
-//             tlv_status |= 1;
-//             break;
-//         case 'A':
-//             hostname = p67_tlv_get_cstr(tlv_hdr, tlv_value);
-//             if(!hostname)
-//                 break;
-//             tlv_status |= 2;
-//             break;
-//         case 'P':
-//             service = p67_tlv_get_cstr(tlv_hdr, tlv_value);
-//             if(!service)
-//                 break;
-//             tlv_status |= 4;
-//             break;
-//         }
-//     }
-    
-//     if(err != p67_err_eot || !(tlv_status & 1)) {
-//         return err;
-//     }
-
-//     if(res_status != p67_web_status_ok) {
-//         char c[P67_WEB_TLV_STATUS_BUFFL];
-//         p67_web_status_str(res_status, c, P67_WEB_TLV_STATUS_BUFFL);
-//         printf("%s\n", c);
-//         return 0;
-//     }
-
-//     if(tlv_status != 7) {
-//         return p67_err_epdpf;
-//     }
-
-//     if(!(addr = p67_addr_new())) {
-//         return p67_err_eerrno;
-//     }
-
-//     if((err = p67_addr_set_host_udp(addr, hostname, service)) != 0) {
-//         p67_addr_free(addr);
-//         return err;
-//     }
-
-//     if(!p67_p2p_node_insert(
-//             addr, 
-//             (unsigned char *)username, 
-//             strlen(username), 
-//             NULL)) {
-//         p67_addr_free(addr);
-//         return p67_err_einval;
-//     }
-
-//     err = p67_p2p_node_accept_by_name(
-//         ctx->local_addr, ctx->ws_remote_addr, ctx->cred, username, NULL);
-
-//     p67_addr_free(addr);
-
-//     return err;
-// }
 
 P67_CMN_NO_PROTO_ENTER
 int
@@ -634,93 +566,180 @@ P67_CMN_NO_PROTO_EXIT
 //     return 0;
 // }
 
-// P67_CMN_NO_PROTO_ENTER
-// int 
-// p67_cmd_call(
-// P67_CMN_NO_PROTO_EXIT
-//     p67_cmd_ctx_t * ctx, int argc, char ** argv)
-// {
-//     unsigned char * msgp;
-//     unsigned char msg[P67_DML_SAFE_PAYLOAD_SIZE];
-//     p67_async_t sig = P67_ASYNC_INTIIALIZER;
-//     const int msgl = 120;
-//     int msgix = 0, tmpix = sizeof(msg);
-//     p67_pdp_urg_hdr_t * u = (p67_pdp_urg_hdr_t *)msg;
-//     p67_err err;
+P67_CMN_NO_PROTO_ENTER
+p67_err
+p67_cmd_process_call_res(
+P67_CMN_NO_PROTO_EXIT
+    const p67_cmd_ctx_t * const ctx,
+    const p67_pckt_t * const msg,
+    const int msgl,
+    const char * username)
+{
+    if(!p67_dml_parse_hdr(msg, msgl, NULL)) {
+        return p67_err_epdpf;
+    }
 
-//     msgp = msg;
+    const char * hostname, * service;
+    const p67_pckt_t * payload = msg + sizeof(p67_pdp_ack_hdr_t);
+    int payloadl = msgl - sizeof(p67_pdp_ack_hdr_t);
+    const p67_tlv_header_t * tlv_hdr;
+    const p67_pckt_t * tlv_value;
+    p67_addr_t * addr;
+    p67_err err;
+    p67_web_status res_status;
+    int tlv_status = 0;
+    //p67_async_t conn_sig = 0;
 
-//     if(argc < 2) {
-//         printf("must provide target\n");
-//         return 1;
-//     }
-
-//     if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, msgl, 'c') == NULL)
-//         return p67_err_einval;
-
-//     msgp += P67_PDP_URG_OFFSET;
-//     msgix += P67_PDP_URG_OFFSET;
+    while((err = p67_tlv_next(
+            &payload, &payloadl, &tlv_hdr, &tlv_value)) == 0) {
+        switch(*tlv_hdr->tlv_key) {
+        case 's':
+            tlv_value = p67_tlv_get_arr(tlv_hdr, tlv_value, 2);
+            if(!tlv_value)
+                break;
+            res_status = p67_cmn_ntohs(*(p67_web_status*)tlv_value);
+            tlv_status |= 1;
+            break;
+        case 'A':
+            hostname = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!hostname)
+                break;
+            tlv_status |= 2;
+            break;
+        case 'P':
+            service = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            if(!service)
+                break;
+            tlv_status |= 4;
+            break;
+        }
+    }
     
-//     if(msgix >= msgl)
-//         return p67_err_enomem;
+    if(err != p67_err_eot || !(tlv_status & 1)) {
+        return err;
+    }
 
-//     //printf("calling...\n");
+    if(res_status != p67_web_status_ok) {
+        char c[P67_WEB_TLV_STATUS_BUFFL];
+        p67_web_status_str(res_status, c, P67_WEB_TLV_STATUS_BUFFL);
+        printf("%s\n", c);
+        return 0;
+    }
 
-//     if((err = p67_tlv_add_fragment(
-//             msgp, msgl-msgix, 
-//             (unsigned char *)"U", 
-//             (unsigned char *)argv[1], 
-//             strlen(argv[1]) + 1)) < 0)
-//         return -err;
-//     msgix += err;
-//     msgp+=err;
+    if(tlv_status != 7) {
+        return p67_err_epdpf;
+    }
 
-//     if((err = p67_tlv_add_fragment(
-//             msgp, msgl-msgix, 
-//             (unsigned char *)"m", 
-//             (unsigned char *)"i love you", 
-//             11)) < 0)
-//         return -err;
-//     msgix += err;
-//     msgp+=err;
+    if(!(addr = p67_addr_new())) {
+        return p67_err_eerrno;
+    }
 
-//     if((err = p67_pdp_write_urg(
-//             ctx->ws_remote_addr, 
-//             msg, msgix, 60000, &sig, msg, &tmpix)) != 0) {
-//         return err;
-//     }
+    if((err = p67_addr_set_host_udp(addr, hostname, service)) != 0) {
+        p67_addr_free(addr);
+        return err;
+    }
 
-//     while(1) {
-//         p67_mutex_wait_for_change(&sig, 0, 100);
-//         if(p67_thread_sm_stop_requested(ctx->tsm)) {
-//             err = p67_pdp_urg_remove(
-//                 ctx->ws_remote_addr, p67_cmn_ntohs(u->urg_mid), NULL, 0, 0);
-//             if(err) {
-//                 p67_err_print_err("Cancel request returned error/s: ", err);
-//             }
-//             return err;
-//         }
-//         if(sig) {
-//             break;
-//         }
-//     }
-//     msgix = tmpix;
+    err = p67_ext_node_insert_and_connect(
+        addr, NULL, username, ctx->local_addr, ctx->cred, ctx->p2p_cb_ctx);
 
-//     if(sig == P67_PDP_EVT_GOT_ACK) {
-//         // char c[P67_WEB_TLV_STATUS_BUFFL];
-//         // if((err = p67_web_tlv_status_str(msg, msgix, c, sizeof(c))) != 0)
-//         //     return err;
-//         // printf("%s\n", c);
-//         if((err = p67_cmd_process_call_res(ctx, msg, msgix, argv[1])) != 0) {
-//             p67_err_print_err("Process call returned error/s: ", err);
-//         }
-//     } else {
-//         char c[P67_PDP_EVT_STR_LEN];
-//         printf("%s\n", p67_pdp_evt_str(c, sizeof(c), sig));
-//     }
+    p67_addr_free(addr);
 
-//     return 0;
-// }
+    return err;
+}
+
+P67_CMN_NO_PROTO_ENTER
+int 
+p67_cmd_call(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
+{
+    unsigned char * msgp;
+    unsigned char msg[P67_DML_SAFE_PAYLOAD_SIZE];
+    p67_async_t sig = P67_ASYNC_INTIIALIZER;
+    const int msgl = 120;
+    int msgix = 0, tmpix = sizeof(msg), o;
+    char * message;
+    p67_pdp_urg_hdr_t * u = (p67_pdp_urg_hdr_t *)msg;
+    p67_err err;
+
+    msgp = msg;
+
+    if(argc < 2) {
+        p67_log("Usage: %s [username] [OPTIONS]\n", argv[0]);
+        return 1;
+    }
+
+    reset_opt();
+    while((o = getopt(argc, argv, "m:")) != -1) {
+        switch(o) {
+        case 'm':
+            message = optarg;
+            break;
+        }
+    }
+
+    if(p67_pdp_generate_urg_for_msg(NULL, 0, msgp, msgl, 'c') == NULL)
+        return p67_err_einval;
+
+    msgp += P67_PDP_URG_OFFSET;
+    msgix += P67_PDP_URG_OFFSET;
+    
+    if(msgix >= msgl)
+        return p67_err_enomem;
+
+    if((err = p67_tlv_add_fragment(
+            msgp, msgl-msgix, 
+            (unsigned char *)"U", 
+            (unsigned char *)argv[1], 
+            strlen(argv[1]) + 1)) < 0)
+        return -err;
+    msgix += err;
+    msgp+=err;
+
+    if(message) {
+        if((err = p67_tlv_add_fragment(
+                msgp, msgl-msgix, 
+                (unsigned char *)"m", 
+                (unsigned char *)message, 
+                strlen(message)+1)) < 0)
+            return -err;
+        msgix += err;
+        msgp+=err;
+    }
+
+    if((err = p67_pdp_write_urg(
+            ctx->ws_remote_addr, 
+            msg, msgix, 60000, &sig, msg, &tmpix)) != 0) {
+        return err;
+    }
+
+    while(1) {
+        p67_mutex_wait_for_change(&sig, 0, 100);
+        if(p67_thread_sm_stop_requested(ctx->tsm)) {
+            err = p67_pdp_urg_remove(
+                ctx->ws_remote_addr, p67_cmn_ntohs(u->urg_mid), NULL, 0, 0);
+            if(err) {
+                p67_err_print_err("Cancel request returned error/s: ", err);
+            }
+            return err;
+        }
+        if(sig) {
+            break;
+        }
+    }
+    msgix = tmpix;
+
+    if(sig == P67_PDP_EVT_GOT_ACK) {
+        if((err = p67_cmd_process_call_res(ctx, msg, msgix, argv[1])) != 0) {
+            p67_err_print_err("Process call returned error/s: ", err);
+        }
+    } else {
+        char c[P67_PDP_EVT_STR_LEN];
+        printf("%s\n", p67_pdp_evt_str(c, sizeof(c), sig));
+    }
+
+    return 0;
+}
 
 P67_CMN_NO_PROTO_ENTER
 int 
@@ -752,6 +771,16 @@ P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
     printf("%s\n", __cmds);
+    return 0;
+}
+
+P67_CMN_NO_PROTO_ENTER
+int
+p67_cmd_list_pending_calls(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
+{
+    p67_call_print_all();
     return 0;
 }
 
@@ -831,7 +860,7 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "help", p67_cmd_help)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "echo", p67_cmd_echo)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "exit", p67_cmd_exit)) != 0) return NULL;
-    //if((err = p67_cmd_add(ret, "call", p67_cmd_call)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "call", p67_cmd_call)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "login", p67_cmd_redir_login)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "ls", p67_cmd_node_list)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
@@ -840,11 +869,13 @@ p67_cmd_new(void)
     //if((err = p67_cmd_add(ret, "trust", p67_cmd_trust_by_name)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "term", p67_cmd_terminate_by_name)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "audio", p67_cmd_open_audio)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "lsc", p67_cmd_list_conn)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "lsn", p67_cmd_list_nodes)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "an", p67_cmd_add_node)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "rmn", p67_cmd_remove_node)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "rmc", p67_cmd_remove_conn)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "lscon", p67_cmd_list_conn)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "lsnode", p67_cmd_list_nodes)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "lscall", p67_cmd_list_pending_calls)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "addnode", p67_cmd_add_node)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "rmnode", p67_cmd_remove_node)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "rmcon", p67_cmd_remove_conn)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
 
     return ret;
 }

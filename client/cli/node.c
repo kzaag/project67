@@ -59,9 +59,12 @@ P67_CMN_NO_PROTO_EXIT
             //     return 0;
             break;
         }
+        return p67_dml_handle_msg(addr, msg, msgl, NULL);
+    } else if(node) {
+        return p67_dml_handle_msg(addr, msg, msgl, NULL);
     }
+    return p67_err_einval;
     //p67_dml_pretty_print_addr(addr, msg, msgl);
-    return p67_dml_handle_msg(addr, msg, msgl, NULL);
 }
 
 P67_CMN_NO_PROTO_ENTER
@@ -223,7 +226,7 @@ p67_err
 p67_ext_node_insert_and_connect(
     p67_addr_t * addr,
     const char * trusted_pk_path,
-    char * username,
+    const char * username,
     p67_addr_t * local_addr,
     p67_net_cred_t * cred,
     p67_net_cb_ctx_t cbctx)
@@ -243,7 +246,7 @@ p67_ext_node_insert(
     p67_addr_t * addr,
     const char * trusted_pk_path,
     int state,
-    char * username)
+    const char * username)
 {
     int usernamel = username ? strlen(username) : 0;
     struct p67_ext_node * ext = malloc(sizeof(struct p67_ext_node)+usernamel+1);

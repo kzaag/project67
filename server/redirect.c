@@ -314,7 +314,7 @@ p67_ws_redirect_parse_response(
         }
     }
 
-    if(tlv_state != 0 || err != p67_err_eot)
+    if(tlv_state != 1 || err != p67_err_eot)
         return err;
 
     *outval = ctx;

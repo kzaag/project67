@@ -69,6 +69,7 @@ P67_CMN_NO_PROTO_EXIT
 
 const char * str_empty = "";
 const char * str_anon = "anon";
+const int str_anon_l = 4;
 
 P67_CMN_NO_PROTO_ENTER
 p67_err
@@ -83,7 +84,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_addr_t * src_addr;
     const char * src_host, * src_svc;
     const char * src_message = NULL, * src_username = NULL;
-    int msgpl = msgl - sizeof(p67_pdp_urg_hdr_t);
+    int msgpl = msgl - sizeof(p67_pdp_urg_hdr_t), usernamel;
     p67_err err;
     
     while((err = p67_tlv_next(&msgp, &msgpl, &tlv_hdr, &tlv_value)) == 0) {
@@ -102,6 +103,7 @@ P67_CMN_NO_PROTO_EXIT
             break;
         case 'u':
             src_username = p67_tlv_get_cstr(tlv_hdr, tlv_value);
+            usernamel = tlv_hdr->tlv_vlength - 1; // vlength include null terminator
             if(!src_username) return p67_err_etlvf;
             break;
         }
@@ -112,8 +114,10 @@ P67_CMN_NO_PROTO_EXIT
 
     if(!src_message)
         src_message = str_empty;
-    if(!src_username)
+    if(!src_username) {
         src_username = str_anon;
+        usernamel = str_anon_l;
+    }
 
     if(!(src_addr = p67_addr_new_host_udp(src_host, src_svc))) {
         err = p67_err_einval | p67_err_eerrno;
@@ -135,7 +139,7 @@ P67_CMN_NO_PROTO_EXIT
         server_addr, 
         src_addr, 
         src_username, 
-        strlen(src_username)+1, 
+        usernamel, 
         (p67_pdp_urg_hdr_t *)msg);
 
     if(err) {
@@ -242,15 +246,17 @@ main(int argc, char ** argv)
     p67_addr_t * ws_addr = p67_addr_new_parse_str_udp(argv[2]);
     p67_net_cb_ctx_t server_cbctx = p67_net_cb_ctx_initializer(webserver_callback);
     if((err = p67_ext_node_insert_and_connect(
-        ws_addr, "p2pcert.cert", "redirect/0", local_listen_addr, cred, server_cbctx)));
+            ws_addr, "p2pcert.cert", "redirect/0", local_listen_addr, cred, server_cbctx)))
+        goto end;
 
     cmdctx.cred = cred;
     cmdctx.local_addr = local_listen_addr;
     cmdctx.ws_remote_addr = ws_addr;
+    cmdctx.p2p_cb_ctx = p67_ext_node_p2p_cb();
 
     cmdbuf = p67_cmd_new();
     if(!cmdbuf) {
-        err = p67_err_eerrno;
+        err = p67_err_eerrno | p67_err_einval;
         goto end;
     }
 
@@ -261,11 +267,10 @@ main(int argc, char ** argv)
     int nl, _argc, argvbufix = 0, offset, rd;
 
     while(1) {
-       
         nl = 0;
 
         p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
-        
+
         while(!(n = p67_log_read_term(&nl, &err, 0))) {
             p67_err_print_err(NULL, err);
         }

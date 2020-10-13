@@ -39,7 +39,7 @@ p67_call_print_entry(p67_hashcntl_entry_t * he)
     assert(he);
     p67_call_entry_t * e = (p67_call_entry_t *)he->value;
     assert(e);
-    p67_log("REF=%s:%s ADDR=%s:%s USERNAME=%s\n",
+    p67_log("referer=%s:%s peer_address=%s:%s username=%s\n",
         e->server_addr->hostname,
         e->server_addr->service,
         e->peer_addr->hostname,

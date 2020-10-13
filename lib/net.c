@@ -1297,11 +1297,10 @@ void
 p67_conn_free_all(void)
 {
     p67_hashcntl_t * ctx;
-    
-    ctx = p67_node_cache();
-    p67_hashcntl_free(ctx);
-
+    /* .... */
     ctx = p67_conn_cache();
+    p67_hashcntl_free(ctx);
+    ctx = p67_node_cache();
     p67_hashcntl_free(ctx);
 }
 
