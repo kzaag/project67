@@ -449,8 +449,8 @@ p67_node_insert(
 
     if(keyl) {
         node->trusted_pub_key = (char*)entry->value + entry->valuel;
-        memcpy(node->trusted_pub_key, trusted_key, keyl);
-        node->trusted_pub_key[keyl-1] = 0;
+        memcpy(node->trusted_pub_key, trusted_key, trusted_key_l);
+        node->trusted_pub_key[trusted_key_l] = 0;
     } else {
         node->trusted_pub_key = NULL;
     }
@@ -1298,9 +1298,10 @@ p67_conn_free_all(void)
 {
     p67_hashcntl_t * ctx;
     
-    ctx = p67_conn_cache();
-    p67_hashcntl_free(ctx);
     ctx = p67_node_cache();
+    p67_hashcntl_free(ctx);
+
+    ctx = p67_conn_cache();
     p67_hashcntl_free(ctx);
 }
 

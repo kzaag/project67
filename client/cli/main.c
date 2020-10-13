@@ -9,10 +9,7 @@
 
 static p67_hashcntl_t * cmdbuf = NULL;
 static p67_cmd_ctx_t cmdctx = {0};
-static p67_thread_sm_t 
-    connect_sm = P67_THREAD_SM_INITIALIZER, 
-    listen_sm = P67_THREAD_SM_INITIALIZER;
-static p67_pdp_keepalive_ctx_t ws_keepalive_ctx = {0};
+static p67_thread_sm_t listen_sm = P67_THREAD_SM_INITIALIZER;
 int cmd_last_exit_code = 0;
 p67_thread_sm_t cmdsm = P67_THREAD_SM_INITIALIZER;
 const int connect_to = 300;
@@ -58,12 +55,9 @@ P67_CMN_NO_PROTO_EXIT
     p67_log("Interrupt\n");
 
     p67_net_listen_terminate(&listen_sm);
-    //p67_net_connect_terminate(&connect_sm);
-    p67_thread_sm_terminate(&connect_sm, 2*connect_to);
 
     p67_lib_free();
 
-    p67_pdp_free_keepalive_ctx(&ws_keepalive_ctx);
     p67_hashcntl_free(cmdbuf);
     p67_cmd_ctx_free(&cmdctx);
 
@@ -222,7 +216,7 @@ main(int argc, char ** argv)
     }
 
     p67_lib_init();
-    signal(SIGINT, finish);
+    signal(SIGINT, finish);    
     p67_log_cb = p67_log_cb_term;
     p67_net_config.conn_auth_type = P67_NET_AUTH_DONT_TRUST_UNKOWN;
     
@@ -230,19 +224,13 @@ main(int argc, char ** argv)
     
     p67_net_cred_t * cred 
         = p67_net_cred_create("p2pcert", "p2pcert.cert");
-    p67_net_cb_ctx_t server_cbctx = p67_net_cb_ctx_initializer(webserver_callback);
     p67_addr_t * local_listen_addr = p67_addr_new_localhost4_udp(argv[1]);
-    // char cs[7];
-    // sprintf(cs, "%d", atoi(argv[1])/*+1*/);
-    // p67_addr_t * local_connect_addr = p67_addr_new_localhost4_udp(cs);
-    p67_addr_t * ws_addr = p67_addr_new_parse_str_udp(argv[2]);
-
-    if(!cred || !local_listen_addr || !ws_addr) {
+    if(!cred || !local_listen_addr) {
         err = p67_err_einval | p67_err_eerrno;
         goto end;
     }
 
-    /* handle incoming connections with p2p handler. */
+    /* handle all incoming connections with p2p handler. */
     if((err = p67_net_start_listen(
             &listen_sm, 
             local_listen_addr, 
@@ -251,20 +239,14 @@ main(int argc, char ** argv)
             NULL)))
         goto end;
 
-    /* connect to redirect-server with server handler */
-    if((err = p67_net_start_connect(
-            &connect_sm, NULL, local_listen_addr, ws_addr, cred, server_cbctx, NULL)))
-        goto end;
-    
-    ws_keepalive_ctx.addr = p67_addr_ref_cpy(ws_addr);
-    if((err = p67_pdp_start_keepalive_loop(&ws_keepalive_ctx)) != 0) goto end;
+    p67_addr_t * ws_addr = p67_addr_new_parse_str_udp(argv[2]);
+    p67_net_cb_ctx_t server_cbctx = p67_net_cb_ctx_initializer(webserver_callback);
+    if((err = p67_ext_node_insert_and_connect(
+        ws_addr, "p2pcert.cert", "redirect/0", local_listen_addr, cred, server_cbctx)));
 
     cmdctx.cred = cred;
     cmdctx.local_addr = local_listen_addr;
     cmdctx.ws_remote_addr = ws_addr;
-
-    if((err = p67_cert_trust_address(ws_addr, "p2pcert.cert")))
-        goto end;
 
     cmdbuf = p67_cmd_new();
     if(!cmdbuf) {

@@ -237,6 +237,100 @@ end:
     return err;
 }
 
+/*
+    TODO: this function is almost identical to trust_address.
+    either refractor it and remove useless code. or use it inside trust_address.
+*/
+p67_err
+p67_cert_get_pk(const char * path, char ** pk,  int * pkl)
+{
+    assert(pk);
+    assert(path);
+    assert(pkl);
+
+    BIO * rbio, * mbio;
+    STACK_OF(X509_INFO) * certificates;
+    X509_INFO * cert;
+    X509_PUBKEY * xpubk = NULL;
+    EVP_PKEY * pubk = NULL;
+    int i, max, wrote;
+    char * tmp;
+
+    if(!(rbio = BIO_new(BIO_s_file()))) {
+        return p67_err_eerrno | p67_err_essl;
+    }
+
+#undef freeblock
+#define freeblock { BIO_free(rbio); }
+
+    if(!(mbio = BIO_new(BIO_s_mem()))) {
+        freeblock
+        return p67_err_eerrno | p67_err_essl;
+    }
+
+#undef freeblock
+#define freeblock { BIO_free(rbio); BIO_free(mbio); }
+
+    if(BIO_read_filename(rbio, path) <= 0) {
+        freeblock
+        return p67_err_eerrno | p67_err_essl;
+    }
+
+    certificates = PEM_X509_INFO_read_bio(rbio, NULL, NULL, NULL);
+    if(!certificates) {
+        freeblock
+        return p67_err_eerrno | p67_err_essl;
+    }
+
+#undef freeblock
+#define freeblock { \
+            BIO_free(rbio); \
+            BIO_free(mbio); \
+            sk_X509_INFO_pop_free(certificates, X509_INFO_free); \
+        }
+
+    max = sk_X509_INFO_num(certificates);
+
+    if(max > 1) {
+        p67_log(
+            "In p67_cert_trust_address_certificaes:"\
+            " user provided path with more than 1 certs,"\
+            " but only the first one will be trusted.\n");
+    }
+
+    for(i = 0; i < max; i++) {
+        cert = sk_X509_INFO_value(certificates, i);
+
+        if((xpubk = X509_get_X509_PUBKEY(cert->x509)) == NULL) {
+            freeblock
+            return p67_err_eerrno | p67_err_essl;
+        }
+
+        if((pubk = X509_PUBKEY_get(xpubk)) == NULL) {
+            freeblock
+            return p67_err_eerrno | p67_err_essl;
+        }
+
+        if(PEM_write_bio_PUBKEY(mbio, pubk) <= 0) {
+            freeblock
+            EVP_PKEY_free(pubk);
+            return p67_err_eerrno | p67_err_essl;
+        }
+
+        wrote = BIO_number_written(mbio);
+        *pkl = wrote;
+        BIO_get_mem_data(mbio, &tmp);
+        *pk = malloc(*pkl);
+        memcpy(*pk, tmp, *pkl);
+
+        EVP_PKEY_free(pubk);
+        break;
+    }
+
+    freeblock;
+    return 0;
+}
+
 p67_err
 p67_cert_trust_address(p67_addr_t * addr, const char * path)
 {

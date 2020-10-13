@@ -1,6 +1,7 @@
 #include <p67/log.h>
 #include <client/cli/node.h>
 #include <p67/dml/dml.h>
+#include <p67/cert.h>
 
 #include <string.h>
 
@@ -8,6 +9,7 @@ struct p67_ext_node {
     /* this is null terminated, however but dont waste cpu on strlen use usernamel field. */
     char * username;
     p67_thread_sm_t connect_sm;
+    p67_pdp_keepalive_ctx_t keepalive;
     int usernamel;
 };
 
@@ -21,6 +23,7 @@ P67_CMN_NO_PROTO_EXIT
         return;
     }
     struct p67_ext_node * ext = (struct p67_ext_node *)e;
+    p67_pdp_free_keepalive_ctx(&ext->keepalive);
     p67_net_connect_terminate(&ext->connect_sm);
     free(ext);
 }
@@ -82,14 +85,51 @@ p67_ext_node_p2p_cb(void)
     return cb;
 }
 
+/*
+    start keepalive and connect to the node
+*/
+p67_err
+p67_ext_node_start_connect(
+    p67_node_t * node, 
+    p67_addr_t * local_addr, p67_net_cred_t * local_cred, p67_net_cb_ctx_t cbctx)
+{
+    if(!node || !node->args) return p67_err_einval;
+    p67_ext_node_t * extnode = (p67_ext_node_t *)node->args;
+    p67_err err;
+    
+    err = p67_net_start_connect(
+        &extnode->connect_sm,
+        NULL,
+        local_addr,
+        node->trusted_addr,
+        local_cred,
+        cbctx,
+        NULL);
+
+    if(err) return err;
+
+    p67_thread_sm_init(extnode->keepalive.th);
+    extnode->keepalive.addr = p67_addr_ref_cpy(node->trusted_addr);
+
+    err = p67_pdp_start_keepalive_loop(&extnode->keepalive);
+    
+    if(err) {
+        p67_addr_free(extnode->keepalive.addr);
+        p67_net_connect_terminate(&extnode->connect_sm);
+    }
+
+    return err;
+}
+
 void
 p67_ext_node_print(p67_node_t * node, int print_flags)
 {
     if(!node) return;
 
-    char node_state[10], conn_state[10];
+    char node_state[10], conn_state[10], keepalive_state[10];
     char * username = "", * pk = NULL;
     conn_state[0] = 0;
+    keepalive_state[0] = 0;
 
     if((print_flags & P67_EXT_NODE_PRINT_FLAGS_ALL) && node->trusted_pub_key) {
         pk = malloc(strlen(node->trusted_pub_key) + 2); /* twice new-line and 0 terminator*/
@@ -108,6 +148,9 @@ p67_ext_node_print(p67_node_t * node, int print_flags)
         } else {
             snprintf(conn_state, sizeof(conn_state), "CONN_PASV");
         }
+        if(ext->keepalive.th.state == P67_THREAD_SM_STATE_RUNNING) {
+            snprintf(keepalive_state, sizeof(keepalive_state), "KEEPALIVE");
+        }
     }
 
     p67_log( "%s:%s %s %s %s %s\n",
@@ -117,6 +160,7 @@ p67_ext_node_print(p67_node_t * node, int print_flags)
              /* ext data */
              username,
              conn_state,
+             keepalive_state,
              /* optional pk */
              pk);
 
@@ -175,17 +219,37 @@ p67_ext_node_find_by_name(char * username)
     return NULL;
 }
 
+p67_err
+p67_ext_node_insert_and_connect(
+    p67_addr_t * addr,
+    const char * trusted_pk_path,
+    char * username,
+    p67_addr_t * local_addr,
+    p67_net_cred_t * cred,
+    p67_net_cb_ctx_t cbctx)
+{
+    p67_node_t * node = p67_ext_node_insert(
+        addr, trusted_pk_path, P67_NODE_STATE_NODE, username);
+    if(!node) {
+        return p67_err_eerrno | p67_err_eaconn;
+    }
+    p67_err err = p67_ext_node_start_connect(node, local_addr, cred, cbctx);
+    if(err) p67_ext_node_remove(addr);
+    return err;
+}
+
 p67_node_t *
 p67_ext_node_insert(
     p67_addr_t * addr,
-    const char * trused_pk,
-    int trusted_pk_l,
+    const char * trusted_pk_path,
     int state,
     char * username)
 {
     int usernamel = username ? strlen(username) : 0;
     struct p67_ext_node * ext = malloc(sizeof(struct p67_ext_node)+usernamel+1);
     if(!ext) return NULL;
+    char * pk = NULL;
+    int pkl = 0;
 
     p67_thread_sm_init(ext->connect_sm);
     ext->usernamel = usernamel;
@@ -196,13 +260,20 @@ p67_ext_node_insert(
         ext->username = NULL;
     }
 
+    if(trusted_pk_path) {
+        if(p67_cert_get_pk(trusted_pk_path, &pk, &pkl))
+            return NULL;
+    }
+
     p67_node_t * node = p67_node_insert(
         addr,
-        trused_pk,
-        trusted_pk_l,
+        pk,
+        pkl,
         ext,
         p67_ext_node_free,
         state);
+
+    free(pk);
 
     if(!node) {
         free(ext);

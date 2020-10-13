@@ -113,6 +113,34 @@ P67_CMN_NO_PROTO_EXIT
 
 P67_CMN_NO_PROTO_ENTER
 int
+p67_cmd_remove_conn(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argvs)
+{
+    if(argc < 2) {
+        p67_log("Usage %s [host:port].\n");
+        return -1;
+    }
+
+    p67_addr_t * addr = p67_addr_new_parse_str(
+        argvs[1], P67_SFD_TP_DGRAM_UDP);
+    if(!addr) {
+        p67_log("Couldnt create address.\n");
+        return -1;
+    }
+
+    p67_err err = p67_net_shutdown(addr);
+    p67_addr_free(addr);
+    if(err) {
+        p67_err_print_err("Couldnt shutdown connection: ", err);
+        return -2;
+    }
+
+    return -err;
+}
+
+P67_CMN_NO_PROTO_ENTER
+int
 p67_cmd_remove_node(
 P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argvs)
@@ -198,7 +226,7 @@ P67_CMN_NO_PROTO_EXIT
     }
 
     if(!p67_ext_node_insert(
-            addr, NULL, 0, P67_NODE_STATE_NODE, name)) {
+            addr, NULL, P67_NODE_STATE_NODE, name)) {
         p67_log("Couldnt insert node\n");
         ret = -1;
         goto end;
@@ -778,6 +806,7 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "lsn", p67_cmd_list_nodes)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "an", p67_cmd_add_node)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "rmn", p67_cmd_remove_node)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "rmc", p67_cmd_remove_conn)) != 0) return NULL;
 
     return ret;
 }

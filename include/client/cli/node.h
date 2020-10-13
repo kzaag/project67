@@ -17,7 +17,6 @@ p67_node_t *
 p67_ext_node_insert(
     p67_addr_t * addr,
     const char * trused_pk,
-    int trusted_pk_l,
     int state,
     char * username);
 
@@ -28,5 +27,19 @@ p67_ext_node_p2p_cb(void);
 
 p67_node_t *
 p67_ext_node_find_by_name(char * username);
+
+p67_err
+p67_ext_node_start_connect(
+    p67_node_t * node, 
+    p67_addr_t * local_addr, p67_net_cred_t * local_cred, p67_net_cb_ctx_t cbctx);
+
+p67_err
+p67_ext_node_insert_and_connect(
+    p67_addr_t * addr,
+    const char * trusted_pk_path,
+    char * username,
+    p67_addr_t * local_addr,
+    p67_net_cred_t * cred,
+    p67_net_cb_ctx_t cbctx);
 
 #endif
