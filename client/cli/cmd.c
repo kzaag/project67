@@ -311,7 +311,57 @@ P67_CMN_NO_PROTO_EXIT
 {
     p67_err err;
     unsigned char msg[120];
-    int len = 120;
+    char * username = NULL, * password = NULL;
+    int len = 120, reg_switch = 0, o, time_switch = 0;
+
+    reset_opt();
+    
+    while((o = getopt(argc, argvs, "u:p:rt")) != -1) {
+        switch(o) {
+        case 'u':
+            username = strdup(optarg);
+            break;
+        case 'p':
+            password = strdup(optarg);
+            break;
+        case 'r':
+            reg_switch = 1;
+            break;
+        case 't':
+            time_switch = 1;
+            break;
+        default:
+            p67_log(
+                "usage: %s [OPTIONS]\n-u\tusername\n-p\tpassword\n-r\tregister and login\n-t\tperformance metrics\n", 
+                argvs[0]);
+            return -1;
+        }
+    }
+    
+    if(!username) {
+        p67_log_set_term_char("username:");
+        username = (char *)p67_log_read_term(NULL, NULL, 0);
+        if(!username) {
+            p67_log("Couldnt read username\n");
+            p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+            goto end;
+        }
+        username = strdup(username);
+        p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+    }
+    if(!password) {
+        p67_log_set_term_char("password:");
+        p67_log_echo = 0;
+        password = (char *)p67_log_read_term(NULL, NULL, 0);
+        p67_log_echo = 1;
+        if(!password) {
+            p67_log("Couldnt read password\n");
+            p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+            goto end;
+        }
+        password = strdup(password);
+        p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+    }
 
     unsigned char * msgp = msg;
     int ix = 0;
@@ -325,51 +375,38 @@ P67_CMN_NO_PROTO_EXIT
     if(ix >= len)
         return p67_err_enomem;
 
-    const int buffl = 31;
-    unsigned char buff[buffl + 1];
-    int bl = 0;
-    char tmp;
-
-    if(argc < 2) {
-        printf("username: ");
-        while((tmp = getchar()) != EOF && tmp != '\n') {
-            if(bl >= (buffl - 1)) break;
-            buff[bl++] = tmp;
-        }
-    }
-    buff[bl++] = 0;
-
     if((err = p67_tlv_add_fragment(
                 msgp, len-ix, (unsigned char *)"u", 
-                argc < 2 ? buff : (unsigned char *)argvs[1], 
-                argc < 2 ? bl : strlen(argvs[1]) + 1)) < 0)
+                (unsigned char *)username, 
+                strlen(username) + 1)) < 0)
         return -err;
     ix += err;
     msgp+=err;
-
-    if(argc < 3) {
-        printf("password: ");
-        bl = 0;
-        while((tmp = getchar()) != EOF && tmp != '\n') {
-            if(bl >= (buffl - 1)) break;
-            buff[bl++] = tmp;
-        }
-    }
-    buff[bl++] = 0;
 
     if((err = p67_tlv_add_fragment(
                 msgp, len-ix, (unsigned char *)"p", 
-                argc < 3 ? buff : (unsigned char *)argvs[2], 
-                argc < 3 ? bl : strlen(argvs[2]) + 1)) < 0)
+                (unsigned char *)password,
+                strlen(password) + 1)) < 0)
         return -err;
     ix += err;
     msgp+=err;
 
+    if(reg_switch) {
+        if((err = p67_tlv_add_fragment(
+                    msgp, len-ix, (unsigned char *)"r", 
+                    NULL, 0)) < 0)
+            return -err;
+        ix += err;
+        msgp+=err;
+    }
+
     p67_async_t sig = P67_ASYNC_INTIIALIZER;
 
-    // p67_epoch_t start, end;
+    p67_cmn_epoch_t start, end;
 
-    // p67_cmn_time_ms(&start);
+    if(time_switch) {
+        p67_cmn_epoch_micro(&start);
+    }
 
     const p67_pckt_t res[80];
     int resl = 80;
@@ -380,12 +417,10 @@ P67_CMN_NO_PROTO_EXIT
 
     p67_mutex_wait_for_change(&sig, 0, -1);
 
-    // p67_cmn_time_ms(&end);
-
-    // printf(
-    //     "login took %llu ms. PDP status is: %s\n",
-    //     end-start,
-    //     p67_pdp_evt_str(buff, sizeof(buff), sig));
+    if(time_switch) {
+        p67_cmn_epoch_micro(&end);
+        p67_log("elapsed: %lu microseconds\n", end-start);
+    }
 
     if(sig == P67_PDP_EVT_GOT_ACK) {
         char buff[P67_WEB_TLV_STATUS_BUFFL];
@@ -398,6 +433,9 @@ P67_CMN_NO_PROTO_EXIT
         return p67_err_eagain;
     }
 
+end:
+    free(username);
+    free(password);
     return 0;
 }
 

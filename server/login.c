@@ -7,6 +7,7 @@
 
 #define P67_WS_TLV_TAG_USERNAME 'u'
 #define P67_WS_TLV_TAG_PASSWORD 'p'
+#define P67_WS_TLV_TAG_REGISTER_SWITCH 'r'
 
 p67_err
 p67_ws_login_cache_create(p67_hashcntl_t ** c)
@@ -70,7 +71,7 @@ p67_ws_login_handle_urg(
     const p67_pckt_t * tlv_value;
     p67_web_status status;
     const p67_pckt_t * username = NULL, * password = NULL;
-    int usernamel, passwordl;
+    int usernamel, passwordl, regsw = 0;
 
     status = p67_web_status_bad_request;
 
@@ -88,6 +89,9 @@ p67_ws_login_handle_urg(
             if(!password) goto end;
             passwordl = tlv_hdr->tlv_vlength - 1;
             break;
+        case P67_WS_TLV_TAG_REGISTER_SWITCH:
+            regsw = 1;
+            break;
         }
     }
 
@@ -96,6 +100,17 @@ p67_ws_login_handle_urg(
     }
 
     status = p67_web_status_unauthorized;
+
+    if(regsw) {
+        p67_db_user_t user;
+        user.u_name = (char *)username;
+        user.pass_cstr = (char *)password;
+        if((err = p67_db_user_create(sess->db, &user))) {
+            p67_ws_err_print_err("login regsw: ", err);
+            status = p67_web_status_bad_request;
+            goto end;
+        }
+    }
 
     if((err = p67_db_user_validate_pass(
             sess->db, (char *)username, usernamel, password, passwordl)) != 0) {

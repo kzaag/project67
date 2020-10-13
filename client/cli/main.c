@@ -264,6 +264,8 @@ main(int argc, char ** argv)
        
         nl = 0;
 
+        p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+        
         while(!(n = p67_log_read_term(&nl, &err, 0))) {
             p67_err_print_err(NULL, err);
         }

@@ -8,6 +8,7 @@
 #include <p67/log.h>
 #include <p67/cmn.h>
 
+int p67_log_echo = 1;
 
 p67_log_cb_t __cb = NULL;
 
@@ -24,6 +25,9 @@ char * P67_LOG_TERM_ENC_SGN_STR = P67_LOG_TERM_ENC_SGN_STR_DEF;
 void
 p67_log_set_term_char(const char * c) 
 {
+    if(c == P67_LOG_TERM_ENC_SGN_STR) {
+        return;
+    }
     if(c && free_sgn_str) free(P67_LOG_TERM_ENC_SGN_STR);
     free_sgn_str = 1;
     P67_LOG_TERM_ENC_SGN_STR = p67_cmn_strdup(c);
@@ -144,7 +148,9 @@ p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms)
 
         if(is_spec) continue;
 
-        write(STDOUT_FILENO, &nc, 1);
+        if(p67_log_echo) {
+            write(STDOUT_FILENO, &nc, 1);
+        }
         buf[buf_ix++] = nc;
 
         if(nc == '\n' || buf_ix == MAX_BUF) {
@@ -187,7 +193,7 @@ p67_log_cb_term(const char * fmt, va_list list)
     printf("\r\033[2K");
     if(fmt)
         vprintf(fmt, list);
-    if(buf_ix > 0) {
+    if(buf_ix > 0 && p67_log_echo) {
         printf(
             "%s %.*s", 
             P67_LOG_TERM_ENC_SGN_STR,

@@ -57,4 +57,6 @@ p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms);
 void
 p67_log_restore_echo_canon(void);
 
+extern int p67_log_echo;
+
 #endif
