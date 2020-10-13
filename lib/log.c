@@ -58,6 +58,8 @@ p67_async_t termlock = P67_XLOCK_STATE_UNLOCKED;
 static char buf[MAX_BUF];
 static char ubuf[MAX_BUF];
 static volatile int buf_ix = 0;
+static char hbuf[MAX_BUF];
+static volatile int hbuf_ix = 0;
 
 static int is_noblock = 0;
 
@@ -103,8 +105,9 @@ p67_log_restore_echo_canon(void)
 p67_err
 p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms)
 {
-    int is_spec, select_ret;
-    char nc;
+    int is_spec, select_ret, is_escape;
+    char nc = -1, escbuf[3];
+    int escbufix = 0;
     fd_set set;
     struct timeval to;
     
@@ -144,6 +147,28 @@ p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms)
                 buf_ix--;
             is_spec = 1;
             break;
+        case 12:
+            p67_log("\033[2J\033[2H"); // clean terminal and move cursor up
+            is_spec = 1;
+            break;
+        case 27:
+            is_escape = 1;
+        }
+
+        if(is_escape) {
+            escbuf[escbufix] = nc;
+            if(escbufix == 2) {
+                escbufix = 0;
+                is_escape = 0;
+                //p67_log("esc sequence %u %u %u\n", escbuf[0], escbuf[1], escbuf[2]);
+                if(escbuf[1] == 91 && escbuf[2] == 65) {
+                    memcpy(buf, hbuf, hbuf_ix);
+                    buf_ix = hbuf_ix;
+                }
+            } else {
+                escbufix++;
+            }
+            continue;
         }
 
         if(is_spec) continue;
@@ -164,11 +189,15 @@ p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms)
             if(nc == '\n') {
                 buf_ix--;
             }
-            
+
+            memcpy(hbuf, buf, buf_ix);
+            hbuf_ix = buf_ix;
+
             memcpy(b, buf, buf_ix);
             b[buf_ix] = 0;
             *bl = buf_ix;
             buf_ix = 0;
+
             return 0;
         }
     }

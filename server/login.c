@@ -161,7 +161,7 @@ p67_ws_login_handle_urg(
 
 end:
     if(err != 0) {
-        p67_err_print_err("handle login terminated with error/s: ", err);
+        p67_ws_err_print_err("handle login terminated with error/s: ", err);
     }
     return p67_web_tlv_respond_with_status((p67_pdp_urg_hdr_t *)msg, addr, status);
 }

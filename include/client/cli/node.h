@@ -42,4 +42,7 @@ p67_ext_node_insert_and_connect(
     p67_net_cred_t * cred,
     p67_net_cb_ctx_t cbctx);
 
+p67_err
+p67_ext_node_stop_connect(p67_node_t * node);
+
 #endif

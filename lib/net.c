@@ -229,7 +229,6 @@ __p67_conn_free(p67_hashcntl_entry_t * entry)
 {
     assert(entry);
 
-
     int sfd;
     p67_conn_t * conn = (p67_conn_t *)entry->value;
 
@@ -1298,9 +1297,9 @@ p67_conn_free_all(void)
 {
     p67_hashcntl_t * ctx;
     /* .... */
-    ctx = p67_conn_cache();
-    p67_hashcntl_free(ctx);
     ctx = p67_node_cache();
+    p67_hashcntl_free(ctx);
+    ctx = p67_conn_cache();
     p67_hashcntl_free(ctx);
 }
 
@@ -1670,10 +1669,19 @@ P67_CMN_NO_PROTO_EXIT
                         - EAGAIN
                         - ECONNREFUSED
                 */
-                ((!(err & p67_err_eerrno)) || (errno != EAGAIN && errno != ECONNREFUSED))) 
+                ((!(err & p67_err_eerrno)) || (errno != EAGAIN && errno != ECONNREFUSED)))
         {
-            p67_err_print_err_dbg("Connect error: ", err);
-            //break;
+            //p67_err_print_err_dbg("Connect error: ", err);
+            if(!(err & p67_err_essl)) {
+                break;
+            }
+
+            long sslerr = ERR_peek_error();
+            if(sslerr != 0x141A10F4 && sslerr != 0x140E0197) {
+                break;
+            }
+
+            p67_err_print_err_dbg("warn in connect: ", err);
         }
 
         if(ctx->thread_ctx && ctx->thread_ctx->state != P67_THREAD_SM_STATE_RUNNING) {

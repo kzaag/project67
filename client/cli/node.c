@@ -78,6 +78,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_ext_node_t * en = (p67_ext_node_t *)n->args;
     if(!en) return;
     p67_net_connect_terminate(&en->connect_sm);
+    p67_pdp_free_keepalive_ctx(&en->keepalive);
 }
 
 p67_net_cb_ctx_t
@@ -122,6 +123,16 @@ p67_ext_node_start_connect(
     }
 
     return err;
+}
+
+p67_err
+p67_ext_node_stop_connect(p67_node_t * node)
+{
+    if(!node || !node->args) return p67_err_einval;
+    p67_ext_node_t * extnode = (p67_ext_node_t *)node->args;
+    p67_net_connect_terminate(&extnode->connect_sm);
+    p67_pdp_free_keepalive_ctx(&extnode->keepalive);
+    return 0;
 }
 
 void
@@ -262,6 +273,9 @@ p67_ext_node_insert(
     } else {
         ext->username = NULL;
     }
+
+    p67_thread_sm_init(ext->keepalive.th);
+    ext->keepalive.addr = NULL;
 
     if(trusted_pk_path) {
         if(p67_cert_get_pk(trusted_pk_path, &pk, &pkl))

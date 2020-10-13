@@ -118,7 +118,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argvs)
 {
     if(argc < 2) {
-        p67_log("Usage %s [host:port].\n");
+        p67_log("Usage %s [host:port].\n", argvs[0]);
         return -1;
     }
 
@@ -141,17 +141,38 @@ P67_CMN_NO_PROTO_EXIT
 
 P67_CMN_NO_PROTO_ENTER
 int
-p67_cmd_remove_node(
+p67_cmd_node_op(
 P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argvs)
 {
-    char * name = NULL;
+    char * name = NULL, * addrstr = NULL;
+    const char * const usage = 
+        "Usage: %s [operation] [-n name] [-a address]\n\t"
+        "allowed operations:\n"
+        "\trm            - remove existing node by -a address or -n name.\n"
+        "\tcstart/cstop  - start/stop persistent connect and keepalive,\n"
+        "\tup/down       - move node between states NODE/QUEUE ls,\n"
+        "\tadd           - add new node using -n name and -a address\n";
+    if(argc < 2) {
+        p67_log(usage, argvs[0]);
+        goto end;
+    }
+    char * ops = argvs[1];
     int o, ret;
+
+    if(strcmp(ops, "ls") == 0) {
+        p67_ext_node_print_all(0);
+        return 0;
+    }
+
     reset_opt();
-    while((o = getopt(argc, argvs, "n:")) != -1) {
+    while((o = getopt(argc, argvs, "n:a:")) != -1) {
         switch(o) {
         case 'n':
             name = p67_cmn_strdup(optarg);
+            break;
+        case 'a':
+            addrstr = p67_cmn_strdup(optarg);
             break;
         default:
             break;
@@ -160,85 +181,77 @@ P67_CMN_NO_PROTO_EXIT
 
     ret = -1;
     
-    if(!name) {
-        p67_log("Usage: %s [-n username]\n", argvs[0]);
+    if(!name && !addrstr) {
+        p67_log(usage, argvs[0]);
         goto end;
     }
 
-    p67_node_t * n = p67_ext_node_find_by_name(name);
+    
+    if(strcmp(ops, "add") == 0) {
+        p67_addr_t * addr = p67_addr_new_parse_str_udp(addrstr);
+        if(!addr) {
+            p67_log("Couldnt create address\n");
+            goto end;
+        }
+        if(!p67_ext_node_insert(
+                addr, NULL, P67_NODE_STATE_NODE, name)) {
+            p67_log("Couldnt insert node\n");
+            ret = -1;
+            p67_addr_free(addr);
+            goto end;
+        }
+        p67_addr_free(addr);
+        ret = 0;
+        goto end;
+    }
+
+    p67_node_t * n;
+
+    if(name) {
+        n = p67_ext_node_find_by_name(name);
+    } else if(addrstr) {
+        p67_addr_t * addr = p67_addr_new_parse_str_udp(addrstr);
+        if(!addr) {
+            p67_log("Couldnt parse address\n");
+            goto end;
+        }
+        n = p67_node_lookup(addr);
+        p67_addr_free(addr);
+    }
 
     if(!n) {
         p67_log("Couldnt find node\n");
         goto end;
     }
 
-    p67_err err = p67_node_remove(n->trusted_addr);
+    p67_err err = 0;
+
+    if(strcmp(ops, "rm") == 0) {
+        err = p67_node_remove(n->trusted_addr);
+    } else if(strcmp(ops, "cstart") == 0) {
+        err = p67_ext_node_start_connect(
+            n, ctx->local_addr, ctx->cred, ctx->p2p_cb_ctx);
+    } else if(strcmp(ops, "cstop") == 0) {
+        err = p67_ext_node_stop_connect(n);
+    } else if(strcmp(ops, "up") == 0) {
+        n->state = P67_NODE_STATE_NODE;
+    } else if(strcmp(ops, "down") == 0) {
+        n->state = P67_NODE_STATE_QUEUE;
+    } else {
+        p67_log(usage, argvs[0]);
+        goto end;
+    }
+
     if(err) {
-        p67_err_print_err("Couldnt remove node: ", err);
+        p67_err_print_err("Couldnt perform operation on node: ", err);
         goto end;
     }
 
     ret = 0;
 
 end:
+    free(addrstr);
     free(name);
-    return ret;
-}
-
-P67_CMN_NO_PROTO_ENTER
-int
-p67_cmd_add_node(
-P67_CMN_NO_PROTO_EXIT
-    p67_cmd_ctx_t * ctx, int argc, char ** argvs)
-{
-    p67_addr_t * addr = NULL;
-    char * host = NULL, * svc = NULL, * name = NULL;
-    int o, ret;
-
-    reset_opt();
-    while((o = getopt(argc, argvs, "h:s:n:")) != -1) {
-        switch(o) {
-        case 'h':
-            host = p67_cmn_strdup(optarg);
-            break;
-        case 's':
-            svc = p67_cmn_strdup(optarg);
-            break;
-        case 'n':
-            name = p67_cmn_strdup(optarg);
-            break;
-        default:
-            break;
-        }
-    }
-
-    if(!host || !svc) {
-        p67_log("Usage: %s [-h host] [-s service] [-n username]\n", argvs[0]);
-        ret = -1;
-        goto end;
-    }
-
-    addr = p67_addr_new_host(host, svc, P67_SFD_TP_DGRAM_UDP);
-    if(!addr) {
-        p67_log("Couldnt create address\n");
-        ret = -1;
-        goto end;
-    }
-
-    if(!p67_ext_node_insert(
-            addr, NULL, P67_NODE_STATE_NODE, name)) {
-        p67_log("Couldnt insert node\n");
-        ret = -1;
-        goto end;
-    }
-
-    ret = 0;
-
-end:
-    free(host);
-    free(svc);
-    free(name);
-    p67_addr_free(addr);
     return ret;
 }
 
@@ -658,7 +671,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_async_t sig = P67_ASYNC_INTIIALIZER;
     const int msgl = 120;
     int msgix = 0, tmpix = sizeof(msg), o;
-    char * message;
+    char * message, * username;
     p67_pdp_urg_hdr_t * u = (p67_pdp_urg_hdr_t *)msg;
     p67_err err;
 
@@ -668,6 +681,8 @@ P67_CMN_NO_PROTO_EXIT
         p67_log("Usage: %s [username] [OPTIONS]\n", argv[0]);
         return 1;
     }
+
+    username = argv[1];
 
     reset_opt();
     while((o = getopt(argc, argv, "m:")) != -1) {
@@ -690,8 +705,8 @@ P67_CMN_NO_PROTO_EXIT
     if((err = p67_tlv_add_fragment(
             msgp, msgl-msgix, 
             (unsigned char *)"U", 
-            (unsigned char *)argv[1], 
-            strlen(argv[1]) + 1)) < 0)
+            (unsigned char *)username, 
+            strlen(username) + 1)) < 0)
         return -err;
     msgix += err;
     msgp+=err;
@@ -730,7 +745,7 @@ P67_CMN_NO_PROTO_EXIT
     msgix = tmpix;
 
     if(sig == P67_PDP_EVT_GOT_ACK) {
-        if((err = p67_cmd_process_call_res(ctx, msg, msgix, argv[1])) != 0) {
+        if((err = p67_cmd_process_call_res(ctx, msg, msgix, username)) != 0) {
             p67_err_print_err("Process call returned error/s: ", err);
         }
     } else {
@@ -750,7 +765,7 @@ P67_CMN_NO_PROTO_EXIT
     int i;
     //printf("%d\n",_argc);
     for(i = 0; i < argc; i++) {
-        printf("(%lu) %s\n",strlen(argv[i]), argv[i]);
+        printf("%d: (%lu) %s\n", i, strlen(argv[i]), argv[i]);
     }
     return 0;
 }
@@ -784,71 +799,6 @@ P67_CMN_NO_PROTO_EXIT
     return 0;
 }
 
-// P67_CMN_NO_PROTO_ENTER
-// int 
-// p67_cmd_trust_by_name(
-// P67_CMN_NO_PROTO_EXIT
-//     p67_cmd_ctx_t * ctx, int argc, char ** argv)
-// {
-//     if(argc < 2) {
-//         p67_log("Must provide name of the target\n");
-//         return -1;
-//     }
-
-//     p67_p2p_t * p = p67_p2p_cache_find_by_name(argv[1]);
-
-//     if(!p) {
-//         p67_log("Couldnt find in p2p cache %s\n", argv[1]);
-//         return -1;
-//     }
-
-//     /*
-//         this is NOT thread safe.
-//         in future implement proper refcounting
-//     */
-//     p67_node_t * n = p67_node_lookup(p->peer_addr);
-//     if(!n) {
-//         p67_log(
-//             "Couldnt find node for addr: %s:%s\n", 
-//             p->peer_addr->hostname, 
-//             p->peer_addr->service);
-//         return -1;
-//     }
-
-//     n->state = P67_NODE_STATE_NODE;
-
-//     return 0;
-// }
-
-// P67_CMN_NO_PROTO_ENTER
-// int
-// p67_cmd_terminate_by_name(
-// P67_CMN_NO_PROTO_EXIT
-//     p67_cmd_ctx_t * ctx, int argc, char ** argv)
-// {
-//     if(argc < 2) {
-//         p67_log("Must provide name of the target\n");
-//         return -1;
-//     }
-
-//     p67_p2p_t * p = p67_p2p_cache_find_by_name(argv[1]);
-
-//     if(!p) {
-//         p67_log("Couldnt find %s\n", argv[1]);
-//         return -1;
-//     }
-
-//     // p67_err err = p67_p2p_cache_remove(p->peer_addr);
-
-//     p67_err err = p67_net_shutdown(p->peer_addr);
-//     if(err) {
-//         p67_err_print_err("Error/s occured: ", err);
-//         return -1;
-//     }
-
-//     return 0;
-// }
-
 p67_hashcntl_t *
 p67_cmd_new(void)
 {
@@ -862,18 +812,14 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "exit", p67_cmd_exit)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "call", p67_cmd_call)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "login", p67_cmd_redir_login)) != 0) return NULL;
-    //if((err = p67_cmd_add(ret, "ls", p67_cmd_node_list)) != 0) return NULL;
-    //if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "sleep", p67_cmd_sleep)) != 0) return NULL;
-    //if((err = p67_cmd_add(ret, "trust", p67_cmd_trust_by_name)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "term", p67_cmd_terminate_by_name)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "audio", p67_cmd_open_audio)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "lscon", p67_cmd_list_conn)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "lsnode", p67_cmd_list_nodes)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "lscall", p67_cmd_list_pending_calls)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "addnode", p67_cmd_add_node)) != 0) return NULL;
-    if((err = p67_cmd_add(ret, "rmnode", p67_cmd_remove_node)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "node", p67_cmd_node_op)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "rmcon", p67_cmd_remove_conn)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "accept", p67_cmd_call_accept)) != 0) return NULL;
 
