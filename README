@@ -1,14 +1,11 @@
-distributed p2p communication platform targetting 
-    reliable file transfers, messaging, audio and video
-as one cross platform solution 
 
-you are gonna need:
-openssl 1.1.1d or higher (important)
-opus/libopus 1.3-1 or higher
-cmake
-make
-gcc
-libpq (optional, if building with server)
+deps:
+    openssl 1.1.1d or higher (important)
+    opus/libopus 1.3-1 or higher
+    cmake
+    make
+    gcc
+    libpq (only needed if building with server)
 
 to build default (library, tests, clients):
     ./configure
