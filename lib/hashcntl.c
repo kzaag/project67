@@ -5,6 +5,25 @@
 #include <p67/hash.h>
 #include <p67/hashcntl.h>
 
+void
+p67_hashcntl_remove_all(p67_hashcntl_t * ctx)
+{
+    if(!ctx || !ctx->buffer || !ctx->free_entry) return;
+
+    p67_hashcntl_entry_t * entry, * next_entry;
+    size_t i;
+
+    for(i = 0; i < ctx->bufferl; i++) {
+        if(!(entry = ctx->buffer[i]))
+            continue;        
+        do {
+            next_entry = entry->next;
+            ctx->free_entry(entry);
+        } while((entry = next_entry));
+        ctx->buffer[i] = NULL;
+    }
+}
+
 /* private functions */
 P67_CMN_NO_PROTO_ENTER
 

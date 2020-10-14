@@ -262,8 +262,6 @@ __p67_conn_free(p67_hashcntl_entry_t * entry)
         conn->ssl = NULL;
     }
 
-
-
     p67_log_debug(
         "Shutdown for %s:%s\n", 
         conn->addr_remote->hostname, 
@@ -1295,12 +1293,15 @@ p67_net_write_msg(
 void
 p67_conn_free_all(void)
 {
-    p67_hashcntl_t * ctx;
-    /* .... */
-    ctx = p67_node_cache();
-    p67_hashcntl_free(ctx);
-    ctx = p67_conn_cache();
-    p67_hashcntl_free(ctx);
+    p67_hashcntl_t * nodes, * cons;
+
+    cons = p67_conn_cache();
+    p67_hashcntl_remove_all(cons);
+    nodes = p67_node_cache();
+    p67_hashcntl_remove_all(nodes);
+
+    p67_hashcntl_free(nodes);
+    p67_hashcntl_free(cons);
 }
 
 void

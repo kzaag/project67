@@ -45,6 +45,9 @@ struct p67_hashcntl_entry {
 void
 p67_hashcntl_free(p67_hashcntl_t * ctx);
 
+void
+p67_hashcntl_remove_all(p67_hashcntl_t * ctx);
+
 p67_hashcntl_t *
 p67_hashcntl_new(
     size_t bufferl, 

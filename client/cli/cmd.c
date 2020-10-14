@@ -152,7 +152,9 @@ P67_CMN_NO_PROTO_EXIT
         "\trm            - remove existing node by -a address or -n name.\n"
         "\tcstart/cstop  - start/stop persistent connect and keepalive,\n"
         "\tup/down       - move node between states NODE/QUEUE ls,\n"
-        "\tadd           - add new node using -n name and -a address\n";
+        "\tadd           - add new node using -n name and -a address\n"
+        "\tls            - list all nodes\n"
+        "\tprint         - print node information\n";
     if(argc < 2) {
         p67_log(usage, argvs[0]);
         goto end;
@@ -227,7 +229,7 @@ P67_CMN_NO_PROTO_EXIT
     p67_err err = 0;
 
     if(strcmp(ops, "rm") == 0) {
-        err = p67_node_remove(n->trusted_addr);
+        err = p67_ext_node_remove(n->trusted_addr);
     } else if(strcmp(ops, "cstart") == 0) {
         err = p67_ext_node_start_connect(
             n, ctx->local_addr, ctx->cred, ctx->p2p_cb_ctx);
@@ -237,6 +239,8 @@ P67_CMN_NO_PROTO_EXIT
         n->state = P67_NODE_STATE_NODE;
     } else if(strcmp(ops, "down") == 0) {
         n->state = P67_NODE_STATE_QUEUE;
+    } else if(strcmp(ops, "print") == 0) {
+        p67_ext_node_print(n, P67_EXT_NODE_PRINT_FLAGS_ALL);
     } else {
         p67_log(usage, argvs[0]);
         goto end;
@@ -492,92 +496,109 @@ P67_CMN_NO_PROTO_EXIT
     return 0;
 }
 
+P67_CMN_NO_PROTO_ENTER
+int 
+p67_cmd_text_chan(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
+{
+    const char * const usage = "usage: %s [TARGET_NODE_NAME] [-f]\n";
 
-// P67_CMN_NO_PROTO_ENTER
-// int 
-// p67_cmd_text_chan(
-// P67_CMN_NO_PROTO_EXIT
-//     p67_cmd_ctx_t * ctx, int argc, char ** argv)
-// {
-//     if(argc < 2) {
-//         printf("must provide target name\n");
-//         return 1;
-//     }
+    if(argc < 2) {
+        p67_log(usage);
+        return -1;
+    }
 
-//     p67_addr_t * dst;
-//     //char * username;
+    char * target_name = argv[1];
+    int o, force_flag = 0;
+    reset_opt();
+    while((o = getopt(argc, argv, "f")) != -1) {
+        switch(o) {
+        case 'f':
+            force_flag = 1;
+            break;
+        default:
+            p67_log(usage);
+            return -1;
+        }
+    }
 
-//     {
-//         p67_node_t * node = p67_p2p_node_find_by_name(argv[1]);
-//         if(!node) {
-//             printf("didnt find requested user\n");
-//             return 1;
-//         }
-//         p67_p2p_t * p2p = (p67_p2p_t *)node->args;
-//         if(!p2p) {
-//             printf("didnt find requested user\n");
-//             return 1;
-//         }
-//         dst = p67_addr_ref_cpy(p2p->peer_addr);
-//         //username = p67_cmn_strdup(s->peer_username);
-//     }
+    p67_addr_t * dst;
+    //char * username;
 
-//     //  1   strlen(argv[1])   1
-//     //  >  {peer_username}   \0
-//     char tc[1+strlen(argv[1])+1];
-//     tc[0] = '>';
-//     memcpy(tc+1, argv[1], sizeof(tc)-1);
-//     tc[sizeof(tc)-1] = 0;
+    {
+        p67_node_t * node = p67_ext_node_find_by_name(target_name);
+        if(!node) {
+            printf("didnt find requested user\n");
+            return 1;
+        }
+        if(node->state == P67_NODE_STATE_QUEUE && !force_flag) {
+            p67_log("THIS CONNECTION CANT BE TRUSTED\n"
+                    "Dont send any relevant data in this channel.\n"
+                    "You can use -f (force) flag to ignore this error,\n"
+                    "or set node state to NODE once you decide to trust them.\n");
+            return -2;
+        }
+        dst = p67_addr_ref_cpy(node->trusted_addr);
+        //username = p67_cmn_strdup(s->peer_username);
+    }
 
-//     p67_log_set_term_char(tc);
+    //  1   strlen(target_name[1])   1
+    //  >  {peer_username}   \0
+    char tc[1+strlen(target_name)+1];
+    tc[0] = '>';
+    memcpy(tc+1, target_name, sizeof(tc)-1);
+    tc[sizeof(tc)-1] = 0;
 
-//     p67_err err;
-//     const int __buffl = 72;
-//     unsigned char __buff[__buffl];
-//     /* 
-//         have some space allocated on the left side of buffer
-//         so we can write network header into it 
-//         without having to copy whole buffer.
-//     */
-//     const int noffset = sizeof(p67_pdp_urg_hdr_t);
-//     const int buffl = __buffl - noffset;
-//     int cbuffl;
-//     unsigned char * buff = __buff + noffset;
+    p67_log_set_term_char(tc);
 
-//     while(1) {
+    p67_err err;
+    const int __buffl = 72;
+    unsigned char __buff[__buffl];
+    /* 
+        have some space allocated on the left side of buffer
+        so we can write network header into it 
+        without having to copy whole buffer.
+    */
+    const int noffset = sizeof(p67_pdp_urg_hdr_t);
+    const int buffl = __buffl - noffset;
+    int cbuffl;
+    unsigned char * buff = __buff + noffset;
 
-//         cbuffl = buffl;
+    while(1) {
 
-//         err = p67_log_read_term_in_buf((char *)buff, &cbuffl, 500);
-//         if(err) {
-//             if(err != p67_err_etime)
-//                 p67_err_print_err(NULL, err);
-//             if(p67_thread_sm_stop_requested(ctx->tsm)) {
-//                 p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
-//                 return 0;
-//             }
-//             continue;
-//         }
+        cbuffl = buffl;
 
-//         // do {
-//         //     write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
-//         // } while((ix = read(0, buff, buffl-1)) <= 1);
+        err = p67_log_read_term_in_buf((char *)buff, &cbuffl, 500);
+        if(err) {
+            if(err != p67_err_etime)
+                p67_err_print_err(NULL, err);
+            if(p67_thread_sm_stop_requested(ctx->tsm)) {
+                p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+                return 0;
+            }
+            continue;
+        }
 
-//         if(!p67_pdp_generate_urg_for_msg(NULL, 0, __buff, noffset, 3)) {
-//             printf("couldnt generate urg header for message\n");
-//             return 2;
-//         }
+        // do {
+        //     write(1, P67_LOG_TERM_ENC_SGN_STR, P67_LOG_TERM_ENC_SGN_STR_LEN);
+        // } while((ix = read(0, buff, buffl-1)) <= 1);
 
-//         if((err = p67_pdp_write_urg(
-//                 dst, 
-//                 __buff, buffl+noffset, 
-//                 1000, NULL, NULL, NULL)) != 0) {
-//             p67_err_print_err("couldnt write: ", err);
-//         }
-//     }
+        if(!p67_pdp_generate_urg_for_msg(NULL, 0, __buff, noffset, 3)) {
+            printf("couldnt generate urg header for message\n");
+            return 2;
+        }
 
-//     return 0;
-// }
+        if((err = p67_pdp_write_urg(
+                dst, 
+                __buff, buffl+noffset, 
+                1000, NULL, NULL, NULL)) != 0) {
+            p67_err_print_err("couldnt write: ", err);
+        }
+    }
+
+    return 0;
+}
 
 P67_CMN_NO_PROTO_ENTER
 p67_err
@@ -812,7 +833,7 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "exit", p67_cmd_exit)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "call", p67_cmd_call)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "login", p67_cmd_redir_login)) != 0) return NULL;
-    //if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "sleep", p67_cmd_sleep)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "term", p67_cmd_terminate_by_name)) != 0) return NULL;
     //if((err = p67_cmd_add(ret, "audio", p67_cmd_open_audio)) != 0) return NULL;

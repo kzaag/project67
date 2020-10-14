@@ -28,6 +28,21 @@ P67_CMN_NO_PROTO_EXIT
     free(ext);
 }
 
+const char * empty = "";
+const char * queue_warn = "NOT_TRUSTED ";
+
+/* use this function instead of p67_node_remove. 
+   This will shutdown connection first thus ensuring safe freeing of node
+*/
+p67_err
+p67_ext_node_remove(p67_addr_t * addr)
+{
+    p67_err err = 0;
+    err |= p67_net_shutdown(addr);
+    err |= p67_node_remove(addr);
+    return err;
+}
+
 P67_CMN_NO_PROTO_ENTER
 p67_err
 p67_ext_node_callback(
@@ -36,7 +51,7 @@ P67_CMN_NO_PROTO_EXIT
 {
     p67_node_t * node = p67_node_lookup(addr);
     //p67_p2p_t * p = p67_p2p_cache_lookup(addr);
-    if(node && node->state == P67_NODE_STATE_NODE) {
+    if(node) {
         const p67_dml_hdr_store_t * h = p67_dml_parse_hdr(msg, msgl, NULL);
         if(!h)
             return p67_err_epdpf;
@@ -44,7 +59,8 @@ P67_CMN_NO_PROTO_EXIT
         case P67_DML_STP_PDP_URG:
             if(h->cmn.cmn_utp != 0) {
                 p67_log(
-                    "%s:%s: %.*s\n",
+                    "%s%s:%s: %.*s\n",
+                    node->state == P67_NODE_STATE_QUEUE ? queue_warn : empty,
                     addr->hostname, addr->service,
                     msgl-sizeof(p67_pdp_urg_hdr_t),
                     msg+sizeof(p67_pdp_urg_hdr_t));
@@ -146,7 +162,7 @@ p67_ext_node_print(p67_node_t * node, int print_flags)
     keepalive_state[0] = 0;
 
     if((print_flags & P67_EXT_NODE_PRINT_FLAGS_ALL) && node->trusted_pub_key) {
-        pk = malloc(strlen(node->trusted_pub_key) + 2); /* twice new-line and 0 terminator*/
+        pk = malloc(strlen(node->trusted_pub_key) + 3); /* new-line and 0 terminator*/
         sprintf(pk, "\n%s", node->trusted_pub_key);
     } else {
         pk = p67_cmn_strdup("");
@@ -167,7 +183,7 @@ p67_ext_node_print(p67_node_t * node, int print_flags)
         }
     }
 
-    p67_log( "%s:%s %s %s %s %s\n",
+    p67_log( "%s:%s %s %s %s %s %s\n",
              node->trusted_addr->hostname,
              node->trusted_addr->service,
              node_state,

@@ -20,7 +20,8 @@ p67_ext_node_insert(
     int state,
     const char * username);
 
-#define p67_ext_node_remove(addr) p67_node_remove(addr)
+p67_err
+p67_ext_node_remove(p67_addr_t * addr);
 
 p67_net_cb_ctx_t
 p67_ext_node_p2p_cb(void);
