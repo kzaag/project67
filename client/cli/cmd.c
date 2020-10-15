@@ -140,6 +140,53 @@ P67_CMN_NO_PROTO_EXIT
     return -err;
 }
 
+const char * const open_audio_usage = "Usage: %s [TARGET NAME] [-rw]\n";
+
+P67_CMN_NO_PROTO_ENTER
+int
+p67_cmd_open_audio(
+P67_CMN_NO_PROTO_EXIT
+    p67_cmd_ctx_t * ctx, int argc, char ** argv)
+{
+    if(argc < 2) {
+        p67_log(open_audio_usage, argv[0]);
+        return -1;
+    }
+    char * dst_name = argv[1];
+    int o, mode = 0;
+    
+    reset_opt();
+    while((o = getopt(argc, argv, "rw")) != -1) {
+        switch(o) {
+        case 'r':
+            mode |= AUDIO_MODE_READ;
+            break;
+        case 'w':
+            mode |= AUDIO_MODE_WRITE;
+            break;
+        default:
+            p67_log(open_audio_usage, argv[0]);
+            return -1;
+        }
+    }
+
+    if(!mode) mode = AUDIO_MODE_WRITE | AUDIO_MODE_READ;
+
+    p67_node_t * node = p67_ext_node_find_by_name(dst_name);
+    if(!node) {
+        p67_log("Couldnt find destination node\n");
+        return -1;
+    }
+
+    p67_err err = p67_ext_node_start_audio(node, mode);
+    if(err) {
+        p67_err_print_err("Couldnt start audio. Reason: ", err);
+        return -2;
+    }
+
+    return 0;
+}
+
 P67_CMN_NO_PROTO_ENTER
 int
 p67_cmd_node_op(
@@ -874,8 +921,7 @@ p67_cmd_new(void)
     if((err = p67_cmd_add(ret, "login", p67_cmd_redir_login)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "text", p67_cmd_text_chan)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "sleep", p67_cmd_sleep)) != 0) return NULL;
-    //if((err = p67_cmd_add(ret, "term", p67_cmd_terminate_by_name)) != 0) return NULL;
-    //if((err = p67_cmd_add(ret, "audio", p67_cmd_open_audio)) != 0) return NULL;
+    if((err = p67_cmd_add(ret, "audio", p67_cmd_open_audio)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "lscon", p67_cmd_list_conn)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "lsnode", p67_cmd_list_nodes)) != 0) return NULL;
     if((err = p67_cmd_add(ret, "lscall", p67_cmd_list_pending_calls)) != 0) return NULL;

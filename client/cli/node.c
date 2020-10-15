@@ -2,10 +2,21 @@
 #include <client/cli/node.h>
 #include <p67/dml/dml.h>
 #include <p67/cert.h>
+#include <p67/audio.h>
+#include <p67/dml/qdp.h>
 
 #include <string.h>
 
+typedef struct p67_ext_node_audio_ctx {
+    p67_audio_t * input;
+    p67_audio_t * output;
+    p67_qdp_ctx_t * qdp;
+    p67_thread_sm_t input_loop;
+    p67_thread_sm_t output_loop;
+} p67_ext_node_audio_ctx_t;
+
 struct p67_ext_node {
+    p67_ext_node_audio_ctx_t audio_ctx;
     /* this is null terminated, however but dont waste cpu on strlen use usernamel field. */
     char * username;
     p67_thread_sm_t connect_sm;
@@ -19,12 +30,16 @@ p67_ext_node_free(
 P67_CMN_NO_PROTO_EXIT
     void * e)
 {
-    if(!e) {
-        return;
-    }
+    if(!e) return;
     struct p67_ext_node * ext = (struct p67_ext_node *)e;
+    if(!ext) return;
+    p67_thread_sm_terminate(&ext->audio_ctx.input_loop, 50);
+    p67_thread_sm_terminate(&ext->audio_ctx.output_loop, 50);
+    p67_audio_free(ext->audio_ctx.input);
+    p67_audio_free(ext->audio_ctx.output);
     p67_pdp_free_keepalive_ctx(&ext->keepalive);
     p67_net_connect_terminate(&ext->connect_sm);
+    p67_qdp_free(ext->audio_ctx.qdp);
     free(ext);
 }
 
@@ -103,6 +118,48 @@ p67_ext_node_p2p_cb(void)
     p67_net_cb_ctx_t cb = p67_net_cb_ctx_initializer(p67_ext_node_callback);
     cb.on_shutdown = p67_ext_node_on_connection_shutdown;
     return cb;
+}
+
+/*
+    TODO: properly free stuff on errors.
+*/
+p67_err
+p67_ext_node_start_audio(p67_node_t * node, int mode)
+{
+    if(!node) return p67_err_einval;
+    p67_ext_node_t * en = (p67_ext_node_t *)node->args;
+    if(!en) return p67_err_einval;
+    p67_err err;
+    
+    if(mode & AUDIO_MODE_WRITE) {
+        en->audio_ctx.input = p67_audio_create_i(NULL, NULL);
+        if(!en->audio_ctx.input) return p67_err_eerrno;
+        err = p67_audio_start_write_qdp(
+            &en->audio_ctx.input_loop, 
+            node->trusted_addr,
+            en->audio_ctx.input,
+            10);
+        if(err) {
+            return err;
+        }
+    }
+
+    if(mode & AUDIO_MODE_READ) {
+        p67_log("2\n");
+        en->audio_ctx.output = p67_audio_create_o(NULL, NULL);
+        if(!en->audio_ctx.output) return p67_err_eerrno;
+        err = p67_qdp_create(&en->audio_ctx.qdp);
+        if(err) return err;
+        err = p67_audio_start_read_qdp(
+            &en->audio_ctx.output_loop,
+            en->audio_ctx.qdp,
+            en->audio_ctx.output);
+        if(err) {
+            return err;
+        }
+    }
+
+    return 0;
 }
 
 /*
@@ -297,6 +354,12 @@ p67_ext_node_insert(
         if(p67_cert_get_pk(trusted_pk_path, &pk, &pkl))
             return NULL;
     }
+
+    ext->audio_ctx.input = NULL;
+    ext->audio_ctx.output = NULL;
+    p67_thread_sm_init(ext->audio_ctx.input_loop);
+    p67_thread_sm_init(ext->audio_ctx.output_loop);
+    ext->audio_ctx.qdp = NULL;
 
     p67_node_t * node = p67_node_insert(
         addr,

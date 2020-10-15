@@ -46,4 +46,10 @@ p67_ext_node_insert_and_connect(
 p67_err
 p67_ext_node_stop_connect(p67_node_t * node);
 
+#define AUDIO_MODE_READ  1
+#define AUDIO_MODE_WRITE 2
+
+p67_err
+p67_ext_node_start_audio(p67_node_t * node, int mode);
+
 #endif
