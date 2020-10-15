@@ -8,6 +8,7 @@
 #include <p67/dml/dml.h>
 #include <p67/web/status.h>
 #include <p67/web/tlv.h>
+#include <p67/hash.h>
 #include <p67/hashcntl.h>
 
 #include <client/cli/cmd.h>
@@ -382,11 +383,11 @@ P67_CMN_NO_PROTO_EXIT
         username = (char *)p67_log_read_term(NULL, NULL, 0);
         if(!username) {
             p67_log("Couldnt read username\n");
-            p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+            p67_log_set_term_char(p67_log_term_sgn_def);
             goto end;
         }
         username = strdup(username);
-        p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+        p67_log_set_term_char(p67_log_term_sgn_def);
     }
     if(!password) {
         p67_log_set_term_char("password:");
@@ -395,11 +396,11 @@ P67_CMN_NO_PROTO_EXIT
         p67_log_echo = 1;
         if(!password) {
             p67_log("Couldnt read password\n");
-            p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+            p67_log_set_term_char(p67_log_term_sgn_def);
             goto end;
         }
         password = strdup(password);
-        p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+        p67_log_set_term_char(p67_log_term_sgn_def);
     }
 
     unsigned char * msgp = msg;
@@ -496,29 +497,40 @@ P67_CMN_NO_PROTO_EXIT
     return 0;
 }
 
+const char * const text_chan_usage = 
+    "usage: %s [TARGET_NODE_NAME] [-fd] [-m MESSAGE]\n"
+    "\t-f         : force execution, and suppress security errors.\n"
+    "\t-d         : wait for message to be acked before returning. Only valid with -m flag\n"
+    "\t-m MESSAGE : send MESSAGE instead of opening interactive channel\n";
+
 P67_CMN_NO_PROTO_ENTER
 int 
 p67_cmd_text_chan(
 P67_CMN_NO_PROTO_EXIT
     p67_cmd_ctx_t * ctx, int argc, char ** argv)
 {
-    const char * const usage = "usage: %s [TARGET_NODE_NAME] [-f]\n";
-
     if(argc < 2) {
-        p67_log(usage);
+        p67_log(text_chan_usage, argv[0]);
         return -1;
     }
 
-    char * target_name = argv[1];
-    int o, force_flag = 0;
+    char * target_name = argv[1], * message = NULL;
+    int o, force_flag = 0, wait_for_delivery = 0;
     reset_opt();
-    while((o = getopt(argc, argv, "f")) != -1) {
+    while((o = getopt(argc, argv, "fdm:")) != -1) {
         switch(o) {
         case 'f':
             force_flag = 1;
             break;
+        case 'd':
+            wait_for_delivery = 1;
+            break;
+        case 'm':
+            // this is only place when we use optarg => no need for copy
+            message = optarg;
+            break;
         default:
-            p67_log(usage);
+            p67_log(text_chan_usage, argv[0]);
             return -1;
         }
     }
@@ -543,27 +555,54 @@ P67_CMN_NO_PROTO_EXIT
         //username = p67_cmn_strdup(s->peer_username);
     }
 
-    //  1   strlen(target_name[1])   1
-    //  >  {peer_username}   \0
-    char tc[1+strlen(target_name)+1];
-    tc[0] = '>';
-    memcpy(tc+1, target_name, sizeof(tc)-1);
-    tc[sizeof(tc)-1] = 0;
-
-    p67_log_set_term_char(tc);
-
     p67_err err;
     const int __buffl = 72;
     unsigned char __buff[__buffl];
     /* 
         have some space allocated on the left side of buffer
         so we can write network header into it 
-        without having to copy whole buffer.
+        without having to copy whole buffer contents.
     */
     const int noffset = sizeof(p67_pdp_urg_hdr_t);
     const int buffl = __buffl - noffset;
     int cbuffl;
     unsigned char * buff = __buff + noffset;
+
+
+    if(message) {
+        if(!p67_pdp_generate_urg_for_msg(NULL, 0, __buff, noffset, 3)) {
+            p67_log("couldnt generate urg header for message\n");
+            return 2;
+        }
+        int mlen = strlen(message);
+        if(mlen > buffl) {
+            p67_log("buffer overflow\n");
+            return 2;
+        }
+        memcpy(buff, message, mlen);
+        cbuffl = mlen;
+        p67_async_t sig = P67_ASYNC_INTIIALIZER;
+        if((err = p67_pdp_write_urg(
+                dst, 
+                __buff, cbuffl+noffset, 
+                1000, 
+                wait_for_delivery ? &sig : NULL, 
+                NULL, NULL)) != 0) {
+            p67_err_print_err("couldnt write: ", err);
+        }
+        if(wait_for_delivery) {
+            //
+        }
+        return 0;
+    }
+
+    //  1   strlen(target_name[1])   1
+    //  >  {peer_username}   \0
+    char tc[1+strlen(target_name)+1];
+    tc[0] = '>';
+    memcpy(tc+1, target_name, sizeof(tc)-1);
+    tc[sizeof(tc)-1] = 0;
+    p67_log_set_term_char(tc);
 
     while(1) {
 
@@ -574,7 +613,7 @@ P67_CMN_NO_PROTO_EXIT
             if(err != p67_err_etime)
                 p67_err_print_err(NULL, err);
             if(p67_thread_sm_stop_requested(ctx->tsm)) {
-                p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+                p67_log_set_term_char(p67_log_term_sgn_def);
                 return 0;
             }
             continue;
@@ -591,7 +630,7 @@ P67_CMN_NO_PROTO_EXIT
 
         if((err = p67_pdp_write_urg(
                 dst, 
-                __buff, buffl+noffset, 
+                __buff, cbuffl+noffset, 
                 1000, NULL, NULL, NULL)) != 0) {
             p67_err_print_err("couldnt write: ", err);
         }

@@ -260,84 +260,79 @@ main(int argc, char ** argv)
         goto end;
     }
 
-    const char * n;
-    char ** _argv;
-    char * argvbuf;
-    size_t i, j, lv, _argvl = 0, argvbufl = 0;
-    int nl, _argc, argvbufix = 0, offset, rd;
+    size_t i;
+    #define maxarg 32
+    char * _argv[maxarg], * n;
+    int reading_arg, nl, _argc, quote;
 
     while(1) {
         nl = 0;
 
-        p67_log_set_term_char(P67_LOG_TERM_ENC_SGN_STR_DEF);
+        p67_log_set_term_char(p67_log_term_sgn_def);
 
-        while(!(n = p67_log_read_term(&nl, &err, 0))) {
+        /*  return value wont be used by noone else anymore. 
+            thats why i cast it to char * and modify it later */
+        while(!(n = (char *)p67_log_read_term(&nl, &err, 0))) {
             p67_err_print_err(NULL, err);
         }
 
-        // printf("\r> ");
-
-        // while((tmp = getchar()) != EOF && tmp != '\n') {
-        //     if(nl >= (sizeof(n) - 1))
-        //         break;
-        //     n[nl++] = tmp;
-        // }
-
         if(nl < 1)
             continue;
-        
-        rd = 0;
+
+        reading_arg = 0;
         _argc = 0;
+        quote = 0;
 
+        // since we are not using escape chars, we can parse arguments in-line.
+        // without having to memcpy input buffer
         for(i = 0; i < nl; i++) {
-            if(rd && ((n[i] == ' ') || (i == nl - 1))) {
-                _argc++;
-                rd = 0;
-            } else if(n[i] != ' ') {
-                rd = 1;
-                if(i == nl - 1)
-                    i--;
-            } else {
-                rd = 0;
+            if(_argc == maxarg) {
+                break;
             }
-        }
-
-        _argvl = sizeof(void *)*_argc;
-        _argv = malloc(_argvl);
-        argvbufl = nl + _argc;
-        argvbuf = malloc(argvbufl);
-        
-        if(!_argv || !argvbuf) {
-            err = p67_err_eerrno;
-            goto end;
-        }
-
-        argvbufix = 0;
-        rd = 0;
-        j = 0;
-
-        for(i = 0; i < nl; i++) {
-            if(rd && ((n[i] == ' ') || (i == nl - 1))) {
-                if(n[i] == ' ') offset = 1;
-                else offset = 0;
-                _argv[j++] = argvbuf+argvbufix;
-                memcpy(argvbuf+argvbufix, n+lv, i + 1 - offset - lv);
-                argvbufix+= i + 1 - offset - lv;
-                argvbuf[argvbufix++] = '\0';
-                rd = 0;
-            } else if(n[i] != ' ') {
-                if(!rd) {
-                    rd = 1;
-                    lv = i;
+            if(!reading_arg) {
+                switch(n[i]) {
+                case '"':
+                case '\'':
+                    reading_arg = 1;
+                    _argv[_argc++] = n+i+1;
+                    quote = 1;
+                    break;
+                case ' ':
+                    break;
+                default:
+                    reading_arg = 1;
+                    _argv[_argc++] = n+i;
+                    break;
                 }
-                if(i == nl - 1)
-                    i--;
             } else {
-                rd = 0;
+                switch(n[i]) {
+                case '"':
+                case '\'':
+                    if(quote) {
+                        quote = 0;
+                        if(n[i+1] == ' ' || n[i+1] == 0) {
+                            reading_arg = 0;
+                            n[i] = 0;
+                        }
+                    }
+                    break;
+                case ' ':
+                    if(!quote) {
+                        quote = 0;
+                        reading_arg = 0;
+                        n[i] = 0;
+                    }
+                    break;
+                default:
+                    break;
+                }
             }
         }
 
-        //p67_cmd_execute(cmdbuf, &cmdctx, _argc, _argv);
+        // for(i = 0; i < ptrarrix; i++) {
+        //     printf("|%s|\n", ptrarr[i]);
+        // }
+        // continue;
 
         cmd_run_ctx_t c;
         c.argc = _argc;
@@ -351,13 +346,6 @@ main(int argc, char ** argv)
                 p67_err_print_err("couldnt await for command exit: ", err);
             }
         }
-
-        free(_argv);
-        free(argvbuf);
-
-        // if((err = call(&pass)) != 0) {
-        //     p67_err_print_err("call: ", err);
-        // }
     }
 
 end:

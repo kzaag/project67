@@ -19,26 +19,29 @@ p67_log_cb_location(void)
 }
 
 int free_sgn_str = 0;
-char * P67_LOG_TERM_ENC_SGN_STR = P67_LOG_TERM_ENC_SGN_STR_DEF;
+char * p67_log_term_sgn = p67_log_term_sgn_def;
 //int P67_LOG_TERM_ENC_SGN_STR_LEN = 1;
 
 void
 p67_log_set_term_char(const char * c) 
 {
-    if(c == P67_LOG_TERM_ENC_SGN_STR) {
+    if(!c) return;
+    size_t lc = strlen(c), lb = strlen(p67_log_term_sgn);
+    if(lc == lb && memcmp(p67_log_term_sgn, c, lc) == 0) {
         return;
     }
-    if(c && free_sgn_str) free(P67_LOG_TERM_ENC_SGN_STR);
+    if(free_sgn_str) free(p67_log_term_sgn);
     free_sgn_str = 1;
-    P67_LOG_TERM_ENC_SGN_STR = p67_cmn_strdup(c);
-    //P67_LOG_TERM_ENC_SGN_STR_LEN = strlen(c);
+    p67_log_term_sgn = malloc(lc+1);
+    memcpy(p67_log_term_sgn, c, lc);
+    p67_log_term_sgn[lc] = 0;
 }
 
 void
 p67_log_free(void)
 {
     if(free_sgn_str) {
-        free(P67_LOG_TERM_ENC_SGN_STR);
+        free(p67_log_term_sgn);
     }
 }
 
@@ -105,7 +108,7 @@ p67_log_restore_echo_canon(void)
 p67_err
 p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms)
 {
-    int is_spec, select_ret, is_escape;
+    int is_spec, select_ret;
     char nc = -1, escbuf[3];
     int escbufix = 0;
     fd_set set;
@@ -151,27 +154,33 @@ p67_log_read_term_in_buf(char * b, int * bl, p67_cmn_epoch_t timeout_ms)
             p67_log("\033[2J\033[2H"); // clean terminal and move cursor up
             is_spec = 1;
             break;
-        case 27:
-            is_escape = 1;
         }
 
-        if(is_escape) {
-            escbuf[escbufix] = nc;
-            if(escbufix == 2) {
+        if(is_spec) continue;
+        
+        switch(nc) {
+        /* 
+            if there was no escape sign then break from switch and continue parsing 
+        */
+        case 91:
+        case 65:
+            if(escbufix==0) break;
+        case 27:
+            escbuf[escbufix++] = nc;
+            if(escbufix == 3) {
                 escbufix = 0;
-                is_escape = 0;
-                //p67_log("esc sequence %u %u %u\n", escbuf[0], escbuf[1], escbuf[2]);
                 if(escbuf[1] == 91 && escbuf[2] == 65) {
                     memcpy(buf, hbuf, hbuf_ix);
                     buf_ix = hbuf_ix;
                 }
-            } else {
-                escbufix++;
             }
             continue;
+        default:
+            break;
         }
 
-        if(is_spec) continue;
+
+        escbufix = 0;
 
         if(p67_log_echo) {
             write(STDOUT_FILENO, &nc, 1);
@@ -225,10 +234,10 @@ p67_log_cb_term(const char * fmt, va_list list)
     if(buf_ix > 0 && p67_log_echo) {
         printf(
             "%s %.*s", 
-            P67_LOG_TERM_ENC_SGN_STR,
+            p67_log_term_sgn,
             buf_ix, buf);
     } else {
-        printf("%s ", P67_LOG_TERM_ENC_SGN_STR);
+        printf("%s ", p67_log_term_sgn);
     }
     fflush(stdout);
 
